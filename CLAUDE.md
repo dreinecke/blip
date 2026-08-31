@@ -33,6 +33,15 @@ what it is handed. Keep it that way.
 - **Two read marks.** `watermark` = what the collector has seen (drives toasts).
   `readMark` / `readMarks[chat]` = what the user has looked at (drives the badge
   and the blue dots). Collapsing them makes the badge flash and reset.
+- **Reads are optimistic-with-suppression.** Persistent read state moves only
+  via collector runs (~1 s), so BarWidget applies reads to the local model
+  IMMEDIATELY and remembers them in `localReads[chat]` (thread last_ts at
+  read time, 60 s TTL). Every collector result is filtered through that
+  ledger — a poll in flight when the user opened a thread must not resurrect
+  the dot for one round-trip. A chat only shows unread again when a NEWER
+  inbound exists. Refreshes carry `activeReadChat()` so a message landing in
+  the conversation being READ is counted read in the same run — never
+  flashed. Same-chat read refreshes coalesce in the queue.
 - **Unread is ledger-backed.** `unreadCounts` and `unreadOldest` persist per-chat
   metadata without message bodies. Catch-up fetches cover new arrivals and the
   oldest outstanding unread so deletions are reconciled; never derive the total

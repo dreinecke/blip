@@ -93,12 +93,14 @@ BarWidget {
   }
   function enqueueRefresh(req) {
     var q = refreshQueue.slice()
-    // Timer/manual refreshes carry no state transition, so coalesce them. Read
-    // and mark-all requests remain FIFO entries and can never be overwritten.
-    if (!req.markRead && req.readChat === "") {
+    // Coalesce identical state transitions: plain refreshes merge with plain
+    // refreshes, and same-chat read refreshes merge too (viewing a thread
+    // makes every ping carry its readChat — without this the queue grows one
+    // entry per ping). mark-all stays FIFO and is never overwritten.
+    if (!req.markRead) {
       for (var i = 0; i < q.length; i++) {
-        if (!q[i].markRead && q[i].readChat === "") {
-          q[i] = { deep: q[i].deep || req.deep, markRead: false, readChat: "" }
+        if (!q[i].markRead && q[i].readChat === req.readChat) {
+          q[i] = { deep: q[i].deep || req.deep, markRead: false, readChat: req.readChat }
           refreshQueue = q
           return
         }
@@ -115,8 +117,73 @@ BarWidget {
     collector.command = args
     collector.running = true
   }
-  function markThreadRead(chat) { refresh(true, false, chat) }
-  function markAllRead() { refresh(false, true) }
+  // ---------------------------------------------------- read consistency
+  //
+  // Read state truly lives in state.json and moves via collector runs — but
+  // a round-trip takes ~1s, and a poll already IN FLIGHT when the user opens
+  // a thread can land after it and resurrect the dot (double-flash). So a
+  // read is applied OPTIMISTICALLY to the local model, and remembered in
+  // localReads[chat] = the thread's last_ts at read time. Every collector
+  // result is then filtered: a chat read locally stays unread=0 unless a
+  // genuinely NEWER inbound message exists. Entries expire once persisted
+  // state has caught up (or after 60s, whichever first).
+  property var localReads: ({})
+
+  function noteLocalRead(chat, lastTs) {
+    var m = Object.assign({}, localReads)
+    m[String(chat)] = { ts: String(lastTs || ""), at: Date.now() }
+    localReads = m
+  }
+
+  function applyLocalReads(list) {
+    var now = Date.now()
+    var m = Object.assign({}, localReads)
+    var dirty = false
+    var out = list.map(function(t) {
+      var r = m[String(t.chat)]
+      if (!r) return t
+      if (now - r.at > 60000) { delete m[String(t.chat)]; dirty = true; return t }
+      // a NEWER inbound than what was read is genuinely unread again
+      if (t.unread > 0 && String(t.last_ts) > r.ts && !t.last_from_me) return t
+      if (t.unread === 0) return t
+      return Object.assign({}, t, { unread: 0 })
+    })
+    if (dirty) localReads = m
+    return out
+  }
+
+  function markThreadRead(chat) {
+    var c = String(chat)
+    var lastTs = ""
+    var list = threads.map(function(t) {
+      if (String(t.chat) !== c) return t
+      lastTs = String(t.last_ts || "")
+      return t.unread > 0 ? Object.assign({}, t, { unread: 0 }) : t
+    })
+    noteLocalRead(c, lastTs)
+    threads = list
+    unread = list.reduce(function(n, t) { return n + (Number(t.unread) || 0) }, 0)
+    refresh(true, false, c)
+  }
+
+  function markAllRead() {
+    for (var i = 0; i < threads.length; i++)
+      noteLocalRead(String(threads[i].chat), String(threads[i].last_ts || ""))
+    threads = threads.map(function(t) {
+      return t.unread > 0 ? Object.assign({}, t, { unread: 0 }) : t
+    })
+    unread = 0
+    refresh(false, true)
+  }
+
+  /** The open conversation's chat, "" when the panel is closed or listing —
+   *  refreshes carry it so a message arriving in the thread the user is
+   *  LOOKING AT is counted read in the same collector run, not flashed
+   *  unread and cleared a round-trip later. */
+  function activeReadChat() {
+    var p = panelLoader.item
+    return (p && p.opened === true && p.inThread === true) ? String(p.active.chat) : ""
+  }
 
   Process {
     id: collector
@@ -131,8 +198,12 @@ BarWidget {
           root.lastError = String(d.error || "")
           root.lastRun = String(d.ts || "")
           if (d.ok === true) {
-            root.threads = Array.isArray(d.threads) ? d.threads : []
-            root.unread = Number(d.unread) || 0
+            // Filter through the optimistic-read ledger: a poll that was
+            // already in flight when the user opened a thread must not
+            // resurrect its dot for one round-trip (the double-flash).
+            var list = root.applyLocalReads(Array.isArray(d.threads) ? d.threads : [])
+            root.threads = list
+            root.unread = list.reduce(function(n, t) { return n + (Number(t.unread) || 0) }, 0)
             root.healthy = d.persisted !== false
             if (Array.isArray(d.toast)) root.fireToasts(d.toast)
           } else {
@@ -169,7 +240,8 @@ BarWidget {
     triggeredOnStart: true
     // While the panel is open keep the wide window, or the list would shrink
     // from 40 threads to 14 on the next tick.
-    onTriggered: root.refresh(panelLoader.item && panelLoader.item.opened === true, false)
+    onTriggered: root.refresh(panelLoader.item && panelLoader.item.opened === true, false,
+                              root.activeReadChat())
   }
 
   // ------------------------------------------------- real-time push
@@ -215,7 +287,10 @@ BarWidget {
     interval: 250
     onTriggered: {
       var panel = panelLoader.item
-      root.refresh(panel && panel.opened === true, false)
+      // Carrying the open thread's chat means a message landing in the
+      // conversation the user is READING is counted read in this same run —
+      // no badge flash, no second round-trip.
+      root.refresh(panel && panel.opened === true, false, root.activeReadChat())
       // Reload the OPEN conversation in parallel — waiting for the collector
       // and then reloading serially added a visible second of latency.
       if (panel && panel.opened === true && typeof panel.pushReload === "function")
