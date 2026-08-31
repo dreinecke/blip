@@ -52,8 +52,14 @@ changes to the Mac beyond claude-on-mac updates.
 - [ ] **Historical group hits** — a search hit in a group older than the
   1,500-message scan window opens an empty thread (Codex finding, 1.0.0).
   Needs `imsg thread --chat <id>` on the Mac side to load groups by chat id.
-- [ ] **New-conversation composer** — contact picker from the AddressBook map.
-- [ ] **Reply from the toast** — `notify-send` action buttons → inline reply.
+- [x] **New-conversation composer** — shipped 1.2.0: `n` / "＋ new" opens a
+  contact picker (`contacts --json find` over the bridge; every phone/email
+  is its own row, Apple `_$!<Mobile>!$_` labels unwrapped, bare numbers and
+  emails accepted directly); IPC `newchat <query>`.
+- [x] **Reply from the toast** — shipped 1.2.0: toasts carry Open/Reply
+  actions (`--wait`, bounded by the 8 s expiry so the queue drains); either
+  opens the panel on that conversation, compose focused. True INLINE reply
+  text entry needs daemon support the Omarchy shell doesn't ship.
 - [x] **Real-time push** — shipped 1.1.0: `imsg watch` (claude-on-mac 1.7.0)
   emits content-free pings on chat.db/WAL mtime change; Blip debounces 250 ms
   into a refresh AND reloads the open conversation in parallel. Poll stretches

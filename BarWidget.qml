@@ -231,7 +231,20 @@ BarWidget {
   // One notify-send per allowlisted inbound message. The collector has already
   // applied the allowlist and the dedupe ring, so anything arriving here is
   // meant to interrupt. Reuses the no-focus-steal notification behaviour.
-  Process { id: notifyProc }
+  // With --wait + actions, clicking the toast (default) or its Reply button
+  // opens the panel ON that conversation, compose focused — the daemon
+  // advertises the "actions" capability (verified via GetCapabilities).
+  Process {
+    id: notifyProc
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var action = text.trim()
+        if ((action === "default" || action === "reply") && notifyProc.toastChat !== "")
+          root.show(notifyProc.toastChat)
+      }
+    }
+    property string toastChat: ""
+  }
   property var toastQueue: []
 
   function fireToasts(list) {
@@ -251,11 +264,17 @@ BarWidget {
     toastQueue = q
     var body = String(t.text || "")
     if (body.length > 220) body = body.substring(0, 217) + "…"
+    notifyProc.toastChat = String(t.chat || "")
     notifyProc.command = [
       "notify-send",
       "--app-name=Blip",
       "--icon=mail-message-new",
       "--expire-time=8000",
+      // --wait blocks until the toast closes and prints the chosen action;
+      // expiry bounds the wait, so the serial queue keeps draining.
+      "--wait",
+      "--action=default=Open",
+      "--action=reply=Reply",
       "--",                                   // a name or text starting with "-" is data, not a flag
       String(t.name || t.chat || "iMessage"),
       body
@@ -286,6 +305,7 @@ BarWidget {
     function compose(text: string): string { return panelLoader.item ? panelLoader.item.composeAndSend(text) : "no panel" }
     function bubbles(): string { return panelLoader.item ? panelLoader.item.bubbleModel() : "[]" }
     function find(query: string): string { return panelLoader.item ? panelLoader.item.searchFor(query) : "no panel" }
+    function newchat(query: string): string { return panelLoader.item ? panelLoader.item.newChatFor(query) : "no panel" }
   }
 
   // ------------------------------------------------------------ bar button

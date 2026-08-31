@@ -74,6 +74,10 @@ Linux side. If the Mac is asleep, the widget dims and says so.
 - desktop notification only for senders on your allowlist
 - everything else still counts and still shows; it just doesn't interrupt you
 
+**Toast actions**
+- click a toast (or its Reply button) and the panel opens ON that
+  conversation with the compose box focused
+
 **Real-time**
 - a push watcher on the Mac pings when chat.db changes — messages land in
   ~2 s, the open conversation refreshes itself, and the poll drops to a
@@ -166,6 +170,7 @@ is in your bar.
 | list | `r` | refresh |
 | list | `a` · *mark all read* link | clear every badge and dot (local only — iMessage itself is not told) |
 | list | `/` | search every message ever — Enter runs it, click a hit to open its conversation, Esc backs out |
+| list | `n` · *＋ new* link | start a conversation with anyone — search contacts by name, or type a number/email directly |
 | thread | `Enter` | send (text, or the queued file with the text as caption) |
 | thread | `Ctrl+V` | paste — an image on the clipboard becomes a queued file, text pastes normally |
 | thread | `/attach <path>` + `Enter` | queue any file on this machine; drag-and-drop works too |

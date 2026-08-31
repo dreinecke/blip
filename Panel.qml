@@ -60,6 +60,14 @@ Panel {
   readonly property string searchScript:
     decodeURIComponent(Qt.resolvedUrl("search.ts").toString().replace(/^file:\/\//, ""))
 
+  readonly property string contactScript:
+    decodeURIComponent(Qt.resolvedUrl("contact-search.ts").toString().replace(/^file:\/\//, ""))
+
+  // ---- new-conversation state (`n` opens, Esc closes)
+  property bool newMode: false
+  property var newResults: []
+  property string newNote: ""
+
   // ---- search state (list view only; `/` opens, Esc closes)
   property bool searching: false
   property var searchResults: []
@@ -159,6 +167,10 @@ Panel {
     searchResults = []
     searchNote = ""
     searchField.text = ""
+    newMode = false
+    newResults = []
+    newNote = ""
+    newField.text = ""
     // Deep fetch for a real thread list. Does NOT clear dots: like iMessage,
     // a thread stays marked until that conversation is opened.
     if (hostWidget) hostWidget.refresh(true, false)
@@ -318,6 +330,47 @@ Panel {
     pasteProc.running = true
   }
 
+  // ------------------------------------------------- new conversation
+
+  function startNew() {
+    if (inThread) return
+    exitSearch()
+    newMode = true
+    newResults = []
+    newNote = ""
+    Qt.callLater(function() { newField.forceActiveFocus(); newField.selectAll() })
+  }
+
+  function exitNew() {
+    newMode = false
+    newResults = []
+    newNote = ""
+    newField.text = ""
+    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+  }
+
+  function runContactSearch() {
+    var q = newField.text.trim()
+    if (q === "" || contactProc.running) return
+    newNote = "searching contacts…"
+    newResults = []
+    contactProc.command = ["bun", root.contactScript, q]
+    contactProc.running = true
+  }
+
+  /** Start (or resume) a DM with a picked handle. An existing thread is
+   *  reused so history shows; otherwise a synthetic DM thread — sendable,
+   *  because DMs only need --to <handle>. */
+  function openContact(hit) {
+    newMode = false
+    for (var i = 0; i < threads.length; i++) {
+      if (String(threads[i].chat) === String(hit.handle)) { openThread(threads[i]); return }
+    }
+    openThread({ chat: hit.handle, guid: "", name: hit.name, handle: hit.handle,
+                 service: "iMessage", last_ts: "", last_text: "",
+                 last_from_me: false, count: 0, unread: 0 })
+  }
+
   // ------------------------------------------------------------- search
 
   function startSearch() {
@@ -360,6 +413,16 @@ Panel {
     if (threadProc.running && pendingThreadChat !== "") return
     pinToBottom = true
     requestThreadLoad(String(active.chat))
+  }
+
+  /** IPC hook (`newchat <query>`): drive the composer path minus the keyboard. */
+  function newChatFor(query) {
+    if (!opened) open()
+    if (inThread) back()
+    startNew()
+    newField.text = String(query || "")
+    runContactSearch()
+    return "contact search: " + newField.text
   }
 
   /** IPC hook (`find <query>`): drive the exact search path minus the keyboard. */
@@ -611,6 +674,26 @@ Panel {
   Process { id: openProc }
 
   Process {
+    id: contactProc
+    stdout: StdioCollector {
+      onStreamFinished: {
+        if (!root.newMode) return   // Esc'd out while it ran
+        try {
+          var d = JSON.parse(text.trim())
+          if (d.ok === true) {
+            root.newResults = Array.isArray(d.results) ? d.results : []
+            root.newNote = root.newResults.length === 0 ? "no matches — try a number or email" : ""
+          } else {
+            root.newNote = String(d.error || "contact search failed")
+          }
+        } catch (e) {
+          root.newNote = "contact search failed"
+        }
+      }
+    }
+  }
+
+  Process {
     id: searchProc
     property int seq: 0
     onStarted: seq = root.searchSeq
@@ -665,8 +748,11 @@ Panel {
       // Without this it swallows every letter typed into the compose box.
       // Any focused editor — the compose box or a bubble being selected —
       // must receive its own keys (Ctrl+C, arrows, Esc).
-      blocked: composeField.activeFocus || searchField.activeFocus || root.bubbleFocused
-      onCloseRequested: root.inThread ? root.back() : (root.searching ? root.exitSearch() : root.close())
+      blocked: composeField.activeFocus || searchField.activeFocus || newField.activeFocus || root.bubbleFocused
+      onCloseRequested: root.inThread ? root.back()
+        : root.newMode ? root.exitNew()
+        : root.searching ? root.exitSearch()
+        : root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
       onMoveRequested: function(dx, dy) {
         if (root.inThread || root.threads.length === 0 || dy === 0) return
@@ -677,7 +763,8 @@ Panel {
       onTextKey: function(text) {
         if (root.inThread) return
         if (text === "/") root.startSearch()
-        else if (root.searching) return
+        else if (text === "n" || text === "N") root.startNew()
+        else if (root.searching || root.newMode) return
         else if (text === "r" || text === "R") { if (root.hostWidget) root.hostWidget.refresh(true, false) }
         else if (text === "a" || text === "A") root.markAllRead()
         else if (text >= "1" && text <= "9") {
@@ -773,16 +860,33 @@ Panel {
               visible: root.online && !root.inThread
               PanelSectionHeader {
                 Layout.fillWidth: true
-                text: root.searchShowing ? "SEARCH" : "MESSAGES"
+                text: root.newMode ? "NEW MESSAGE" : root.searchShowing ? "SEARCH" : "MESSAGES"
                 foreground: root.foreground
                 fontFamily: root.fontFamily
+              }
+              Text {
+                visible: !root.newMode && !root.searchShowing
+                text: "＋ new"
+                textFormat: Text.PlainText
+                color: newBtnMouse.containsMouse ? root.mineFill : root.cyan
+                font.family: root.fontFamily
+                font.pixelSize: Style.font.caption
+                font.underline: newBtnMouse.containsMouse
+                MouseArea {
+                  id: newBtnMouse
+                  anchors.fill: parent
+                  anchors.margins: -Style.space(4)
+                  hoverEnabled: true
+                  cursorShape: Qt.PointingHandCursor
+                  onClicked: root.startNew()
+                }
               }
               // Local only: moves readMark/readMarks in state.json so the
               // badge and dots clear. Nothing is written back to the Mac —
               // AppleScript cannot flip is_read (see "not possible" in CLAUDE.md).
               Text {
                 id: markAllBtn
-                visible: root.unread > 0 && !root.searchShowing
+                visible: root.unread > 0 && !root.searchShowing && !root.newMode
                 text: "mark all read"
                 textFormat: Text.PlainText
                 color: markAllMouse.containsMouse ? root.mineFill : root.cyan
@@ -799,7 +903,7 @@ Panel {
                 }
               }
               Text {
-                text: root.searchShowing
+                text: root.searchShowing || root.newMode
                   ? "Esc = back"
                   : root.threads.length === 0 ? "" : (root.unread > 0 ? "· " : "") + "click, 1–9, / search"
                 textFormat: Text.PlainText
@@ -813,10 +917,76 @@ Panel {
             // The box is ALWAYS visible in list view — a hidden search
             // behind a key nobody presses is a search that does not exist
             // (Fred: "I don't see search"). Click it or press `/`.
+            // ---------------------------------------- NEW CONVERSATION
+            TextField {
+              id: newField
+              Layout.fillWidth: true
+              visible: root.online && !root.inThread && root.newMode
+              placeholderText: "name, number, or email — Enter searches contacts"
+              foreground: root.foreground
+              accent: root.accent
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              onAccepted: root.runContactSearch()
+              Keys.onEscapePressed: root.exitNew()
+            }
+
+            Text {
+              Layout.fillWidth: true
+              visible: root.newMode && root.newNote !== ""
+              text: root.newNote
+              textFormat: Text.PlainText
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.caption
+            }
+
+            Repeater {
+              model: root.online && !root.inThread && root.newMode ? root.newResults : []
+              delegate: Rectangle {
+                required property var modelData
+                Layout.fillWidth: true
+                implicitHeight: contactRow.implicitHeight + Style.space(12)
+                radius: Style.cornerRadius
+                color: contactHover.hovered
+                  ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
+                  : "transparent"
+                HoverHandler { id: contactHover }
+                TapHandler { onTapped: root.openContact(modelData) }
+                RowLayout {
+                  id: contactRow
+                  anchors.left: parent.left
+                  anchors.right: parent.right
+                  anchors.verticalCenter: parent.verticalCenter
+                  anchors.leftMargin: Style.space(8)
+                  anchors.rightMargin: Style.space(8)
+                  spacing: Style.space(8)
+                  Text {
+                    text: String(modelData.name || "")
+                    textFormat: Text.PlainText
+                    elide: Text.ElideRight
+                    color: root.foreground
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.bodySmall
+                    font.bold: true
+                  }
+                  Text {
+                    Layout.fillWidth: true
+                    text: String(modelData.handle || "") + "  ·  " + String(modelData.kind || "")
+                    textFormat: Text.PlainText
+                    elide: Text.ElideRight
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                  }
+                }
+              }
+            }
+
             TextField {
               id: searchField
               Layout.fillWidth: true
-              visible: root.online && !root.inThread
+              visible: root.online && !root.inThread && !root.newMode
               placeholderText: "🔍 search all messages"
               foreground: root.foreground
               accent: root.accent
@@ -896,7 +1066,7 @@ Panel {
 
             Text {
               Layout.fillWidth: true
-              visible: root.online && !root.inThread && !root.searchShowing && root.threads.length === 0
+              visible: root.online && !root.inThread && !root.searchShowing && !root.newMode && root.threads.length === 0
               text: "No threads in the current window yet — press r to refresh."
               textFormat: Text.PlainText
               color: root.dim
@@ -906,7 +1076,7 @@ Panel {
             }
 
             Repeater {
-              model: root.online && !root.inThread && !root.searchShowing ? root.threads : []
+              model: root.online && !root.inThread && !root.searchShowing && !root.newMode ? root.threads : []
               delegate: Rectangle {
                 required property var modelData
                 required property int index

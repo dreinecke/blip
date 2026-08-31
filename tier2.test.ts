@@ -114,6 +114,47 @@ describe("search shaping", () => {
   });
 });
 
+describe("contact search shaping", () => {
+  const { directHandle, normalizeHandle, shapeContacts } =
+    require("./contact-search") as typeof import("./contact-search");
+
+  test("US numbers normalize to E.164 like chat.db handles", () => {
+    expect(normalizeHandle("(555) 010-0098")).toBe("+15550100098");
+    expect(normalizeHandle("865.803.2122")).toBe("+15550100098");
+    expect(normalizeHandle("1 865 803 2122")).toBe("+15550100098");
+    expect(normalizeHandle("+44 20 7946 0958")).toBe("+442079460958");
+    expect(normalizeHandle("Mom@iCloud.COM")).toBe("mom@icloud.com");
+  });
+
+  test("a query that IS a handle gets a direct-entry row first", () => {
+    const out = shapeContacts([], "404-555-0100");
+    expect(out[0]).toEqual({ name: "+14045550100", handle: "+14045550100", kind: "direct entry" });
+    expect(directHandle("somebody@example.com")).toBe("somebody@example.com");
+    expect(directHandle("mom")).toBe("");
+  });
+
+  test("each phone and email becomes its own row; Apple labels unwrap", () => {
+    const out = shapeContacts(
+      [{ name: "Mom", phones: [{ number: "(555) 010-0098", label: "_$!<Mobile>!$_" }],
+         emails: ["mom@example.com"] }],
+      "mom",
+    );
+    expect(out).toEqual([
+      { name: "Mom", handle: "+15550100098", kind: "mobile" },
+      { name: "Mom", handle: "mom@example.com", kind: "email" },
+    ]);
+  });
+
+  test("duplicate handles across contacts collapse", () => {
+    const out = shapeContacts(
+      [{ name: "A", phones: [{ number: "4045550100", label: "" }] },
+       { name: "B", phones: [{ number: "+14045550100", label: "" }] }],
+      "x",
+    );
+    expect(out.length).toBe(1);
+  });
+});
+
 describe("paste type picking", () => {
   test("png preferred over other image types", () => {
     expect(pickImageType(["text/plain", "image/jpeg", "image/png"])).toBe("image/png");
