@@ -58,6 +58,13 @@ export interface ImsgMessage {
   service: string;
   chat: string;        // phone/email for DMs, opaque GUID for group chats
   text: string;
+  /** APPLE-side read state (chat.db is_read, phone-synced via Messages in
+   *  iCloud; imsg ≥1.9.0). Own messages are always true. Absent on older
+   *  bridges → unread falls back to local marks only. */
+  read?: boolean;
+  /** True for tapback rows ("Loved …") — previews show them, badges don't
+   *  (matches every Apple client). imsg ≥1.9.0. */
+  tapback?: boolean;
   // ---- imsg --rich extras (claude-on-mac ≥ 1.5.0); absent on plain fetches
   read_at?: string | null;
   tapbacks?: Tapback[] | null;
@@ -353,7 +360,7 @@ export function buildThreads(
     const unread = unreadCounts
       ? unreadCounts[chat] ?? 0
       : watermark
-        ? sorted.filter((m) => !m.from_me && m.ts > mark).length
+        ? sorted.filter((m) => !m.from_me && m.ts > mark && m.read !== true).length
         : 0;
     threads.push({
       chat,
@@ -490,17 +497,42 @@ export function fetchMessagesAfter(
   }
 }
 
+/**
+ * A message is unread iff BOTH sides say so:
+ *   - Apple side: chat.db `is_read` = 0 (imsg ≥1.9.0 emits `read`; it syncs
+ *     from the iPhone via Messages in iCloud) — reading on the PHONE clears
+ *     Blip within a poll.
+ *   - Local side: newer than the effective read mark — reading in BLIP
+ *     clears it here (the phone keeps its own badge; write-back is
+ *     impossible).
+ * A row without the `read` field (older imsg) falls back to local-only.
+ */
+/** Local wall clock as a chat.db-style "YYYY-MM-DD HH:MM:SS" stamp. */
+export function localNowTs(now = new Date()): string {
+  const p = (n: number, w = 2) => String(n).padStart(w, "0");
+  return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())} ` +
+         `${p(now.getHours())}:${p(now.getMinutes())}:${p(now.getSeconds())}`;
+}
+
+export function isUnread(m: ImsgMessage, mark: string): boolean {
+  // Tapbacks preview but never badge — matches every Apple client.
+  return !m.from_me && m.ts > mark && m.read !== true && m.tapback !== true;
+}
+
 export function unreadCounts(
   msgs: ImsgMessage[],
   readMark: string,
   readMarks: Record<string, string>,
+  selfChats: string[] = [],
 ): Record<string, number> {
   const counts: Record<string, number> = {};
   if (!readMark) return counts;
+  const self = new Set(selfChats);
   for (const m of msgs) {
     const chat = chatKey(m);
+    if (self.has(chat)) continue; // your own echoes never badge (phone parity)
     const mark = readMarks[chat] && readMarks[chat]! > readMark ? readMarks[chat]! : readMark;
-    if (!m.from_me && m.ts > mark) counts[chat] = (counts[chat] ?? 0) + 1;
+    if (isUnread(m, mark)) counts[chat] = (counts[chat] ?? 0) + 1;
   }
   return counts;
 }
@@ -509,13 +541,16 @@ export function unreadOldest(
   msgs: ImsgMessage[],
   readMark: string,
   readMarks: Record<string, string>,
+  selfChats: string[] = [],
 ): Record<string, string> {
   const oldest: Record<string, string> = {};
   if (!readMark) return oldest;
+  const self = new Set(selfChats);
   for (const m of msgs) {
     const chat = chatKey(m);
+    if (self.has(chat)) continue;
     const mark = readMarks[chat] && readMarks[chat]! > readMark ? readMarks[chat]! : readMark;
-    if (!m.from_me && m.ts > mark && (!oldest[chat] || m.ts < oldest[chat]!)) oldest[chat] = m.ts;
+    if (isUnread(m, mark) && (!oldest[chat] || m.ts < oldest[chat]!)) oldest[chat] = m.ts;
   }
   return oldest;
 }
@@ -546,7 +581,7 @@ export function fetchGroups(runner = spawnSync): Record<string, GroupInfo> | nul
 
 // ---------------------------------------------------------------- main
 
-export function collect(deep: boolean, markRead = false, readChat = ""): BlipOutput {
+export function collect(deep: boolean, markRead = false, readChat = "", seenTs = ""): BlipOutput {
   const now = new Date().toISOString();
   const state = loadState();
   // On migration, seed the ledger all the way back to what the user last read.
@@ -575,19 +610,46 @@ export function collect(deep: boolean, markRead = false, readChat = ""): BlipOut
   }
 
   const highest = maxTs(fetched.msgs, state.watermark);
+  // A message can carry a FUTURE timestamp (timezone skew — a "Sep 1
+  // 08:53" birthday text arrived Aug 31 morning). A read mark taken from
+  // the GLOBAL max therefore poisoned unrelated threads: anything arriving
+  // before that future instant could never badge. So the global mark is
+  // clamped to the local clock, and each chat that reaches past it gets a
+  // PER-CHAT mark at its own max — every visible message is covered,
+  // nothing beyond now leaks onto other threads.
+  const nowTs = localNowTs();
+  const chatMax: Record<string, string> = {};
+  for (const m of fetched.msgs) {
+    const c = chatKey(m);
+    if (!chatMax[c] || m.ts > chatMax[c]!) chatMax[c] = m.ts;
+  }
   // Badge counts against readMark (what the user has seen); toasts fire against
   // watermark (what the collector has seen). See BlipState.
-  const readMark = markRead ? highest : state.readMark;
-  // Opening one conversation clears only that thread's dot.
+  const readMark = markRead ? (highest <= nowTs ? highest : nowTs) : state.readMark;
+  // Opening one conversation clears only that thread's dot — marked with
+  // THAT chat's newest ts, never the global max.
   const readMarks = { ...state.readMarks };
-  if (readChat) readMarks[readChat] = highest;
+  if (markRead) {
+    for (const [c, ts] of Object.entries(chatMax)) {
+      if (ts > readMark) readMarks[c] = ts;
+    }
+  }
+  if (readChat) {
+    // Mark through what the user actually SAW (the panel passes the newest
+    // bubble ts as --seen; it includes a future-dated row when the chat has
+    // one on screen). A message arriving between the click and this run has
+    // ts > seen and stays unread. Fallback without --seen: through now, or
+    // the chat's own future row.
+    const own = chatMax[readChat] ?? "";
+    readMarks[readChat] = seenTs !== "" ? seenTs : (own > nowTs ? own : nowTs);
+  }
   // Group metadata is ~1000 rows; refresh it only on a deep (panel) fetch and
   // keep the last good copy if the lookup fails.
   const groups = (deep ? fetchGroups() : null) ?? state.groups;
   const selfChats = [...new Set([...state.selfChats, ...detectSelfChats(fetched.msgs)])];
   const msgs = dedupeSelfEcho(fetched.msgs, selfChats);
-  let exactCounts = unreadCounts(msgs, state.readMark, state.readMarks);
-  let exactOldest = unreadOldest(msgs, state.readMark, state.readMarks);
+  let exactCounts = unreadCounts(msgs, state.readMark, state.readMarks, selfChats);
+  let exactOldest = unreadOldest(msgs, state.readMark, state.readMarks, selfChats);
   if (markRead) {
     exactCounts = {};
     exactOldest = {};
@@ -641,8 +703,10 @@ if (import.meta.main) {
   const markRead = process.argv.includes("--mark-read");
   const ri = process.argv.indexOf("--read");
   const readChat = ri >= 0 ? String(process.argv[ri + 1] ?? "") : "";
+  const si = process.argv.indexOf("--seen");
+  const seenTs = si >= 0 ? String(process.argv[si + 1] ?? "") : "";
   try {
-    console.log(JSON.stringify(collect(deep, markRead, readChat)));
+    console.log(JSON.stringify(collect(deep, markRead, readChat, seenTs)));
   } catch (e) {
     console.log(
       JSON.stringify({

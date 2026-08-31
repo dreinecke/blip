@@ -86,8 +86,9 @@ BarWidget {
   property var refreshQueue: []        // stateful requests are never overwritten
   property bool collectorReserved: false // a queued run owns the next event-loop turn
 
-  function refresh(deep, markRead, readChat) {
-    var req = { deep: deep === true, markRead: markRead === true, readChat: String(readChat || "") }
+  function refresh(deep, markRead, readChat, seen) {
+    var req = { deep: deep === true, markRead: markRead === true,
+                readChat: String(readChat || ""), seen: String(seen || "") }
     if (collector.running || collectorReserved) { enqueueRefresh(req); return }
     runRefresh(req)
   }
@@ -100,7 +101,8 @@ BarWidget {
     if (!req.markRead) {
       for (var i = 0; i < q.length; i++) {
         if (!q[i].markRead && q[i].readChat === req.readChat) {
-          q[i] = { deep: q[i].deep || req.deep, markRead: false, readChat: req.readChat }
+          q[i] = { deep: q[i].deep || req.deep, markRead: false, readChat: req.readChat,
+                   seen: req.seen > q[i].seen ? req.seen : q[i].seen }
           refreshQueue = q
           return
         }
@@ -113,7 +115,10 @@ BarWidget {
     var args = ["bun", collectorPath]
     if (req.deep) args.push("--deep")
     if (req.markRead) args.push("--mark-read")
-    if (req.readChat !== "") args.push("--read", req.readChat)
+    if (req.readChat !== "") {
+      args.push("--read", req.readChat)
+      if (req.seen !== "") args.push("--seen", req.seen)
+    }
     collector.command = args
     collector.running = true
   }
@@ -142,10 +147,14 @@ BarWidget {
     var out = list.map(function(t) {
       var r = m[String(t.chat)]
       if (!r) return t
+      // persistence caught up (or nothing left) — retire the entry so stale
+      // suppression rules can't linger for the TTL (Codex #5)
+      if (t.unread === 0) { delete m[String(t.chat)]; dirty = true; return t }
       if (now - r.at > 60000) { delete m[String(t.chat)]; dirty = true; return t }
-      // a NEWER inbound than what was read is genuinely unread again
-      if (t.unread > 0 && String(t.last_ts) > r.ts && !t.last_from_me) return t
-      if (t.unread === 0) return t
+      // ANY activity newer than what was read means the collector's count is
+      // fresher than this suppression — trust it (direction-free: a
+      // read→inbound→outbound sequence must not hide the inbound, Codex #2)
+      if (String(t.last_ts) > r.ts) return t
       return Object.assign({}, t, { unread: 0 })
     })
     if (dirty) localReads = m
@@ -163,7 +172,7 @@ BarWidget {
     noteLocalRead(c, lastTs)
     threads = list
     unread = list.reduce(function(n, t) { return n + (Number(t.unread) || 0) }, 0)
-    refresh(true, false, c)
+    refresh(true, false, c, lastTs)
   }
 
   function markAllRead() {
@@ -182,7 +191,13 @@ BarWidget {
    *  unread and cleared a round-trip later. */
   function activeReadChat() {
     var p = panelLoader.item
-    return (p && p.opened === true && p.inThread === true) ? String(p.active.chat) : ""
+    // a still-LOADING conversation is not yet read (Codex #4)
+    return (p && p.opened === true && p.inThread === true && p.loading !== true)
+      ? String(p.active.chat) : ""
+  }
+  function activeSeenTs() {
+    var p = panelLoader.item
+    return (p && p.opened === true && p.inThread === true) ? String(p.activeLastTs || "") : ""
   }
 
   Process {
@@ -241,7 +256,7 @@ BarWidget {
     // While the panel is open keep the wide window, or the list would shrink
     // from 40 threads to 14 on the next tick.
     onTriggered: root.refresh(panelLoader.item && panelLoader.item.opened === true, false,
-                              root.activeReadChat())
+                              root.activeReadChat(), root.activeSeenTs())
   }
 
   // ------------------------------------------------- real-time push
@@ -290,7 +305,7 @@ BarWidget {
       // Carrying the open thread's chat means a message landing in the
       // conversation the user is READING is counted read in this same run —
       // no badge flash, no second round-trip.
-      root.refresh(panel && panel.opened === true, false, root.activeReadChat())
+      root.refresh(panel && panel.opened === true, false, root.activeReadChat(), root.activeSeenTs())
       // Reload the OPEN conversation in parallel — waiting for the collector
       // and then reloading serially added a visible second of latency.
       if (panel && panel.opened === true && typeof panel.pushReload === "function")

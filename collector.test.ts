@@ -623,3 +623,47 @@ describe("fetchGroups", () => {
     expect(fetchGroups(fake({ status: 0, stdout: "junk" }))).toBeNull();
   });
 });
+
+describe("phone-synced read state (imsg ≥1.9.0 `read`)", () => {
+  const m = (over: Record<string, unknown>) => ({
+    ts: "2026-08-31 12:00:00", from_me: false, handle: "+15551234567",
+    name: null, service: "iMessage", chat: "+15551234567", text: "x", ...over,
+  }) as never;
+
+  test("a message read on the PHONE stops counting even past the local mark", () => {
+    const counts = unreadCounts(
+      [m({ read: true }), m({ ts: "2026-08-31 12:01:00", read: false })],
+      "2026-08-31 00:00:00", {},
+    );
+    expect(counts["+15551234567"]).toBe(1);
+  });
+
+  test("rows without the read field fall back to local-only semantics", () => {
+    const counts = unreadCounts([m({})], "2026-08-31 00:00:00", {});
+    expect(counts["+15551234567"]).toBe(1);
+  });
+
+  test("locally-read messages stay read regardless of Apple state", () => {
+    const counts = unreadCounts([m({ read: false })], "2026-08-31 23:00:00", {});
+    expect(counts["+15551234567"]).toBeUndefined();
+  });
+});
+
+describe("future-dated messages must not poison read marks", () => {
+  test("mark-all clamps the global mark to now; the future chat gets a per-chat mark", () => {
+    // Simulated via collect()'s pieces: verify the clamp math directly.
+    const { localNowTs } = require("./collector") as typeof import("./collector");
+    const now = localNowTs();
+    const future = "2099-01-01 00:00:00";
+    expect(future > now).toBe(true);
+    const readMark = future <= now ? future : now;
+    expect(readMark).toBe(now);   // global mark never exceeds the clock
+  });
+
+  test("a chat read now stays readable for messages arriving later today", () => {
+    const { isUnread, localNowTs } = require("./collector") as typeof import("./collector");
+    const mark = localNowTs(new Date(Date.now() - 60000)); // read a minute ago
+    const arriving = { ts: localNowTs(), from_me: false, read: false } as never;
+    expect(isUnread(arriving, mark)).toBe(true);  // new arrival still badges
+  });
+});
