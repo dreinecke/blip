@@ -33,6 +33,15 @@ what it is handed. Keep it that way.
 - **Two read marks.** `watermark` = what the collector has seen (drives toasts).
   `readMark` / `readMarks[chat]` = what the user has looked at (drives the badge
   and the blue dots). Collapsing them makes the badge flash and reset.
+- **Unread = BOTH sides agree** (1.3.2): Apple-side `is_read`=0 (imsg ≥1.9.0
+  `read`; phone-synced via Messages in iCloud) AND newer than the local mark.
+  Phone-read clears Blip within a poll; Blip-read clears locally only.
+  Tapback rows and the self-thread never count (no Apple client badges them).
+  chat.db carries GHOST is_read=0 rows years old — never trust is_read alone.
+- **Read marks are per-chat, clamped to now, and --seen-based.** A message
+  can carry a FUTURE timestamp (tz skew); a mark taken from the global max
+  once suppressed unrelated threads until "tomorrow". The panel passes the
+  newest VISIBLE ts (`--seen`) so mid-round-trip arrivals stay unread.
 - **Reads are optimistic-with-suppression.** Persistent read state moves only
   via collector runs (~1 s), so BarWidget applies reads to the local model
   IMMEDIATELY and remembers them in `localReads[chat]` (thread last_ts at
