@@ -75,8 +75,9 @@ Linux side. If the Mac is asleep, the widget dims and says so.
 - everything else still counts and still shows; it just doesn't interrupt you
 
 **Toast actions**
-- click a toast (or its Reply button) and the panel opens ON that
-  conversation with the compose box focused
+- click a toast and the panel opens ON that conversation with the compose
+  box focused (the Omarchy daemon renders no action buttons, so click IS
+  the reply path)
 
 **Real-time**
 - a push watcher on the Mac pings when chat.db changes — messages land in

@@ -126,6 +126,13 @@ describe("contact search shaping", () => {
     expect(normalizeHandle("Mom@iCloud.COM")).toBe("mom@icloud.com");
   });
 
+  test("ambiguous numbers are DROPPED, never rewritten (wrong-recipient guard)", () => {
+    expect(normalizeHandle("404-555-0100 ext 4")).toBe("");
+    expect(normalizeHandle("865 803 2122 x12")).toBe("");
+    expect(normalizeHandle("555-0100")).toBe("");          // 7 digits: ambiguous
+    expect(normalizeHandle("12345678901234567")).toBe(""); // absurd length
+  });
+
   test("a query that IS a handle gets a direct-entry row first", () => {
     const out = shapeContacts([], "404-555-0100");
     expect(out[0]).toEqual({ name: "+14045550100", handle: "+14045550100", kind: "direct entry" });

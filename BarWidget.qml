@@ -44,11 +44,15 @@ BarWidget {
     if (!panelLoader.item) return
     panelLoader.item.open()
     // `qs ipc call` rejects a leading "+" as a flag, so accept the bare digits too.
+    // Exact match FIRST, alias second: when both variants exist as threads,
+    // the alias must never shadow the exact one (Codex HIGH, 1.2.0).
     var want = String(chat)
     var t = null
     for (var i = 0; i < threads.length; i++) {
-      var c = String(threads[i].chat)
-      if (c === want || c === "+" + want) { t = threads[i]; break }
+      if (String(threads[i].chat) === want) { t = threads[i]; break }
+    }
+    if (!t) for (var j = 0; j < threads.length; j++) {
+      if (String(threads[j].chat) === "+" + want) { t = threads[j]; break }
     }
     if (!t && /^[0-9]+$/.test(want)) want = "+" + want
     // Unknown to the current window: still open it, with the id as the name.
@@ -270,20 +274,30 @@ BarWidget {
       "--app-name=Blip",
       "--icon=mail-message-new",
       "--expire-time=8000",
-      // --wait blocks until the toast closes and prints the chosen action;
-      // expiry bounds the wait, so the serial queue keeps draining.
+      // --wait blocks until the toast closes and prints the chosen action.
+      // Only `default` (clicking the card): the Omarchy notification daemon
+      // renders no action BUTTONS and only ever invokes default — an
+      // advertised Reply button would be a lie (Codex, read the daemon).
       "--wait",
       "--action=default=Open",
-      "--action=reply=Reply",
       "--",                                   // a name or text starting with "-" is data, not a flag
       String(t.name || t.chat || "iMessage"),
       body
     ]
     notifyProc.running = true
+    // The daemon PAUSES expiry while the pointer hovers a toast, and --wait
+    // waits for closure — a toast parked under a stationary cursor must not
+    // dam the whole serial queue (Codex, 1.2.0). 45 s is watchdog, not UX.
+    toastWatchdog.restart()
+  }
+  Timer {
+    id: toastWatchdog
+    interval: 45000
+    onTriggered: if (notifyProc.running) notifyProc.running = false
   }
   Connections {
     target: notifyProc
-    function onExited(code, status) { Qt.callLater(root.drainToasts) }
+    function onExited(code, status) { toastWatchdog.stop(); Qt.callLater(root.drainToasts) }
   }
 
   // ------------------------------------------------------------ IPC

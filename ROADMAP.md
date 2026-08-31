@@ -56,10 +56,11 @@ changes to the Mac beyond claude-on-mac updates.
   contact picker (`contacts --json find` over the bridge; every phone/email
   is its own row, Apple `_$!<Mobile>!$_` labels unwrapped, bare numbers and
   emails accepted directly); IPC `newchat <query>`.
-- [x] **Reply from the toast** — shipped 1.2.0: toasts carry Open/Reply
-  actions (`--wait`, bounded by the 8 s expiry so the queue drains); either
-  opens the panel on that conversation, compose focused. True INLINE reply
-  text entry needs daemon support the Omarchy shell doesn't ship.
+- [x] **Reply from the toast** — shipped 1.2.0/1.2.1: clicking the toast
+  opens the panel on that conversation, compose focused (`--wait` +
+  default action; 45 s watchdog since the daemon pauses expiry on hover).
+  The daemon renders no action BUTTONS and only invokes `default`, so a
+  separate Reply button (and inline text entry) would need a daemon patch.
 - [x] **Real-time push** — shipped 1.1.0: `imsg watch` (claude-on-mac 1.7.0)
   emits content-free pings on chat.db/WAL mtime change; Blip debounces 250 ms
   into a refresh AND reloads the open conversation in parallel. Poll stretches

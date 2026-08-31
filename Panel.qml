@@ -349,9 +349,15 @@ Panel {
     Qt.callLater(function() { keyCatcher.forceActiveFocus() })
   }
 
+  // Same identity discipline as message search: a stale completion must
+  // never surface Alice's results under Bob's query (Codex HIGH, 1.2.0).
+  property int contactSeq: 0
+  property string contactPending: ""
   function runContactSearch() {
     var q = newField.text.trim()
-    if (q === "" || contactProc.running) return
+    if (q === "") return
+    if (contactProc.running) { contactPending = q; return }
+    contactSeq++
     newNote = "searching contacts…"
     newResults = []
     contactProc.command = ["bun", root.contactScript, q]
@@ -675,9 +681,11 @@ Panel {
 
   Process {
     id: contactProc
+    property int seq: 0
+    onStarted: seq = root.contactSeq
     stdout: StdioCollector {
       onStreamFinished: {
-        if (!root.newMode) return   // Esc'd out while it ran
+        if (!root.newMode || contactProc.seq !== root.contactSeq) return // Esc'd or superseded
         try {
           var d = JSON.parse(text.trim())
           if (d.ok === true) {
@@ -690,6 +698,10 @@ Panel {
           root.newNote = "contact search failed"
         }
       }
+    }
+    onExited: if (root.contactPending !== "") {
+      root.contactPending = ""
+      if (root.newMode) Qt.callLater(root.runContactSearch)
     }
   }
 

@@ -25,15 +25,21 @@ export interface ContactHit {
 }
 
 /** "(555) 010-0098" → "+15550100098"; keeps +intl and emails untouched.
- *  US-normalizing bare 10-digit numbers matches how chat.db stores handles. */
+ *  Bare 10-digit numbers are assumed US (+1) — that matches how chat.db
+ *  stores handles for a US user. Anything AMBIGUOUS returns "" and the row
+ *  is dropped: a number with an extension ("… ext 4") or an odd digit count
+ *  must never be silently rewritten into a DIFFERENT dialable number
+ *  (Codex HIGH, 1.2.0 review). */
 export function normalizeHandle(s: string): string {
   const t = String(s || "").trim();
   if (t.includes("@")) return t.toLowerCase();
+  // Extensions can't be messaged; stripping them would change the number.
+  if (/(ext|x)\.?\s*\d+\s*$/i.test(t)) return "";
   if (t.startsWith("+")) return "+" + t.slice(1).replace(/\D/g, "");
   const digits = t.replace(/\D/g, "");
   if (digits.length === 10) return "+1" + digits;
   if (digits.length === 11 && digits.startsWith("1")) return "+" + digits;
-  return digits;
+  return "";
 }
 
 /** Does the query itself already name a sendable handle? */
