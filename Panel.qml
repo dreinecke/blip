@@ -338,7 +338,10 @@ Panel {
     newMode = true
     newResults = []
     newNote = ""
-    Qt.callLater(function() { newField.forceActiveFocus(); newField.selectAll() })
+    // Flipping several visibilities in one handler can miss the layout
+    // pass — the panel collapsed to its hero until results forced a
+    // rearrange (Fred's screenshot). Force it.
+    Qt.callLater(function() { content.forceLayout(); newField.forceActiveFocus(); newField.selectAll() })
   }
 
   function exitNew() {
@@ -346,7 +349,7 @@ Panel {
     newResults = []
     newNote = ""
     newField.text = ""
-    Qt.callLater(function() { keyCatcher.forceActiveFocus() })
+    Qt.callLater(function() { content.forceLayout(); keyCatcher.forceActiveFocus() })
   }
 
   // Same identity discipline as message search: a stale completion must
@@ -751,7 +754,13 @@ Panel {
     open: root.opened
     focusTarget: root.inThread ? composeField : keyCatcher
     contentWidth: panel.fittedContentWidth(Style.space(440))
-    contentHeight: panel.fittedContentHeight(root.inThread ? Style.space(640) : content.implicitHeight, Style.space(640))
+    // The floor keeps the panel usable if a mode flip's relayout ever lags
+    // again — search/new modes always have at least a field to show.
+    contentHeight: panel.fittedContentHeight(
+      root.inThread ? Style.space(640)
+        : Math.max(content.implicitHeight,
+                   (root.newMode || root.searching) ? Style.space(280) : 0),
+      Style.space(640))
 
     PanelKeyCatcher {
       id: keyCatcher
