@@ -864,43 +864,35 @@ Panel {
                 foreground: root.foreground
                 fontFamily: root.fontFamily
               }
-              Text {
+              // A real button (PanelActionButton = the stock panels' control).
+              // The hand-rolled Text+MouseArea version lost its clicks to the
+              // panel's dismiss layer — clicking it CLOSED the panel.
+              PanelActionButton {
                 visible: !root.newMode && !root.searchShowing
-                text: "＋ new"
-                textFormat: Text.PlainText
-                color: newBtnMouse.containsMouse ? root.mineFill : root.cyan
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
-                font.underline: newBtnMouse.containsMouse
-                MouseArea {
-                  id: newBtnMouse
-                  anchors.fill: parent
-                  anchors.margins: -Style.space(4)
-                  hoverEnabled: true
-                  cursorShape: Qt.PointingHandCursor
-                  onClicked: root.startNew()
-                }
+                iconText: "＋"
+                tooltipText: "New message (n)"
+                bordered: true
+                foreground: root.foreground
+                hoverColor: root.accent
+                fontFamily: root.fontFamily
+                onClicked: root.startNew()
               }
               // Local only: moves readMark/readMarks in state.json so the
               // badge and dots clear. Nothing is written back to the Mac —
               // AppleScript cannot flip is_read (see "not possible" in CLAUDE.md).
+              // TapHandler, not MouseArea: the thread rows' proven pattern —
+              // the MouseArea version could lose clicks to the dismiss layer.
               Text {
                 id: markAllBtn
                 visible: root.unread > 0 && !root.searchShowing && !root.newMode
                 text: "mark all read"
                 textFormat: Text.PlainText
-                color: markAllMouse.containsMouse ? root.mineFill : root.cyan
+                color: markAllHover.hovered ? root.mineFill : root.cyan
                 font.family: root.fontFamily
                 font.pixelSize: Style.font.caption
-                font.underline: markAllMouse.containsMouse
-                MouseArea {
-                  id: markAllMouse
-                  anchors.fill: parent
-                  anchors.margins: -Style.space(4)
-                  hoverEnabled: true
-                  cursorShape: Qt.PointingHandCursor
-                  onClicked: root.markAllRead()
-                }
+                font.underline: markAllHover.hovered
+                HoverHandler { id: markAllHover; cursorShape: Qt.PointingHandCursor }
+                TapHandler { onTapped: root.markAllRead() }
               }
               Text {
                 text: root.searchShowing || root.newMode
