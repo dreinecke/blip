@@ -345,12 +345,50 @@ describe("selectThread", () => {
     expect(out[0]!.ts).toBe("2026-08-30 12:00:00");
   });
 
-  test("loadThread asks recent, not thread, for a group", () => {
+  test("loadThread loads a group by EXACT chat id via thread --chat", () => {
     let seen: string[] = [];
     const runner = ((_: string, args: string[]) => { seen = args; return { status: 0, stdout: "[]", stderr: "" }; }) as never;
     loadThread(guid, 80, "2026-08-30", runner);
     expect(seen).toContain("--rich");
-    expect(seen[2]).toBe("recent");
+    expect(seen).toContain("--chat");
+    expect(seen[seen.indexOf("--chat") + 1]).toBe(guid);
+  });
+});
+
+describe("linkify", () => {
+  const { linkify } = require("./thread") as typeof import("./thread");
+
+  test("no URL → empty string (PlainText fast path)", () => {
+    expect(linkify("just words")).toBe("");
+    expect(linkify("")).toBe("");
+  });
+
+  test("URLs become anchors; surrounding text is escaped", () => {
+    expect(linkify("see https://nixfred.com now")).toBe(
+      'see <a href="https://nixfred.com">https://nixfred.com</a> now',
+    );
+    expect(linkify("go to www.edgeupbarber.com!")).toBe(
+      'go to <a href="https://www.edgeupbarber.com">www.edgeupbarber.com</a>!',
+    );
+  });
+
+  test("trailing sentence punctuation stays prose", () => {
+    expect(linkify("https://x.com/a.")).toBe('<a href="https://x.com/a">https://x.com/a</a>.');
+  });
+
+  test("hostile markup in messages is neutralized", () => {
+    expect(linkify('<img src=x onerror=alert(1)> https://a.io')).toBe(
+      '&lt;img src=x onerror=alert(1)&gt; <a href="https://a.io">https://a.io</a>',
+    );
+    // quotes/brackets can never be part of the matched URL — the hostile
+    // tail is plain escaped text, outside the anchor entirely
+    expect(linkify('https://a.io/"><script>')).toBe(
+      '<a href="https://a.io/">https://a.io/</a>&quot;&gt;&lt;script&gt;',
+    );
+  });
+
+  test("newlines become <br> in the rich path", () => {
+    expect(linkify("https://a.io\nline2")).toBe('<a href="https://a.io">https://a.io</a><br>line2');
   });
 });
 

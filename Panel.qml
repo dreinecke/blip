@@ -829,13 +829,24 @@ Panel {
           boundsBehavior: Flickable.StopAtBounds
           interactive: contentHeight > height
           ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-          // Layout height lands a frame or two after `bubbles` changes; a
-          // one-shot callLater under-scrolled. Follow the height instead.
-          onContentHeightChanged: if (root.pinToBottom && root.inThread) {
-
-            contentY = Math.max(0, contentHeight - height)
-            if (!root.loading) root.pinToBottom = false
+          // stick-to-bottom (BlueFerry's pattern): once pinned, KEEP the
+          // view at the bottom through late content growth — async images
+          // finishing their decode were pushing the newest bubble below
+          // the fold. Scrolling up releases the stick; scrolling back to
+          // the end re-arms it.
+          property bool stick: false
+          onContentHeightChanged: {
+            if (!root.inThread) return
+            if (root.pinToBottom) {
+              stick = true
+              contentY = Math.max(0, contentHeight - height)
+              if (!root.loading) root.pinToBottom = false
+            } else if (stick) {
+              contentY = Math.max(0, contentHeight - height)
+            }
           }
+          onMovementStarted: stick = false
+          onMovementEnded: stick = atYEnd
 
           // Wheel scrolling is DIRECT, 1:1 — no animation. Two animated
           // schemes (restarted easing, SmoothedAnimation chase) both fought
@@ -852,6 +863,9 @@ Panel {
               var d = ev.pixelDelta.y !== 0 ? ev.pixelDelta.y * 2.0 : ev.angleDelta.y * 3.0
               var max = Math.max(0, flick.contentHeight - flick.height)
               flick.contentY = Math.max(0, Math.min(max, flick.contentY - d))
+              // the wheel bypasses Flickable movement signals — maintain the
+              // bottom-stick here too
+              flick.stick = flick.contentY >= max - 4
               ev.accepted = true
             }
           }
@@ -1398,8 +1412,15 @@ Panel {
                       id: bubbleText
                       x: Style.space(11); y: Style.space(7)
                       width: bubble.maxInner
-                      text: String(modelData.text || "")
-                      textFormat: TextEdit.PlainText
+                      // html is pre-escaped + linkified in thread.ts (tested);
+                      // plain messages keep the cheap PlainText path.
+                      readonly property bool hasLink: String(modelData.html || "") !== ""
+                      text: hasLink ? String(modelData.html) : String(modelData.text || "")
+                      textFormat: hasLink ? TextEdit.RichText : TextEdit.PlainText
+                      onLinkActivated: function(link) {
+                        openProc.command = ["xdg-open", link]
+                        openProc.running = true
+                      }
                       wrapMode: TextEdit.Wrap
                       readOnly: true
                       selectByMouse: true

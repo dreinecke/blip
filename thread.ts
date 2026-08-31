@@ -55,6 +55,9 @@ export interface Bubble {
   /** Screen/bubble effect short name ("confetti"), "" when none. */
   effect: string;
   audio: boolean;
+  /** Escaped rich text with clickable anchors; "" when the text has no URL
+   *  (QML keeps the cheap PlainText path then). */
+  html: string;
 }
 
 export interface ThreadOutput {
@@ -169,10 +172,48 @@ export function decorate(msgs: ImsgMessage[], today: string): Bubble[] {
       retracted: m.retracted === true,
       effect: m.effect ?? "",
       audio: m.audio === true,
+      html: linkify((m.text ?? "").replace(/￼/g, "").trim()),
     });
   }
 
   return out;
+}
+
+const HTML_ESCAPES: Record<string, string> = {
+  "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+};
+
+export function escapeHtml(s: string): string {
+  return String(s).replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]!);
+}
+
+const URL_RE = /\bhttps?:\/\/[^\s<>"']+|\bwww\.[^\s<>"']+\.[^\s<>"']+/g;
+
+/**
+ * Message text → rich text with clickable anchors. The text is UNTRUSTED
+ * (anyone can send "<img src=x>"), so non-URL segments are HTML-escaped and
+ * URLs are matched on the RAW string, then escaped separately for href and
+ * display — nothing a sender types is ever interpreted as markup.
+ * Returns "" when the text holds no URL, so plain messages keep the cheap
+ * PlainText render path.
+ */
+export function linkify(text: string): string {
+  const t = String(text ?? "");
+  URL_RE.lastIndex = 0;
+  if (!URL_RE.test(t)) return "";
+  URL_RE.lastIndex = 0;
+  let out = "";
+  let pos = 0;
+  for (let m = URL_RE.exec(t); m !== null; m = URL_RE.exec(t)) {
+    out += escapeHtml(t.slice(pos, m.index));
+    // Trailing punctuation reads as prose, not URL: "see https://x.com."
+    let url = m[0].replace(/[.,;:!?)\]]+$/, "");
+    const href = url.startsWith("www.") ? "https://" + url : url;
+    out += `<a href="${escapeHtml(href)}">${escapeHtml(url)}</a>`;
+    pos = m.index + url.length;
+  }
+  out += escapeHtml(t.slice(pos));
+  return out.replace(/\n/g, "<br>");
 }
 
 /** "Read 4:42 PM" today, "Read Yesterday 9:03 AM" otherwise. */
@@ -223,11 +264,12 @@ export function loadThread(
   today: string,
   runner = spawnSync,
 ): ThreadOutput {
-  // `imsg thread` matches by HANDLE substring, so a group's 32-hex chat id
-  // never hits. For groups, pull a wide recent window and filter by chat.
+  // Groups load by EXACT chat id (imsg ≥1.8.0 `thread --chat`). The old
+  // recent-window scan cost ~20× the rows and missed anything older than
+  // the window — which made historical search hits open empty threads.
   const group = isGroupChat(chat);
   const args = group
-    ? ["--json", "--rich", "recent", String(GROUP_SCAN_WINDOW)]
+    ? ["--json", "--rich", "thread", "--chat", chat, String(limit)]
     : ["--json", "--rich", "thread", chat, String(limit)];
   const res = runner(`${HOME}/bin/imsg`, args, {
     encoding: "utf8",

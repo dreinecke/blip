@@ -38,8 +38,8 @@ changes to the Mac beyond claude-on-mac updates.
   Compose: Ctrl+V image paste (paste.ts snapshots the clipboard ONCE),
   `/attach <path>`, drag-and-drop; draft chip with ✕; caption rides along,
   reported per-part. Verified delivered from vic end-to-end.
-- [ ] **Audio messages (inbound)** — fetch path exists; needs a play affordance
-  (chips already fetch + xdg-open, so this is polish).
+- [x] **Audio messages (inbound)** — verified 1.3.0: the 🎤 chip fetches and
+  xdg-opens into mpv (vic's audio/x-m4a handler). Nothing more needed.
 
 ## Tier 3 — UX parity
 
@@ -49,9 +49,9 @@ changes to the Mac beyond claude-on-mac updates.
   "my" bubbles follow `Color.accent` (luminance-picked text, iMessage-blue
   fallback for accentless themes). Wheel scroll became DIRECT 1:1 after two
   animated schemes failed against hi-res wheel event floods.
-- [ ] **Historical group hits** — a search hit in a group older than the
-  1,500-message scan window opens an empty thread (Codex finding, 1.0.0).
-  Needs `imsg thread --chat <id>` on the Mac side to load groups by chat id.
+- [x] **Historical group hits** — fixed 1.3.0: groups load by EXACT chat id
+  (`imsg thread --chat`, claude-on-mac 1.8.0) — full history reachable, and
+  ~20× fewer rows per group load than the old recent-window scan.
 - [x] **New-conversation composer** — shipped 1.2.0: `n` / "＋ new" opens a
   contact picker (`contacts --json find` over the bridge; every phone/email
   is its own row, Apple `_$!<Mobile>!$_` labels unwrapped, bare numbers and
@@ -66,7 +66,10 @@ changes to the Mac beyond claude-on-mac updates.
   into a refresh AND reloads the open conversation in parallel. Poll stretches
   6 s → 60 s while `push=true` (see `status`); watcher restarts 8 s after any
   exit. Measured ~2 s message-to-screen (was ≤6 s poll + serial reload).
-- [ ] **Link previews** — parse rich-link payload attachments for title/image.
+- [x] **Clickable links** — shipped 1.3.0: URLs in bubbles are live anchors
+  (escaped-then-linkified in thread.ts, injection-tested; plain messages keep
+  the PlainText fast path). Full preview CARDS (title/thumbnail from the
+  pluginPayloadAttachment blob) remain open — binary plist parsing.
 
 ## Tier 4 — the actual app
 
