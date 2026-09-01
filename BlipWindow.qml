@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell
+import Quickshell.Io
 import qs.Commons
 
 // Blip window — the "actual app": a Messages.app-style two-pane window.
@@ -32,7 +33,37 @@ FloatingWindow {
   function openThread(t) { view.openThread(t) }
   function pushReload() { view.pushReload() }
 
-  onVisibleChanged: if (visible) Qt.callLater(view.focusDefault)
+  // ---- persistence: the window lives inside the shell process, so every
+  // omarchy-restart-shell (every plugin deploy/update) would kill it. Remember
+  // "was open" + size in ~/.local/state/blip/window.json and restore on start.
+  readonly property string stateDir: Quickshell.env("HOME") + "/.local/state/blip"
+  property bool restoring: true
+  FileView {
+    id: winState
+    path: win.stateDir + "/window.json"
+    blockLoading: true
+    printErrors: false
+  }
+  Process { id: winStateWriter }
+  function saveWinState() {
+    if (restoring) return
+    var j = JSON.stringify({ visible: visible, width: Math.round(width), height: Math.round(height) })
+    winStateWriter.command = ["sh", "-c",
+      "mkdir -p \"$1\" && printf '%s' \"$2\" > \"$1/window.json.tmp\" && mv \"$1/window.json.tmp\" \"$1/window.json\"",
+      "blip", stateDir, j]
+    winStateWriter.running = true
+  }
+  Component.onCompleted: {
+    try {
+      var d = JSON.parse(winState.text())
+      if (d && d.width >= 720 && d.height >= 480) { implicitWidth = d.width; implicitHeight = d.height }
+      if (d && d.visible === true) Qt.callLater(function() { win.visible = true; if (win.hostWidget) win.hostWidget.refresh(true, false) })
+    } catch (e) { /* first run */ }
+    Qt.callLater(function() { win.restoring = false })
+  }
+  onVisibleChanged: { saveWinState(); if (visible) Qt.callLater(view.focusDefault) }
+  onWidthChanged: if (visible) saveWinState()
+  onHeightChanged: if (visible) saveWinState()
 
   FocusScope {
     id: scope

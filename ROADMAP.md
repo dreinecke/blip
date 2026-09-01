@@ -92,9 +92,9 @@ a daemon only returns if the app ever has to run outside the shell).
   with two always-instantiated panes behind `splitView`; `Panel.qml` is a
   97-line popout host, `BlipWindow.qml` a 60-line window host. Both surfaces
   render every feature from one file. Codex found no split-induced bugs.
-- [ ] **Window persistence** — the window lives inside the shell process, so
-  `omarchy-restart-shell` (every plugin deploy/update) kills it; remember
-  `visible` + geometry in state and restore on shell start.
+- [x] **Window persistence** — 1.8.1: `~/.local/state/blip/window.json`
+  remembers open/closed + size; the window restores itself (and requests a
+  deep list) when the shell comes back. Verified across a real restart.
 - [ ] **Keybind + window polish** — SUPER-something toggles it; remember
   size/position; Esc closes; sidebar search; unread counts in the title.
 - [ ] ~~`blipd` daemon~~ — retired (see above).
