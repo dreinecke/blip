@@ -352,7 +352,7 @@ FocusScope {
   // ------------------------------------------------- new conversation
 
   function startNew() {
-    if (inThread) return
+    if (inThread && !splitView) return   // split view: the list pane is right there
     exitSearch()
     newMode = true
     newResults = []
@@ -402,7 +402,7 @@ FocusScope {
   // ------------------------------------------------------------- search
 
   function startSearch() {
-    if (inThread) return
+    if (inThread && !splitView) return
     searching = true
     searchResults = []
     searchNote = ""
@@ -930,7 +930,7 @@ FocusScope {
               // The hand-rolled Text+MouseArea version lost its clicks to the
               // panel's dismiss layer — clicking it CLOSED the panel.
               PanelActionButton {
-                visible: !root.newMode && !root.searchShowing
+                visible: !root.newMode && !root.searchShowing && !root.splitView
                 iconText: "＋"
                 tooltipText: "New message (n)"
                 bordered: true
@@ -955,15 +955,6 @@ FocusScope {
                 font.underline: markAllHover.hovered
                 HoverHandler { id: markAllHover; cursorShape: Qt.PointingHandCursor }
                 TapHandler { onTapped: root.markAllRead() }
-              }
-              Text {
-                text: root.searchShowing || root.newMode
-                  ? "Esc = back"
-                  : root.threads.length === 0 ? "" : (root.unread > 0 ? "· " : "") + "click, 1–9, / search"
-                textFormat: Text.PlainText
-                color: root.dim
-                font.family: root.fontFamily
-                font.pixelSize: Style.font.caption
               }
             }
 
@@ -1239,19 +1230,36 @@ FocusScope {
       ColumnLayout {
         anchors.fill: parent
         spacing: Style.space(8)
-        PanelHero {
+        RowLayout {
           Layout.fillWidth: true
-          title: root.inThread ? String(root.active.name || root.active.chat) : "Select a conversation"
-          meta: root.inThread
-            ? (root.activeIsGroup
-                ? (root.isSendable(root.active) ? "group" : "group · read-only (id unknown)")
-                : String(root.active.handle))
-            : ""
-          detail: root.inThread
-            ? (root.loading ? "loading…" : "Esc = back")
-            : (root.splitView ? "" : "iMessage via your Mac")
-          foreground: root.foreground
-          fontFamily: root.fontFamily
+          spacing: Style.space(8)
+          PanelHero {
+            Layout.fillWidth: true
+            title: root.inThread ? String(root.active.name || root.active.chat) : "Select a conversation"
+            meta: root.inThread
+              ? (root.activeIsGroup
+                  ? (root.isSendable(root.active) ? "group" : "group · read-only (id unknown)")
+                  : String(root.active.handle))
+              : ""
+            detail: root.inThread
+              ? (root.loading ? "loading…" : (root.splitView ? "" : "Esc = back"))
+              : (root.splitView ? "" : "iMessage via your Mac")
+            foreground: root.foreground
+            fontFamily: root.fontFamily
+          }
+          // The app's NEW button lives up here (where "Esc = back" used to be).
+          PanelActionButton {
+            visible: root.splitView && !root.newMode
+            Layout.alignment: Qt.AlignTop
+            Layout.topMargin: Style.space(6)
+            iconText: "＋"
+            tooltipText: "New message (n)"
+            bordered: true
+            foreground: root.foreground
+            hoverColor: root.accent
+            fontFamily: root.fontFamily
+            onClicked: root.startNew()
+          }
         }
 
         PanelSeparator { Layout.fillWidth: true; foreground: root.foreground }
