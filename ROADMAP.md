@@ -133,11 +133,11 @@ on the Mac plus hand-made vic shims with `fnix` hardcoded.
   Automation, blip-setup, missing Mac tools, ssh keys); the panel shows it in
   urgent red, the bar tooltip carries it. Verified by breaking the bridge on
   purpose. Still open: Linux-side dependency checks (`bun`/`jq`/`wl-copy`).
-- [ ] Remove vic assumptions: paths, mpv/xdg handlers, Hyprland-only bits;
+- [x] (2.0.0 sweep: HOME fallbacks → os.homedir, wizard example de-vic'd; hyprctl is inherent to Omarchy) Remove vic assumptions: paths, mpv/xdg handlers, Hyprland-only bits;
   degrade gracefully (older macOS without `date_edited`, no sips, no HEIC).
 - [x] First-run and offline UX: clear "Mac unreachable / grant missing"
   states with the fix spelled out.
-- [ ] Contact photos; link preview cards (nice-to-have).
+- [x] Contact photos; link preview cards; unread in window title (2.0.0).
 
 **D. Ship hygiene.**
 - [x] Full Codex audit → docs/SECURITY.md (12 findings; 8 fixed in 1.9.4,
@@ -145,7 +145,7 @@ on the Mac plus hand-made vic shims with `fnix` hardcoded.
 - [x] `--text-stdin` end to end so bodies leave argv (audit #4) — 1.11.0.
 - [x] README: the SUPER+M keybind recipe (Hyprland-driven; see CLAUDE.md
   hot-reload invariant) — users must not bind a plain `qs ipc … window`.
-- [ ] Upstream: report the hot-reload zombie IpcHandler to Omarchy
+- [x] Upstream: omacom/omarchy#9533 — report the hot-reload zombie IpcHandler to Omarchy
   (shell.qml reloadPlugins → old bar widget keeps the ipc target).
 - [x] (1.11.0: imsg-send keeps sent files in ~/.blip/sent, imsg resolves outbox
   paths to them — remote-recipient path verified by code only) Images Blip sends to OTHER people: chat.db's attachment row keeps the

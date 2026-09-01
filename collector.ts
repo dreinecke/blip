@@ -17,12 +17,13 @@
  *   bun collector.ts --read <chat>      # clear one thread's dot (opened it)
  */
 
+import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
-const HOME = process.env.HOME ?? "/home/pi";
+const HOME = process.env.HOME ?? homedir();
 
 /** Watermark + toast dedupe. ~/.local/state is deliberate: never inside a repo. */
 export const STATE_PATH = `${HOME}/.local/state/blip/state.json`;
@@ -78,7 +79,12 @@ export interface ImsgMessage {
   retracted?: boolean | null;
   effect?: string | null;
   audio?: boolean | null;
+  /** Rich-link card from a URL balloon (imsg ≥1.12): the preview image is a
+   *  regular attachment id (a .pluginPayloadAttachment PNG). */
+  link?: LinkCard | null;
 }
+
+export interface LinkCard { url: string; title: string; summary: string; image_id: string }
 
 export interface Thread {
   chat: string;

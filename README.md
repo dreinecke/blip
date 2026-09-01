@@ -51,7 +51,7 @@ Linux side. If the Mac is asleep, the widget dims and says so.
 - left-click panel · **double-click opens the app window** · middle-click refresh · right-click mark all read
 
 **Thread list**
-- avatar initials, name, preview, time
+- contact photo (from the Mac's Contacts) or initials, name, preview, time
 - **blue dot** that stays until you open *that* conversation — iMessage semantics, not "I glanced at the list"
 - groups titled the way Messages.app titles them: the group's name, else its members
 
@@ -65,6 +65,7 @@ Linux side. If the Mac is asleep, the widget dims and says so.
 - **tapbacks** — ❤️👍😂 pills on the bubble corner, custom emoji included
 - **"Read 4:42 PM"** under the last message of yours they've read (display only — Blip never sends receipts)
 - **inline replies** quoted above the bubble · **Edited** tags · "unsent a message" tombstones
+- **link cards** — URL messages show the preview image, title, and host, like Messages; click opens the link
 - **photos render inline** — images ≤5MB auto-fetch over SSH (HEIC converted on the Mac); click opens full-size. PDFs/videos are chips — click fetches and opens them
 - **send files** — Ctrl+V an image into the compose box, type `/attach <path>`, or drag-and-drop; a caption rides along
 - select text and Ctrl+C · right-click a bubble to copy it whole
@@ -88,7 +89,7 @@ Linux side. If the Mac is asleep, the widget dims and says so.
   answer from a stale instance until the shell restarts:
   ```lua
   o.bind("SUPER + M", "Blip messages", [[sh -c '
-    blip() { hyprctl clients -j | jq -r ".[] | select(.title == \"Blip\") | .address" | head -1; }
+    blip() { hyprctl clients -j | jq -r ".[] | select(.title | startswith(\"Blip\")) | .address" | head -1; }
     a=$(blip)
     if [ -z "$a" ]; then
       qs -p /usr/share/omarchy/shell ipc call nixfred.blip app >/dev/null
@@ -101,7 +102,8 @@ Linux side. If the Mac is asleep, the widget dims and says so.
     fi']])
   ```
   sidebar of every conversation + the open thread + compose, tiled by
-  Hyprland like any app, sharing the bar widget's live data
+  Hyprland like any app, sharing the bar widget's live data; the title
+  carries the unread count (`Blip (3)`)
 
 **Real-time**
 - a push watcher on the Mac pings when chat.db changes — messages land in
@@ -156,7 +158,15 @@ pinned in `bridge/BRIDGE-VERSION`), and `blip-setup` wires everything.
 - A Mac signed into Messages with your Apple ID (a Mac mini in a closet is
   perfect), reachable from the Linux box over SSH with key auth — Tailscale
   recommended. *Messages in iCloud* on, so its `chat.db` mirrors your phone.
-- Linux: [Omarchy](https://omarchy.org), `bun`, `notify-send`, `wl-copy`.
+- Linux: [Omarchy](https://omarchy.org) (Hyprland + the Omarchy shell), and on
+  the box: `bun`, `jq`, `openssh`, `libnotify`, `wl-clipboard`, `xdg-utils`.
+  `blip-setup` checks for each and prints the `pacman` line for what's missing.
+
+> **Honest note on dependencies.** Blip is not a drop-in marketplace plugin
+> the way a clock widget is: it needs `bun` on the Linux side, a Mac you own
+> with two manual permission grants, and an ssh key between them. The
+> plugin files install like any other; the *bridge* is what `blip-setup`
+> exists for. Budget ten minutes and a trip to the Mac's System Settings.
 
 **1. Install the plugin**
 

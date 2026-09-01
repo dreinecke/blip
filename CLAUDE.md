@@ -22,6 +22,8 @@ fetch.ts                            attachment id → ~/.cache/blip/att (0700/06
 send-file.ts                        local file + caption → imsg-send --file-stdin --text-stdin-bytes N
                                     (caption ahead of the bytes; NO message text in argv anywhere). Resolves
                                     group guid from state; REFUSES unknown groups.
+avatar.ts                           handle → ~/.cache/blip/avatars (imsg avatar; JPEG/PNG magic
+                                    checked; .none negative marker; 7-day TTL).
 paste.ts                            clipboard snapshot → draft image in $XDG_RUNTIME_DIR/blip or text.
 BarWidget.qml                       the single poller, badge, toasts, IPC.
 Panel.qml                           list view + conversation view + compose. Renders only.

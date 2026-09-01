@@ -16,6 +16,7 @@
  * at 500 MB, evicted after each write.
  */
 
+import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import {
   closeSync,
@@ -32,7 +33,7 @@ import {
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const HOME = process.env.HOME ?? "/home/pi";
+const HOME = process.env.HOME ?? homedir();
 export const CACHE_DIR = join(process.env.XDG_CACHE_HOME ?? join(HOME, ".cache"), "blip", "att");
 export const CACHE_CAP_BYTES = 500 * 1024 * 1024;
 export const FETCH_MAX_BYTES = 100 * 1024 * 1024;

@@ -13,12 +13,13 @@
  * filesystem paths, so a remote caller can never exfiltrate Mac files.
  */
 
+import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { openSync, readSync, closeSync, statSync } from "node:fs";
 import { basename } from "node:path";
 import { isGroupChat, loadState } from "./collector";
 
-const HOME = process.env.HOME ?? "/home/pi";
+const HOME = process.env.HOME ?? homedir();
 export const SEND_MAX_BYTES = 100 * 1024 * 1024;
 
 export interface SendTarget { args: string[]; error: string }

@@ -11,9 +11,10 @@
  * nobody's contacts.
  */
 
+import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 
-const HOME = process.env.HOME ?? "/home/pi";
+const HOME = process.env.HOME ?? homedir();
 
 export interface ContactHit {
   /** "Mom" / "Tim McClusky" / the raw handle for direct entry. */

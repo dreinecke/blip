@@ -3,6 +3,8 @@ import { describe, expect, test } from "bun:test";
 import { cacheFileName, fetchAttachment, lruEvictions, sanitizeName, wantsJpeg } from "./fetch";
 import { extFor, pickImageType } from "./paste";
 import { resolveTarget, sendFile } from "./send-file";
+import { linkHost, normalizeLink } from "./thread";
+import { AVATAR_DIR, avatarKey, fetchAvatar } from "./avatar";
 import { writeFileSync, unlinkSync } from "node:fs";
 
 describe("fetch cache", () => {
@@ -205,5 +207,48 @@ describe("paste type picking", () => {
   test("extensions map sanely", () => {
     expect(extFor("image/png")).toBe("png");
     expect(extFor("image/tiff")).toBe("img");
+  });
+});
+
+describe("rich-link cards", () => {
+  test("only http(s) cards survive; image id must be decimal", () => {
+    expect(normalizeLink({ url: "javascript:alert(1)", title: "x", summary: "", image_id: "1" })).toBeNull();
+    expect(normalizeLink({ url: "https://a.b/c", title: " T ", summary: "", image_id: "1 OR 1" })).toEqual({ url: "https://a.b/c", title: "T", summary: "", image_id: "" });
+    expect(normalizeLink(null)).toBeNull();
+    expect(linkHost("https://www.Omarchy.org/x?y=1")).toBe("omarchy.org");
+  });
+});
+
+describe("contact photos", () => {
+  test("a missing photo is remembered as a negative marker and not re-asked", () => {
+    let calls = 0;
+    const runner = (() => { calls++; return { status: 1, stdout: Buffer.alloc(0), stderr: "" }; }) as never;
+    const h = `+1555${Date.now() % 10000000}`;
+    expect(fetchAvatar(h, runner).ok).toBe(false);
+    expect(fetchAvatar(h, runner).ok).toBe(false);
+    expect(calls).toBe(1);
+    unlinkSync(`${AVATAR_DIR}/${avatarKey(h)}.none`);
+  });
+  test("a photo is cached and served from disk on the second ask", () => {
+    let calls = 0;
+    const runner = (() => { calls++; return { status: 0, stdout: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]), stderr: "" }; }) as never;
+    const h = `test-${Date.now()}@example.com`;
+    const r1 = fetchAvatar(h, runner); const r2 = fetchAvatar(h, runner);
+    expect(r1.ok && r2.ok).toBe(true);
+    expect(r2.url).toMatch(/^file:\/\//);
+    expect(calls).toBe(1);
+    unlinkSync(`${AVATAR_DIR}/${avatarKey(h)}.jpg`);
+  });
+  test("non-image bytes are never cached as a photo", () => {
+    const runner = (() => ({ status: 0, stdout: Buffer.from("6C39E3B3-2C4D-4B75-9D8C-B393A23D60CE"), stderr: "" })) as never;
+    const h = `ref-${Date.now()}@example.com`;
+    expect(fetchAvatar(h, runner).ok).toBe(false);
+    unlinkSync(`${AVATAR_DIR}/${avatarKey(h)}.none`);
+  });
+
+  test("handles never reach imsg as flags", () => {
+    expect(fetchAvatar("--evil", (() => ({ status: 0, stdout: Buffer.from([0x89, 0x50, 0x4e, 0x47, 1]), stderr: "" })) as never).ok).toBe(true); // '--' guards it
+    unlinkSync(`${AVATAR_DIR}/${avatarKey("--evil")}.jpg`);
+    expect(fetchAvatar("bad handle\n", (() => ({ status: 0, stdout: Buffer.from("x"), stderr: "" })) as never).ok).toBe(false);
   });
 });

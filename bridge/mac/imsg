@@ -208,6 +208,58 @@ def _chunked_in(con, sql_tmpl: str, ids: list, chunk: int = 500):
         yield from con.execute(sql_tmpl.format(marks=marks), part)
 
 
+def _parse_rich_link(blob: bytes) -> dict | None:
+    """Decode a URL balloon's payload_data (NSKeyedArchiver plist wrapping an
+    LPLinkMetadata) into {url, title, summary, image_index}. image_index
+    indexes the message's .pluginPayloadAttachment rows (ROWID order), which
+    hold the preview PNGs. Best-effort: any oddity → None."""
+    import plistlib
+    try:
+        p = plistlib.loads(blob)
+        objs = p["$objects"]
+    except Exception:
+        return None
+
+    def deref(v, depth=0):
+        if depth > 6:
+            return None
+        if isinstance(v, plistlib.UID):
+            return deref(objs[v.data], depth + 1) if v.data < len(objs) else None
+        if isinstance(v, dict) and "NS.relative" in v:   # NSURL
+            return deref(v["NS.relative"], depth + 1)
+        return v
+
+    md = None
+    for o in objs:
+        if isinstance(o, dict) and "richLinkMetadata" in o:
+            md = deref(o["richLinkMetadata"])
+            break
+    if not isinstance(md, dict):
+        for o in objs:  # bare LPLinkMetadata archives
+            if isinstance(o, dict) and "URL" in o and "title" in o:
+                md = o
+                break
+    if not isinstance(md, dict):
+        return None
+    url = deref(md.get("URL")) or deref(md.get("originalURL"))
+    title = deref(md.get("title"))
+    summary = deref(md.get("summary"))
+    idx = None
+    for key in ("image", "icon"):
+        im = deref(md.get(key))
+        if isinstance(im, dict) and isinstance(im.get("richLinkImageAttachmentSubstituteIndex"), int):
+            idx = im["richLinkImageAttachmentSubstituteIndex"]
+            break
+    if not isinstance(url, str) or not url:
+        return None
+    return {
+        "url": url[:2048],
+        "title": (title if isinstance(title, str) else "")[:300],
+        "summary": (summary if isinstance(summary, str) else "")[:500],
+        "image_index": idx,
+    }
+
+
 def enrich(con, rows, with_names: bool):
     """Per-ROWID extras for --rich JSON. Returns (kept_rows, extras) where
     tapback rows are folded onto their targets and dropped from kept_rows."""
@@ -266,6 +318,29 @@ def enrich(con, rows, with_names: bool):
             # consumers lose precision past 2^53.
             {"id": str(a["aid"]), "name": a["name"], "mime": a["mime"], "bytes": a["bytes"]}
         )
+
+    # Rich-link cards: the balloon payload names the URL/title/summary; the
+    # preview image is the nth .pluginPayloadAttachment row of the message.
+    payload_ids: dict[int, list[int]] = {}
+    link_rows = [r for r in kept if (r["balloon_bundle_id"] or "").endswith("URLBalloonProvider") and r["payload_data"]]
+    if link_rows:
+        for a in _chunked_in(
+            con,
+            """SELECT maj.message_id AS mid, a.ROWID AS aid
+               FROM message_attachment_join maj JOIN attachment a ON a.ROWID = maj.attachment_id
+               WHERE a.transfer_name LIKE '%.pluginPayloadAttachment' AND a.total_bytes > 0
+                 AND maj.message_id IN ({marks}) ORDER BY a.ROWID""",
+            [r["ROWID"] for r in link_rows],
+        ):
+            payload_ids.setdefault(a["mid"], []).append(a["aid"])
+        for r in link_rows:
+            link = _parse_rich_link(r["payload_data"])
+            if not link:
+                continue
+            ids = payload_ids.get(r["ROWID"], [])
+            idx = link.pop("image_index")
+            link["image_id"] = str(ids[idx]) if isinstance(idx, int) and 0 <= idx < len(ids) else (str(ids[0]) if ids else "")
+            extras[r["ROWID"]]["link"] = link
 
     # Inline-reply context: resolve originator guids (often outside the window).
     origins = sorted({r["orig_guid"] for r in kept if r["orig_guid"]})
@@ -369,7 +444,8 @@ def base_select(con) -> str:
                    m.associated_message_type AS assoc_type,
                    m.thread_originator_guid AS orig_guid,
                    m.expressive_send_style_id AS style_id,
-                   m.is_audio_message
+                   m.is_audio_message,
+                   m.balloon_bundle_id, m.payload_data
             FROM {MESSAGE_SRC} m
             LEFT JOIN handle h ON h.ROWID = m.handle_id
             LEFT JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
@@ -579,6 +655,65 @@ ATTACHMENTS_ROOT = os.path.expanduser("~/Library/Messages/Attachments")
 OUTBOX_ROOT = os.path.expanduser("~/Pictures/.blip-outbox")
 SENT_ROOT = os.path.expanduser("~/.blip/sent")
 ATTACH_MAX_BYTES = 100 * 1024 * 1024  # hard ceiling, deliberately no flag
+
+
+def cmd_avatar(con, args):
+    """Stream a contact's thumbnail (JPEG bytes from the AddressBook's
+    ZTHUMBNAILIMAGEDATA) for one handle to stdout. Exit 1 when the handle has
+    no contact or the contact has no photo; ambiguous last-ten-digit
+    collisions resolve to no photo, like name_for()."""
+    handle = (args.handle or "").strip()
+    if not handle or len(handle) > 320:
+        sys.exit("error: bad handle")
+    want_email = "@" in handle
+    key = handle.lower() if want_email else _normalize_phone(handle)
+    hit = None
+    for path in glob(_AB_GLOB):
+        try:
+            con2 = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+            q = ("SELECT ZOWNER AS pk, ZADDRESS AS v FROM ZABCDEMAILADDRESS" if want_email
+                 else "SELECT ZOWNER AS pk, ZFULLNUMBER AS v FROM ZABCDPHONENUMBER")
+            for pk, v in con2.execute(q):
+                k = (v or "").strip().lower() if want_email else _normalize_phone(v or "")
+                if k and k == key:
+                    if hit is not None and hit[1] != pk:
+                        sys.exit(1)  # ambiguous
+                    hit = (path, pk)
+            con2.close()
+        except sqlite3.DatabaseError:
+            continue
+    if not hit:
+        sys.exit(1)
+    try:
+        con2 = sqlite3.connect(f"file:{hit[0]}?mode=ro", uri=True)
+        row = con2.execute("SELECT ZTHUMBNAILIMAGEDATA FROM ZABCDRECORD WHERE Z_PK = ?", (hit[1],)).fetchone()
+        con2.close()
+    except sqlite3.DatabaseError:
+        sys.exit(1)
+    data = bytes(row[0]) if row and row[0] is not None else b""
+    # Core Data stores big blobs EXTERNALLY: the column then holds a UUID
+    # naming a file under <Source>/.AddressBook-v22_SUPPORT/_EXTERNAL_DATA/.
+    if data and not data.startswith((b"\xff\xd8", b"\x89PNG")):
+        # The reference is a length-prefixed, NUL-terminated UUID string.
+        mref = re.search(r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}",
+                         data.decode("latin-1"))
+        if not mref:
+            sys.exit(1)
+        ref = mref.group(0)
+        src_dir = os.path.dirname(hit[0])
+        ext_dir = os.path.realpath(os.path.join(src_dir, ".AddressBook-v22_SUPPORT", "_EXTERNAL_DATA"))
+        fp = os.path.realpath(os.path.join(ext_dir, ref))
+        if os.path.commonpath([fp, ext_dir]) != ext_dir:
+            sys.exit(1)
+        try:
+            with open(fp, "rb") as f:
+                data = f.read(2 * 1024 * 1024 + 1)
+        except OSError:
+            sys.exit(1)
+    if not data or len(data) > 2 * 1024 * 1024:
+        sys.exit(1)
+    sys.stdout.buffer.write(data)
+    sys.stdout.buffer.flush()
 
 
 def cmd_attachment(con, args):
@@ -887,6 +1022,8 @@ def main() -> None:
     s.add_argument("--jpeg", action="store_true",
                    help="convert image/* (HEIC) to JPEG via sips before streaming")
     s.set_defaults(func=cmd_attachment)
+    s = sub.add_parser("avatar", parents=[common], help="stream a contact photo (JPEG) for a handle")
+    s.add_argument("handle"); s.set_defaults(func=cmd_avatar)
     s = sub.add_parser("watch", parents=[common],
                        help="emit a line whenever chat.db changes (push channel)")
     s.set_defaults(func=cmd_watch)

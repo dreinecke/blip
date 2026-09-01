@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # blip-setup — Linux-side first run for Blip. Idempotent; safe to re-run.
 #
-#   blip-setup [user@]mac-host        # e.g. blip-setup pi@fnix, or a Tailscale name
+#   blip-setup [user@]mac-host        # e.g. blip-setup you@mac-mini, or a Tailscale name
 #
 # Steps:
 #   1. ~/.config/blip/bridge.conf   host= (and remote_bin=, python=)

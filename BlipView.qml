@@ -3,6 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 import Quickshell
 import Quickshell.Io
+import QtQuick.Effects
 import qs.Commons
 import qs.Ui
 
@@ -272,6 +273,49 @@ FocusScope {
   // ---------------------------------------------------- attachment fetching
 
   function isImageMime(m) { return String(m || "").indexOf("image/") === 0 }
+  function linkHost(u) { var m = /^https?:\/\/([^/?#]+)/i.exec(String(u || "")); return (m ? m[1] : String(u || "")).replace(/^www\./, "").toLowerCase() }
+  /** Only http(s) ever reaches xdg-open from a card (thread.ts filters too). */
+  function openLink(u) {
+    u = String(u || "")
+    if (!/^https?:\/\//i.test(u)) return
+    openProc.command = ["xdg-open", u]
+    openProc.running = true
+  }
+
+  // ---------------------------------------------------- contact photos
+  // Sidebar avatars: `imsg avatar <handle>` via avatar.ts (7-day cache, negative
+  // markers). One request in flight; rows ask on creation; groups never ask.
+  readonly property string avatarScript: fetchScript.replace(/fetch\.ts$/, "avatar.ts")
+  property var avatarFiles: ({})     // handle → file:// url, "" = no photo
+  property var avatarQueue: []
+  function requestAvatar(handle) {
+    handle = String(handle || "")
+    if (handle === "" || isGroupId(handle)) return
+    if (avatarFiles[handle] !== undefined || avatarQueue.indexOf(handle) >= 0) return
+    avatarQueue.push(handle)
+    pumpAvatar()
+  }
+  function pumpAvatar() {
+    if (avatarProc.running || avatarQueue.length === 0) return
+    avatarProc.handle = avatarQueue.shift()
+    avatarProc.command = ["bun", root.avatarScript, avatarProc.handle]
+    avatarProc.running = true
+  }
+  Process {
+    id: avatarProc
+    property string handle: ""
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var url = ""
+        try { var d = JSON.parse(text.trim()); if (d.ok === true) url = String(d.url || "") } catch (e) {}
+        var m = Object.assign({}, root.avatarFiles)
+        m[avatarProc.handle] = url
+        root.avatarFiles = m
+        root.pumpAvatar()
+      }
+    }
+    onExited: Qt.callLater(root.pumpAvatar)
+  }
   /** Only media/documents are handed to xdg-open. Anything a sender could
    *  make executable (scripts, .desktop, unknown blobs) is saved and named,
    *  never launched (Codex audit #10). */
@@ -323,6 +367,9 @@ FocusScope {
         if (isImageMime(atts[j].mime) && typeof b === "number" && b > 0 && b <= 5 * 1024 * 1024)
           enqueueFetch(atts[j], false, true)
       }
+      // link-card preview PNGs are small; the auto-fetch transfer cap bounds them
+      var l = bubbles[i].link
+      if (l && l.image_id) enqueueFetch({ id: String(l.image_id), name: "preview.png", mime: "image/png", bytes: 0 }, false, true)
     }
   }
 
@@ -1178,12 +1225,45 @@ FocusScope {
                     opacity: modelData.unread > 0 ? 1 : 0
                   }
 
-                  // avatar circle with initials — the iMessage sidebar look
+                  // avatar circle — the contact's photo when Contacts has one,
+                  // initials otherwise (the iMessage sidebar look)
                   Rectangle {
+                    id: avatarCircle
                     width: Style.space(30); height: width; radius: width / 2
                     color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.18)
+                    readonly property string avatarHandle: String(modelData.handle || modelData.chat || "")
+                    Component.onCompleted: if (!root.isGroupId(String(modelData.chat || ""))) root.requestAvatar(avatarHandle)
+                    Image {
+                      id: avatarImg
+                      anchors.fill: parent
+                      visible: false
+                      source: root.avatarFiles[avatarCircle.avatarHandle] || ""
+                      asynchronous: true
+                      fillMode: Image.PreserveAspectCrop
+                      sourceSize.width: 96
+                      sourceSize.height: 96
+                      // a stale/corrupt cache file → initials, and no retry this session
+                      onStatusChanged: if (status === Image.Error && avatarCircle.avatarHandle !== "") {
+                        var m = Object.assign({}, root.avatarFiles); m[avatarCircle.avatarHandle] = ""; root.avatarFiles = m
+                      }
+                    }
+                    Item {
+                      id: avatarMask
+                      anchors.fill: parent
+                      visible: false
+                      layer.enabled: true
+                      Rectangle { anchors.fill: parent; radius: width / 2 }
+                    }
+                    MultiEffect {
+                      anchors.fill: parent
+                      source: avatarImg
+                      visible: avatarImg.status === Image.Ready
+                      maskEnabled: true
+                      maskSource: avatarMask
+                    }
                     Text {
                       anchors.centerIn: parent
+                      visible: avatarImg.status !== Image.Ready
                       text: {
                         var n = String(modelData.name || "")
                         if (/^[+0-9]/.test(n) || n === "") return "#"
@@ -1560,6 +1640,102 @@ FocusScope {
                   }
                 }
 
+                // rich-link card (URL balloons): preview image + title + host;
+                // click opens the link. A message that is ONLY the URL shows
+                // just the card, like Messages.
+                RowLayout {
+                  id: linkRow
+                  visible: !modelData.retracted && !!modelData.link
+                  Layout.fillWidth: true
+                  Layout.topMargin: modelData.groupStart ? Style.space(6) : 0
+                  spacing: 0
+                  // same anchoring as the chips: a card image completing ABOVE
+                  // the viewport must not shove the reader's position.
+                  property real prevH: -1
+                  onHeightChanged: {
+                    if (prevH < 0) { prevH = height; return }
+                    var d = height - prevH
+                    prevH = height
+                    if (d === 0 || flick.stick || root.pinToBottom) return
+                    var yc = linkRow.mapToItem(content, 0, 0).y
+                    if (yc < flick.contentY)
+                      flick.contentY = Math.max(0, flick.contentY + d)
+                  }
+                  Item { Layout.fillWidth: true; visible: bubbleRow.mine }
+                  Rectangle {
+                    id: linkCard
+                    readonly property var link: modelData.link || ({})
+                    readonly property string imgUrl: link.image_id ? String(root.attFiles[String(link.image_id)] || "") : ""
+                    Layout.preferredWidth: Math.min(Math.round(content.width * 0.62), Style.space(380))
+                    Layout.preferredHeight: linkCol.implicitHeight
+                    radius: Style.space(14)
+                    clip: true
+                    color: bubbleRow.mine ? root.mineFill : root.theirsFill
+                    ColumnLayout {
+                      id: linkCol
+                      width: parent.width
+                      spacing: 0
+                      Image {
+                        id: linkImage
+                        visible: linkCard.imgUrl !== "" && status === Image.Ready
+                        Layout.fillWidth: true
+                        Layout.preferredHeight: visible && implicitWidth > 0
+                          ? Math.min(Style.space(220), Math.round(linkCard.width * implicitHeight / implicitWidth))
+                          : 0
+                        source: linkCard.imgUrl
+                        asynchronous: true
+                        fillMode: Image.PreserveAspectCrop
+                        sourceSize.width: 800
+                        sourceSize.height: 800
+                      }
+                      ColumnLayout {
+                        Layout.fillWidth: true
+                        Layout.margins: Style.space(10)
+                        spacing: Style.space(2)
+                        Text {
+                          Layout.fillWidth: true
+                          visible: text !== ""
+                          text: String(linkCard.link.title || "")
+                          textFormat: Text.PlainText
+                          wrapMode: Text.Wrap
+                          maximumLineCount: 2
+                          elide: Text.ElideRight
+                          color: bubbleRow.mine ? root.mineText : root.theirsText
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.bodySmall
+                          font.bold: true
+                        }
+                        Text {
+                          Layout.fillWidth: true
+                          visible: text !== ""
+                          text: String(linkCard.link.summary || "")
+                          textFormat: Text.PlainText
+                          wrapMode: Text.Wrap
+                          maximumLineCount: 2
+                          elide: Text.ElideRight
+                          color: bubbleRow.mine ? root.mineText : root.theirsText
+                          opacity: 0.85
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                        }
+                        Text {
+                          Layout.fillWidth: true
+                          text: root.linkHost(String(linkCard.link.url || ""))
+                          textFormat: Text.PlainText
+                          elide: Text.ElideRight
+                          color: bubbleRow.mine ? root.mineText : root.theirsText
+                          opacity: 0.6
+                          font.family: root.fontFamily
+                          font.pixelSize: Style.font.caption
+                        }
+                      }
+                    }
+                    HoverHandler { cursorShape: Qt.PointingHandCursor }
+                    TapHandler { onTapped: root.openLink(String(linkCard.link.url || "")) }
+                  }
+                  Item { Layout.fillWidth: true; visible: !bubbleRow.mine }
+                }
+
                 // the bubble in an explicit spacer row: a stretchy Item on
                 // the sender's far side guarantees right/left placement even
                 // when the delegate's own width collapses to its content.
@@ -1569,7 +1745,8 @@ FocusScope {
                   Layout.topMargin: (modelData.groupStart ? Style.space(6) : 0)
                                     + ((modelData.tapbacks || []).length > 0 ? Style.space(12) : 0)
                   visible: !modelData.retracted &&
-                           (String(modelData.text || "") !== "" || (modelData.attachments || []).length === 0)
+                           (String(modelData.text || "") !== "" || (modelData.attachments || []).length === 0) &&
+                           !(modelData.link && String(modelData.text || "").trim() === String(modelData.link.url))
                   spacing: 0
 
                   Item { Layout.fillWidth: true; visible: bubbleRow.mine }

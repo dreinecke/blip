@@ -10,6 +10,7 @@
  *   bun thread.ts <chat-id> [limit]
  */
 
+import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import {
   chatKey,
@@ -18,11 +19,32 @@ import {
   loadState,
   type AttachmentMeta,
   type ImsgMessage,
+  type LinkCard,
   type Tapback,
 } from "./collector";
 export { dedupeSelfEcho };
 
-const HOME = process.env.HOME ?? "/home/pi";
+const HOME = process.env.HOME ?? homedir();
+
+/** Only http(s) cards are shown; anything else is not clickable-safe. */
+export function normalizeLink(l: ImsgMessage["link"]): LinkCard | null {
+  if (!l || typeof l !== "object") return null;
+  const url = String(l.url ?? "").trim();
+  if (!/^https?:\/\//i.test(url)) return null;
+  const image_id = String(l.image_id ?? "");
+  return {
+    url,
+    title: String(l.title ?? "").trim(),
+    summary: String(l.summary ?? "").trim(),
+    image_id: /^[0-9]{1,18}$/.test(image_id) ? image_id : "",
+  };
+}
+
+/** "omarchy.org" for a card's footer. */
+export function linkHost(url: string): string {
+  const m = /^https?:\/\/([^/?#]+)/i.exec(url);
+  return (m ? m[1] : url).replace(/^www\./, "").toLowerCase();
+}
 
 /** Messages closer together than this belong to the same visual cluster. */
 export const GROUP_GAP_MINUTES = 15;
@@ -50,6 +72,8 @@ export interface Bubble {
   replyText: string;
   replyMine: boolean;
   edited: boolean;
+  /** Rich-link preview card, null when the message has none. */
+  link: LinkCard | null;
   /** An unsent message renders as a tombstone, not a bubble. */
   retracted: boolean;
   /** Screen/bubble effect short name ("confetti"), "" when none. */
@@ -172,6 +196,7 @@ export function decorate(msgs: ImsgMessage[], today: string): Bubble[] {
       replyText: m.reply_to?.text ?? "",
       replyMine: m.reply_to?.from_me ?? false,
       edited: m.edited === true,
+      link: normalizeLink(m.link),
       retracted: m.retracted === true,
       effect: m.effect ?? "",
       audio: m.audio === true,

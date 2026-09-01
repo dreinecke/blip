@@ -18,7 +18,8 @@ import qs.Commons
 FloatingWindow {
   id: win
   property var hostWidget: null
-  title: "Blip"
+  // "Blip (3)" while unread exists — selectors match the "Blip" PREFIX.
+  title: "Blip" + (hostWidget && hostWidget.unread > 0 ? " (" + hostWidget.unread + ")" : "")
   color: Color.background
   implicitWidth: 1040
   implicitHeight: 720

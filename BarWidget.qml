@@ -126,7 +126,7 @@ BarWidget {
     // `running = true` while it thinks a previous run is alive, which left
     // showApp() "succeeding" without ever focusing (SUPER+M "nothing at all").
     Quickshell.execDetached(["sh", "-c",
-      'for i in 1 2 3 4 5 6 7 8; do a=$(hyprctl clients -j | jq -r \'.[] | select(.title == "Blip") | .address\' | head -1); [ -n "$a" ] && break; sleep 0.15; done; ' +
+      'for i in 1 2 3 4 5 6 7 8; do a=$(hyprctl clients -j | jq -r \'.[] | select(.title | startswith("Blip")) | .address\' | head -1); [ -n "$a" ] && break; sleep 0.15; done; ' +
       '[ -n "$a" ] && hyprctl dispatch "hl.dsp.focus({ window = \\"address:$a\\" })" >/dev/null'])
   }
   /** Either surface open → keep the deep (complete) thread list. */
