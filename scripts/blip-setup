@@ -16,6 +16,18 @@ set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 host="${1:-}"
+
+# 0. Linux prerequisites — say exactly what is missing instead of failing later
+missing=()
+for dep in ssh scp bun jq notify-send wl-copy xdg-open; do
+  command -v "$dep" >/dev/null 2>&1 || missing+=("$dep")
+done
+if (( ${#missing[@]} )); then
+  echo "✗ missing on this machine: ${missing[*]}" >&2
+  echo "  pacman -S --needed openssh bun jq libnotify wl-clipboard xdg-utils   (Omarchy/Arch names)" >&2
+  exit 69
+fi
+echo "✓ Linux prerequisites present (ssh scp bun jq notify-send wl-copy xdg-open)"
 conf_dir="$HOME/.config/blip"
 conf="$conf_dir/bridge.conf"
 

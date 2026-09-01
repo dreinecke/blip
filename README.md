@@ -99,6 +99,13 @@ Linux side. If the Mac is asleep, the widget dims and says so.
 </tr>
 </table>
 
+## Privacy
+
+No server, no telemetry, no accounts. The full inventory of what touches
+disk on both machines is in [docs/PRIVACY.md](docs/PRIVACY.md) — short
+version: message text never lands on disk; only attachments you open are
+cached.
+
 ## How it works
 
 <p align="center">
