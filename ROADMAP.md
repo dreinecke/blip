@@ -159,6 +159,24 @@ on the Mac plus hand-made vic shims with `fnix` hardcoded.
   2026-08-31: "not interested in trying another machine yet"); revisit only
   when he raises it.
 
+## Futures — requested, not scheduled
+
+- [ ] **In-flight encryption** (community request, 2026-09-01). Today every
+  byte between Linux and the Mac already travels inside ssh (the dedicated
+  `blip_ed25519` key; messages, attachment bytes, the push ping). So the
+  honest scope of this request is one of:
+  - *Say it plainly* — README/PRIVACY state that the transport is ssh, but a
+    reader asked, so it is not prominent enough. Cheap; do first.
+  - *At rest on Linux* — `~/.cache/blip/att` and `avatars` are plain files
+    (relies on full-disk encryption). Option: encrypt cache entries with a
+    per-install key in `~/.config/blip` (age/NaCl secretbox), decrypt to
+    tmpfs on open. Costs: `xdg-open` needs a plaintext file anyway.
+  - *App-layer, independent of ssh* — encrypt tool output/input between
+    `blip-dispatch` and the shim with a pre-shared key so a stale
+    ControlMaster socket or a local proxy on either box sees ciphertext.
+    Defense in depth only; ssh is already the channel. Decide after asking
+    the requester which threat they mean.
+
 ## Prior art
 
 - **[BlueFerry](https://github.com/erikwb/blueferry)** — iMessage on Linux over

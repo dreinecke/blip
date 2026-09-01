@@ -142,7 +142,10 @@ Linux side. If the Mac is asleep, the widget dims and says so.
 
 ## Privacy
 
-No server, no telemetry, no accounts. The full inventory of what touches
+No server, no telemetry, no accounts. **Everything between the two machines
+travels inside ssh** — message text, attachment bytes, the push ping — on a
+dedicated key the Mac confines to Blip's five tools; nothing is ever sent in
+the clear. The full inventory of what touches
 disk on both machines is in [docs/PRIVACY.md](docs/PRIVACY.md) — short
 version: message text never lands on disk; only attachments you open are
 cached. The threat model and the findings of the 2026-08-31 security audit
