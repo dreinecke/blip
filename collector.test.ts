@@ -733,3 +733,24 @@ describe("complete conversation list (mergeChats)", () => {
     expect(out.find((t) => t.chat === "ce5a593a78af408282d61461ade89135")!.name).toBe("LMT");
   });
 });
+
+describe("explainBridgeError — a dim icon is not a diagnosis", () => {
+  const { explainBridgeError } = require("./collector") as typeof import("./collector");
+  test("missing Full Disk Access names the grant", () => {
+    expect(explainBridgeError(1, "sqlite3.OperationalError: unable to open database file")).toContain("Full Disk Access");
+    expect(explainBridgeError(1, "authorization denied")).toContain("Full Disk Access");
+  });
+  test("missing Automation names the prompt", () => {
+    expect(explainBridgeError(1, "execution error: Not authorized to send Apple events to Messages. (-1743)")).toContain("Automation");
+  });
+  test("unconfigured shim points at blip-setup", () => {
+    expect(explainBridgeError(78, "blip: no Mac configured — run blip-setup")).toContain("blip-setup");
+  });
+  test("missing Mac tools points at blip-setup", () => {
+    expect(explainBridgeError(2, "python3: can't open file '/Users/x/.blip/bin/imsg': [Errno 2] No such file or directory")).toContain("blip-setup");
+  });
+  test("unknown errors fall back to the first stderr line", () => {
+    expect(explainBridgeError(3, "something odd\nmore")).toBe("something odd");
+    expect(explainBridgeError(3, "")).toBe("imsg exit 3");
+  });
+});

@@ -488,6 +488,35 @@ export interface FetchResult {
  * Call the imsg shim. Offline is exit 69 (our guard shim) or 255 (a bare ssh
  * failure through claude-on-mac's remote shim, which has no guard of its own).
  */
+/**
+ * Turn the bridge's failure output into the ONE sentence that fixes it. A
+ * dim icon is not a diagnosis: a stranger's first hour dies on "Full Disk
+ * Access" or a missing Automation grant, and both have exact remedies.
+ */
+export function explainBridgeError(status: number | null, stderr: string): string {
+  const s = (stderr || "").toLowerCase();
+  if (status === 78 || s.includes("no mac configured")) {
+    return "Blip is not set up yet — run scripts/blip-setup <your-mac>";
+  }
+  if (s.includes("unable to open database") || s.includes("authorization denied") ||
+      s.includes("operation not permitted") || s.includes("chat.db not found")) {
+    return "The Mac denies chat.db: grant Full Disk Access to /usr/libexec/sshd-keygen-wrapper "
+         + "(System Settings → Privacy & Security), then reconnect";
+  }
+  if (s.includes("-1743") || s.includes("not authorized to send apple events") || s.includes("not permitted to")) {
+    return "Messages automation not granted: click Allow on the Mac (System Settings → Privacy & Security → "
+         + "Automation → sshd-keygen-wrapper → Messages)";
+  }
+  if (s.includes("python") && (s.includes("no such file") || s.includes("not found"))) {
+    return "Mac tools missing: re-run scripts/blip-setup (installs ~/.blip/bin on the Mac)";
+  }
+  if (s.includes("permission denied (publickey") || s.includes("host key verification failed")) {
+    return "ssh to the Mac needs key auth: ssh-copy-id <your-mac>, then re-run blip-setup";
+  }
+  const first = (stderr || "").trim().split("\n")[0];
+  return first || `imsg exit ${status}`;
+}
+
 export function fetchMessages(limit: number, runner = spawnSync): FetchResult {
   const res = runner(`${HOME}/bin/imsg`, ["--json", "recent", String(limit)], {
     encoding: "utf8",
@@ -498,7 +527,7 @@ export function fetchMessages(limit: number, runner = spawnSync): FetchResult {
     return { ok: false, online: false, error: "Mac unreachable", msgs: [] };
   }
   if (res.status !== 0) {
-    const err = (res.stderr || "").toString().trim().split("\n")[0] || `imsg exit ${res.status}`;
+    const err = explainBridgeError(res.status, (res.stderr || "").toString());
     return { ok: false, online: true, error: err, msgs: [] };
   }
   try {

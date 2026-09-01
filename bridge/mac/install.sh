@@ -15,7 +15,7 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 dest="$HOME/.blip/bin"
 mkdir -p "$dest"
-for t in imsg imsg-send contacts tcc-check; do
+for t in imsg imsg-send contacts tcc-check blip-check; do
   if [[ -f "$here/$t" ]]; then
     install -m 0755 "$here/$t" "$dest/$t"
   else
@@ -48,4 +48,4 @@ Two permissions must be granted by hand (macOS will not let a script do it):
 
 Then check:
 EOF
-python3 "$dest/tcc-check" 2>/dev/null || echo "  python3 $dest/tcc-check"
+python3 "$dest/blip-check" || true

@@ -115,8 +115,9 @@ on the Mac plus hand-made vic shims with `fnix` hardcoded.
 - [x] `scripts/blip-setup` — 1.7.0: config, ControlMaster block, shims
   (backs up existing), Mac install over ssh (`bridge/mac/install.sh` →
   `~/.blip/bin`), TCC grant walkthrough + `tcc-check`, smoke test. Dogfooded
-  on vic. Still open: `blip-setup` should trigger the Automation prompt with
-  a self-send, and tcc-check should filter to the Messages-relevant checks.
+  on vic. 1.9.0: `bridge/mac/blip-check` (chat.db / Messages automation /
+  Contacts, checked over ssh — the automation check itself pops the Allow
+  prompt) with a grant-then-recheck loop in the wizard.
 - [ ] Self-handles: auto-detected from chat.db already (`imsg-send
   --list-self`); allowlist editor still open. De-vic'd all strings (1.7.0).
 
@@ -127,6 +128,11 @@ on the Mac plus hand-made vic shims with `fnix` hardcoded.
   sidebar search; unread count in the title.
 
 **C. Polish for strangers' machines.**
+- [x] **Honest failure states** — 1.9.0: `collector.explainBridgeError` maps
+  bridge stderr to the one sentence that fixes it (Full Disk Access,
+  Automation, blip-setup, missing Mac tools, ssh keys); the panel shows it in
+  urgent red, the bar tooltip carries it. Verified by breaking the bridge on
+  purpose. Still open: Linux-side dependency checks (`bun`/`jq`/`wl-copy`).
 - [ ] Remove vic assumptions: paths, mpv/xdg handlers, Hyprland-only bits;
   degrade gracefully (older macOS without `date_edited`, no sips, no HEIC).
 - [ ] First-run and offline UX: clear "Mac unreachable / grant missing"

@@ -902,6 +902,19 @@ FocusScope {
               font.pixelSize: Style.font.bodySmall
               wrapMode: Text.WordWrap
             }
+            // Reachable but broken — say exactly what to fix (Full Disk Access,
+            // Automation, blip-setup). collector.explainBridgeError writes it.
+            Text {
+              Layout.fillWidth: true
+              visible: root.online && root.hostWidget && !root.hostWidget.healthy
+                       && String(root.hostWidget.lastError || "") !== ""
+              text: "⚠ " + String(root.hostWidget ? root.hostWidget.lastError : "")
+              textFormat: Text.PlainText
+              color: root.urgent
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              wrapMode: Text.WordWrap
+            }
 
             // ---------------------------------------------- LIST VIEW
             RowLayout {

@@ -77,6 +77,17 @@ if ssh -n -o ConnectTimeout=6 -o BatchMode=yes "$host" true 2>/dev/null; then
   ssh "$host" 'mkdir -p ~/.blip/src'
   scp -q "$here"/bridge/mac/* "$host:~/.blip/src/"
   ssh "$host" 'bash ~/.blip/src/install.sh'
+
+  # The three grants, checked in the ssh context that matters. The automation
+  # check TALKS to Messages.app, which pops the one-time Allow prompt on the
+  # Mac's screen when the grant is missing — so give the user a beat to click.
+  for attempt in 1 2 3; do
+    echo; echo "Checking Mac permissions (attempt $attempt)…"
+    if ssh "$host" 'python3 ~/.blip/bin/blip-check'; then break; fi
+    if [[ $attempt -lt 3 ]]; then
+      read -r -p "Grant what is missing on the Mac (an Allow prompt may be on its screen), then press Enter to re-check (or Ctrl-C): " _
+    fi
+  done
 else
   echo "✗ cannot ssh to $host non-interactively yet. Set up key auth (ssh-copy-id $host), then re-run blip-setup." >&2
   echo "  On the Mac, you can also run the installer by hand:" >&2
