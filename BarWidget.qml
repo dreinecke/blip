@@ -93,6 +93,18 @@ BarWidget {
     windowLoader.item.visible = !windowLoader.item.visible
     if (windowLoader.item.visible) root.refresh(true, false)   // full list, like the panel
   }
+  // Show AND focus: a window restored on another workspace is invisible to
+  // the user, and a plain toggle would HIDE it ("SUPER+M doesn't load the
+  // app"). Hyprland ≥0.56 dispatch takes Lua; classic focuswindow is rejected.
+  Process { id: focusProc }
+  function showApp() {
+    if (!windowLoader.item) return
+    if (!windowLoader.item.visible) { windowLoader.item.visible = true; root.refresh(true, false) }
+    focusProc.command = ["sh", "-c",
+      'for i in 1 2 3 4 5 6 7 8; do a=$(hyprctl clients -j | jq -r \'.[] | select(.title == "Blip") | .address\' | head -1); [ -n "$a" ] && break; sleep 0.15; done; ' +
+      '[ -n "$a" ] && hyprctl dispatch "hl.dsp.focus({ window = \\"address:$a\\" })" >/dev/null']
+    focusProc.running = true
+  }
   /** Either surface open → keep the deep (complete) thread list. */
   function anySurfaceOpen() {
     return (panelLoader.item && panelLoader.item.opened === true)
@@ -106,7 +118,7 @@ BarWidget {
     if (dblClick.running) {
       dblClick.stop()
       root.close()
-      if (windowLoader.item && !windowLoader.item.visible) root.toggleWindow()
+      root.showApp()
       return
     }
     dblClick.restart()
@@ -470,6 +482,7 @@ BarWidget {
     function find(query: string): string { return panelLoader.item ? panelLoader.item.searchFor(query) : "no panel" }
     function newchat(query: string): string { return panelLoader.item ? panelLoader.item.newChatFor(query) : "no panel" }
     function window(): string { root.toggleWindow(); return windowLoader.item ? (windowLoader.item.visible ? "window shown" : "window hidden") : "no window" }
+    function app(): string { root.showApp(); return "app shown + focused" }
     function windowgoto(chat: string): string {
       var w = windowLoader.item
       if (!w) return "no window"
