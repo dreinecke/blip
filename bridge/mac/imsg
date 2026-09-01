@@ -657,63 +657,79 @@ SENT_ROOT = os.path.expanduser("~/.blip/sent")
 ATTACH_MAX_BYTES = 100 * 1024 * 1024  # hard ceiling, deliberately no flag
 
 
+def _avatar_bytes(db_path: str, pk: int) -> bytes:
+    """Photo bytes for one AddressBook record, or b"". Tries the thumbnail,
+    then the full image. Either column may hold the bytes inline OR a Core
+    Data external-storage reference (\x02<UUID>\x00) naming a file under
+    <Source>/.AddressBook-v22_SUPPORT/_EXTERNAL_DATA/."""
+    try:
+        con2 = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
+        row = con2.execute(
+            "SELECT ZTHUMBNAILIMAGEDATA, ZIMAGEDATA FROM ZABCDRECORD WHERE Z_PK = ?", (pk,)
+        ).fetchone()
+        con2.close()
+    except sqlite3.DatabaseError:
+        return b""
+    ext_dir = os.path.realpath(os.path.join(os.path.dirname(db_path), ".AddressBook-v22_SUPPORT", "_EXTERNAL_DATA"))
+    for col in (row or ()):
+        data = bytes(col) if col is not None else b""
+        if not data:
+            continue
+        if not data.startswith((b"\xff\xd8", b"\x89PNG")):
+            mref = re.search(r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}",
+                             data.decode("latin-1"))
+            if not mref:
+                continue
+            fp = os.path.realpath(os.path.join(ext_dir, mref.group(0)))
+            if os.path.commonpath([fp, ext_dir]) != ext_dir:
+                continue
+            try:
+                with open(fp, "rb") as f:
+                    data = f.read(2 * 1024 * 1024 + 1)
+            except OSError:
+                continue
+        if data.startswith((b"\xff\xd8", b"\x89PNG")) and len(data) <= 2 * 1024 * 1024:
+            return data
+    return b""
+
+
 def cmd_avatar(con, args):
-    """Stream a contact's thumbnail (JPEG bytes from the AddressBook's
-    ZTHUMBNAILIMAGEDATA) for one handle to stdout. Exit 1 when the handle has
-    no contact or the contact has no photo; ambiguous last-ten-digit
-    collisions resolve to no photo, like name_for()."""
+    """Stream a contact's photo (JPEG/PNG bytes) for one handle to stdout.
+    The same person usually exists in SEVERAL sources (iCloud, Exchange, On
+    My Mac) — those are candidates, not ambiguity; the first with a photo
+    wins. Two DIFFERENT records within one source sharing the key is
+    ambiguous → no photo (mirrors name_for). Exit 1 when nothing found."""
     handle = (args.handle or "").strip()
     if not handle or len(handle) > 320:
         sys.exit("error: bad handle")
     want_email = "@" in handle
     key = handle.lower() if want_email else _normalize_phone(handle)
-    hit = None
+    if not key:
+        sys.exit(1)
+    candidates: list[tuple[str, int]] = []
     for path in glob(_AB_GLOB):
         try:
             con2 = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
             q = ("SELECT ZOWNER AS pk, ZADDRESS AS v FROM ZABCDEMAILADDRESS" if want_email
                  else "SELECT ZOWNER AS pk, ZFULLNUMBER AS v FROM ZABCDPHONENUMBER")
+            pks = set()
             for pk, v in con2.execute(q):
                 k = (v or "").strip().lower() if want_email else _normalize_phone(v or "")
-                if k and k == key:
-                    if hit is not None and hit[1] != pk:
-                        sys.exit(1)  # ambiguous
-                    hit = (path, pk)
+                if k and k == key and pk is not None:
+                    pks.add(pk)
             con2.close()
         except sqlite3.DatabaseError:
             continue
-    if not hit:
-        sys.exit(1)
-    try:
-        con2 = sqlite3.connect(f"file:{hit[0]}?mode=ro", uri=True)
-        row = con2.execute("SELECT ZTHUMBNAILIMAGEDATA FROM ZABCDRECORD WHERE Z_PK = ?", (hit[1],)).fetchone()
-        con2.close()
-    except sqlite3.DatabaseError:
-        sys.exit(1)
-    data = bytes(row[0]) if row and row[0] is not None else b""
-    # Core Data stores big blobs EXTERNALLY: the column then holds a UUID
-    # naming a file under <Source>/.AddressBook-v22_SUPPORT/_EXTERNAL_DATA/.
-    if data and not data.startswith((b"\xff\xd8", b"\x89PNG")):
-        # The reference is a length-prefixed, NUL-terminated UUID string.
-        mref = re.search(r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}",
-                         data.decode("latin-1"))
-        if not mref:
-            sys.exit(1)
-        ref = mref.group(0)
-        src_dir = os.path.dirname(hit[0])
-        ext_dir = os.path.realpath(os.path.join(src_dir, ".AddressBook-v22_SUPPORT", "_EXTERNAL_DATA"))
-        fp = os.path.realpath(os.path.join(ext_dir, ref))
-        if os.path.commonpath([fp, ext_dir]) != ext_dir:
-            sys.exit(1)
-        try:
-            with open(fp, "rb") as f:
-                data = f.read(2 * 1024 * 1024 + 1)
-        except OSError:
-            sys.exit(1)
-    if not data or len(data) > 2 * 1024 * 1024:
-        sys.exit(1)
-    sys.stdout.buffer.write(data)
-    sys.stdout.buffer.flush()
+        if len(pks) == 1:
+            candidates.append((path, pks.pop()))
+        # len > 1 inside ONE source: ambiguous there — skip that source only
+    for path, pk in candidates:
+        data = _avatar_bytes(path, pk)
+        if data:
+            sys.stdout.buffer.write(data)
+            sys.stdout.buffer.flush()
+            return
+    sys.exit(1)
 
 
 def cmd_attachment(con, args):
