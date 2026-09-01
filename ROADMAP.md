@@ -161,21 +161,15 @@ on the Mac plus hand-made vic shims with `fnix` hardcoded.
 
 ## Futures — requested, not scheduled
 
-- [ ] **In-flight encryption** (community request, 2026-09-01). Today every
-  byte between Linux and the Mac already travels inside ssh (the dedicated
-  `blip_ed25519` key; messages, attachment bytes, the push ping). So the
-  honest scope of this request is one of:
-  - *Say it plainly* — README/PRIVACY state that the transport is ssh, but a
-    reader asked, so it is not prominent enough. Cheap; do first.
-  - *At rest on Linux* — `~/.cache/blip/att` and `avatars` are plain files
-    (relies on full-disk encryption). Option: encrypt cache entries with a
-    per-install key in `~/.config/blip` (age/NaCl secretbox), decrypt to
-    tmpfs on open. Costs: `xdg-open` needs a plaintext file anyway.
-  - *App-layer, independent of ssh* — encrypt tool output/input between
-    `blip-dispatch` and the shim with a pre-shared key so a stale
-    ControlMaster socket or a local proxy on either box sees ciphertext.
-    Defense in depth only; ssh is already the channel. Decide after asking
-    the requester which threat they mean.
+- [ ] **In-flight encryption** (community request, 2026-09-01) — **answered,
+  not scheduled.** In flight: every byte between the two machines already
+  rides ssh on the dedicated `blip_ed25519` key. At rest: that is the disk's
+  job — Omarchy installs with LUKS by default and the Mac has FileVault —
+  and Blip only ever writes opened attachments, contact thumbnails, and a
+  timestamps/counts state file (never message text). Encrypting the cache
+  ourselves would add nothing on an encrypted disk and still hand `xdg-open`
+  a plaintext file on an unencrypted one. Revisit only if someone names a
+  concrete threat that ssh + disk encryption does not cover.
 
 ## Prior art
 
