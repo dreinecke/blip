@@ -97,6 +97,42 @@ a daemon only returns if the app ever has to run outside the shell).
   size/position; Esc closes; sidebar search; unread counts in the title.
 - [ ] ~~`blipd` daemon~~ — retired (see above).
 
+## Release readiness — Omarchy plugin site
+
+Gate: **Fred says "complete."** Nothing ships to the marketplace before that.
+
+**A. One source (blocker).** Blip currently depends on claude-on-mac ≥1.11.0
+on the Mac plus hand-made vic shims with `fnix` hardcoded.
+- [ ] Vendor the Mac tools into `bridge/mac/` (`imsg`, `imsg-send`,
+  `contacts`) as a pinned copy; `scripts/sync-bridge.sh` pulls a tagged
+  claude-on-mac version so upstream stays the general toolkit.
+- [ ] Generic Linux shims in `bridge/linux/` that read the Mac host from
+  `~/.config/blip/config.json` — no hostname in code; `ssh -n` preflight.
+- [ ] `blip-setup`: guided first run — Mac host + user, ControlMaster ssh
+  config, shim install, one-paste Mac install, and the two TCC grants
+  (Full Disk Access + Automation→Messages for sshd) with a `tcc-check`.
+- [ ] Self-handles from config/env, never hardcoded; allowlist editor.
+
+**B. Finish the app.**
+- [ ] Shared `BlipView` (docs/app-design-review.md) so the window has the
+  rich renderer: tapbacks, inline photos, replies, search, attachments.
+- [ ] Keybind to toggle the window; remembered size/position; Esc closes;
+  sidebar search; unread count in the title.
+
+**C. Polish for strangers' machines.**
+- [ ] Remove vic assumptions: paths, mpv/xdg handlers, Hyprland-only bits;
+  degrade gracefully (older macOS without `date_edited`, no sips, no HEIC).
+- [ ] First-run and offline UX: clear "Mac unreachable / grant missing"
+  states with the fix spelled out.
+- [ ] Contact photos; link preview cards (nice-to-have).
+
+**D. Ship hygiene.**
+- [ ] Full Codex audit (security: ssh, stdin file path, cache, drafts) +
+  privacy doc (what lands on disk: state.json, ~/.cache/blip, drafts).
+- [ ] README rewrite for non-Fred users; screenshots/GIF; manifest fields
+  (description, author, screenshots); CHANGELOG; version 2.0.0.
+- [ ] Test on a second Mac/Linux pair before publishing.
+
 ## Prior art
 
 - **[BlueFerry](https://github.com/erikwb/blueferry)** — iMessage on Linux over
