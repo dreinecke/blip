@@ -70,6 +70,13 @@ changes to the Mac beyond claude-on-mac updates.
   (escaped-then-linkified in thread.ts, injection-tested; plain messages keep
   the PlainText fast path). Full preview CARDS (title/thumbnail from the
   pluginPayloadAttachment blob) remain open — binary plist parsing.
+- [ ] **Failed-delivery flags** — surface late outbound failures in the UI.
+  AppleScript returns 0 for a file send that later dies; the error lives only
+  in chat.db (`message.error`, e.g. 25 — a photo to a real contact failed
+  silently 2026-08-31; the unstage race is fixed in claude-on-mac 1.9.1, but
+  OTHER failure modes will still be invisible). Plan: `imsg --rich` emits
+  `error` on from-me rows → bubble gets a red "Not Delivered ⚠" tag; the
+  collector toasts a failure for a recent Blip-originated send.
 
 ## Tier 4 — the actual app
 
