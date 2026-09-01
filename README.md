@@ -14,7 +14,7 @@
   <img alt="Omarchy" src="https://img.shields.io/badge/Omarchy-plugin-5fd7ff?style=flat-square">
   <img alt="QuickShell" src="https://img.shields.io/badge/QuickShell-QML-0a84ff?style=flat-square">
   <img alt="bun" src="https://img.shields.io/badge/bun-TypeScript-f9f1e1?style=flat-square">
-  <img alt="tests" src="https://img.shields.io/badge/tests-113%20passing-2ea043?style=flat-square">
+  <img alt="tests" src="https://img.shields.io/badge/tests-172%20passing-2ea043?style=flat-square">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square">
 </p>
 
@@ -82,10 +82,23 @@ Linux side. If the Mac is asleep, the widget dims and says so.
 **The app**
 - double-click the bar icon, press `SUPER+M`, or IPC `app` for a
   Messages-style window (IPC `window` is a plain toggle). For the keybind, add
-  to `~/.config/hypr/bindings.lua` — it focuses the window wherever it lives
-  and hides it only when it is already in front:
+  this to `~/.config/hypr/bindings.lua` — it asks **Hyprland** where the
+  window is (front → close, elsewhere → focus, none → create) instead of
+  the plugin, because after an Omarchy plugin update the plugin's IPC can
+  answer from a stale instance until the shell restarts:
   ```lua
-  o.bind("SUPER + M", "Blip messages", "sh -c 'if [ \"$(hyprctl activewindow -j | jq -r .title)\" = Blip ]; then qs -p /usr/share/omarchy/shell ipc call nixfred.blip window; else qs -p /usr/share/omarchy/shell ipc call nixfred.blip app; fi'")
+  o.bind("SUPER + M", "Blip messages", [[sh -c '
+    blip() { hyprctl clients -j | jq -r ".[] | select(.title == \"Blip\") | .address" | head -1; }
+    a=$(blip)
+    if [ -z "$a" ]; then
+      qs -p /usr/share/omarchy/shell ipc call nixfred.blip app >/dev/null
+      for i in 1 2 3 4 5 6 7 8 9 10 11 12; do a=$(blip); [ -n "$a" ] && break; sleep 0.15; done
+      [ -n "$a" ] && hyprctl dispatch "hl.dsp.focus({ window = \"address:$a\" })"
+    elif [ "$(hyprctl activewindow -j | jq -r .address)" = "$a" ]; then
+      hyprctl dispatch "hl.dsp.window.close({ window = \"address:$a\" })"
+    else
+      hyprctl dispatch "hl.dsp.focus({ window = \"address:$a\" })"
+    fi']])
   ```
   sidebar of every conversation + the open thread + compose, tiled by
   Hyprland like any app, sharing the bar widget's live data
@@ -104,7 +117,8 @@ Linux side. If the Mac is asleep, the widget dims and says so.
 No server, no telemetry, no accounts. The full inventory of what touches
 disk on both machines is in [docs/PRIVACY.md](docs/PRIVACY.md) — short
 version: message text never lands on disk; only attachments you open are
-cached.
+cached. The threat model and the findings of the 2026-08-31 security audit
+are in [docs/SECURITY.md](docs/SECURITY.md).
 
 ## How it works
 
@@ -117,8 +131,8 @@ Linux                                         Mac
 ─────                                         ───
 BarWidget.qml  ── push/poll ──▶ collector.ts ──▶ ssh ──▶ imsg --json recent 150+
                                                           (sqlite, read-only)
-Panel.qml      ── open thread ─▶ thread.ts   ──▶ ssh ──▶ imsg --json thread <id> 80
-Panel.qml      ── Enter ───────────────────────▶ ssh ──▶ imsg-send --to <id> --yes -- "text"
+BlipView.qml   ── open thread ─▶ thread.ts   ──▶ ssh ──▶ imsg --json thread <id> 80
+BlipView.qml   ── Enter ─────(body on stdin)──▶ ssh ──▶ imsg-send --to <id> --yes --text-stdin
                                                           imsg-send --chat-id "any;+;<guid>" …
                                                           (AppleScript → Messages.app)
 ```
@@ -159,8 +173,9 @@ git clone https://github.com/nixfred/blip ~/.config/omarchy/plugins/nixfred.blip
 It writes `~/.config/blip/bridge.conf`, adds an ssh ControlMaster block
 (polling costs ~50 ms instead of a handshake), installs the bridge shim as
 `~/bin/imsg`, `~/bin/imsg-send`, `~/bin/contacts`, copies the Mac tools to
-`~/.blip/bin` on the Mac and runs `install.sh` there, then smoke-tests the
-bridge.
+`~/.blip/bin` on the Mac and runs `install.sh` there, generates a
+**dedicated ssh key** (`~/.ssh/blip_ed25519`) that the Mac confines to the
+five bridge tools and nothing else, then smoke-tests the bridge.
 
 **3. Two grants on the Mac** (macOS won't let a script do these)
 
@@ -169,7 +184,8 @@ bridge.
 - *Automation → Messages* → the first send from ssh pops an Allow prompt on
   the Mac's screen; click it once.
 
-`ssh your-mac python3 ~/.blip/bin/tcc-check` tells you what's still missing.
+`ssh your-mac python3 ~/.blip/bin/blip-check` tells you what's still missing
+(the wizard runs it for you and waits while you click).
 
 **4.** Add `{ "id": "nixfred.blip" }` to `bar.layout.right` in
 `~/.config/omarchy/shell.json`, `omarchy-restart-shell`, and the speech
@@ -205,6 +221,12 @@ qs -p /usr/share/omarchy/shell ipc call nixfred.blip status
 qs -p /usr/share/omarchy/shell ipc call nixfred.blip goto 15551234567   # bare digits
 qs -p /usr/share/omarchy/shell ipc call nixfred.blip read               # mark all read
 ```
+
+Everything that sends or reads message content over IPC (`goto`, `compose`,
+`bubbles`, `threads`, `find`, `newchat`, `read`) is **off by default** — any
+local process could otherwise send as you. Turn it on with `automation=on`
+in `~/.config/blip/bridge.conf` (re-read live). `status`, `open`, `close`,
+`toggle`, `window`, `app` are always available.
 
 ## Design notes worth knowing
 
@@ -258,7 +280,7 @@ The 273,000-message history stays on the Mac where it lives.
 ## Development
 
 ```sh
-bun test                                     # 113 tests, ~50 ms
+bun test                                     # 172 tests, ~70 ms
 bun collector.ts --deep | jq '.unread, (.threads|length)'
 bun thread.ts +15551234567 40 | jq '.bubbles[-1]'
 ```

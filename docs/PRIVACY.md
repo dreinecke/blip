@@ -33,7 +33,8 @@ Threat model and the audit findings behind these notes: [SECURITY.md](SECURITY.m
 |---|---|
 | `~/.blip/bin/` | the bridge tools (`imsg`, `imsg-send`, `contacts`, `tcc-check`, `blip-check`) |
 | `~/.blip/src/` | the installer's copy of the same files |
-| `~/Pictures/.blip-outbox/<id>/` | a file you are sending, for the seconds until Messages copies it into its own store; then deleted (leftovers older than an hour are swept) |
+| `~/Pictures/.blip-outbox/<id>/` | a file you are sending, for the seconds until Messages copies it into its own store; then moved to `~/.blip/sent` (leftovers older than an hour are swept) |
+| `~/.blip/sent/<id>/` (200 MB LRU) | files Blip sent — kept because Messages often leaves the attachment record pointing at the staging path instead of copying it, and Blip would otherwise never be able to show your own photo again |
 
 The tools read `~/Library/Messages/chat.db` and the AddressBook database
 read-only, and drive Messages.app through AppleScript. They write nothing

@@ -76,14 +76,17 @@ export function sendFile(
     closeSync(fd);
   }
 
+  // Caption rides on stdin ahead of the file bytes (--text-stdin-bytes N), so
+  // message text never appears in any process's argv on either machine.
+  const cap = Buffer.from(caption.trim(), "utf8");
   const args = [
     ...target.args,
     "--file-stdin",
     "--name", basename(path),
     "--yes",
-    ...(caption.trim() !== "" ? ["--", caption] : []),
+    ...(cap.length > 0 ? ["--text-stdin-bytes", String(cap.length)] : []),
   ];
-  const res = runner(`${HOME}/bin/imsg-send`, args, { input: buf, timeout: 180000 });
+  const res = runner(`${HOME}/bin/imsg-send`, args, { input: cap.length > 0 ? Buffer.concat([cap, buf]) : buf, timeout: 180000 });
   if (res.status === 69 || res.status === 255) return fail("Mac unreachable", false);
   if (res.status !== 0) {
     const err = (res.stderr || "").toString().trim().split("\n").pop() || `imsg-send exit ${res.status}`;

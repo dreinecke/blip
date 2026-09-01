@@ -2,7 +2,8 @@ import { describe, expect, test } from "bun:test";
 
 import { cacheFileName, fetchAttachment, lruEvictions, sanitizeName, wantsJpeg } from "./fetch";
 import { extFor, pickImageType } from "./paste";
-import { resolveTarget } from "./send-file";
+import { resolveTarget, sendFile } from "./send-file";
+import { writeFileSync, unlinkSync } from "node:fs";
 
 describe("fetch cache", () => {
   test("HEIC wants a Mac-side JPEG conversion, others stream raw", () => {
@@ -58,6 +59,28 @@ describe("fetch cache", () => {
     const r = fetchAttachment("123456789012345", "x.png", "image/png", runner);
     expect(r.ok).toBe(false);
     expect(r.online).toBe(false);
+  });
+});
+
+describe("send-file caption transport", () => {
+  test("caption travels on stdin ahead of the file, never in argv (audit #4)", () => {
+    let seen: { args: string[]; input: Buffer } | null = null;
+    const runner = ((_cmd: string, args: string[], opts: { input: Buffer }) => {
+      seen = { args, input: opts.input };
+      return { status: 0, stdout: "", stderr: "" };
+    }) as never;
+    const tmp = `${process.env.HOME}/.cache/blip-test-${process.pid}.txt`;
+    writeFileSync(tmp, "FILEBYTES");
+    try {
+      const r = sendFile("+15551234567", tmp, "héllo", runner);
+      expect(r.ok).toBe(true);
+      expect(seen!.args.join(" ")).not.toContain("héllo");
+      const capLen = Buffer.byteLength("héllo", "utf8");
+      expect(seen!.args).toContain("--text-stdin-bytes");
+      expect(seen!.args[seen!.args.indexOf("--text-stdin-bytes") + 1]).toBe(String(capLen));
+      expect(seen!.input.subarray(0, capLen).toString("utf8")).toBe("héllo");
+      expect(seen!.input.subarray(capLen).toString("utf8")).toBe("FILEBYTES");
+    } finally { unlinkSync(tmp); }
   });
 });
 

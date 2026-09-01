@@ -19,7 +19,8 @@ treating a Mac as the gateway. Read this before touching anything.
 collector.ts                        poll → {threads, unread, toast}. Pure functions + one spawn.
 thread.ts                           one conversation → decorated bubbles. Pure + one spawn.
 fetch.ts                            attachment id → ~/.cache/blip/att (0700/0600, 500MB LRU).
-send-file.ts                        local file + caption → imsg-send --file-stdin. Resolves
+send-file.ts                        local file + caption → imsg-send --file-stdin --text-stdin-bytes N
+                                    (caption ahead of the bytes; NO message text in argv anywhere). Resolves
                                     group guid from state; REFUSES unknown groups.
 paste.ts                            clipboard snapshot → draft image in $XDG_RUNTIME_DIR/blip or text.
 BarWidget.qml                       the single poller, badge, toasts, IPC.

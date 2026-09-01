@@ -122,9 +122,9 @@ on the Mac plus hand-made vic shims with `fnix` hardcoded.
   --list-self`); allowlist editor still open. De-vic'd all strings (1.7.0).
 
 **B. Finish the app.**
-- [ ] Shared `BlipView` (docs/app-design-review.md) so the window has the
+- [x] Shared `BlipView` (docs/app-design-review.md) so the window has the
   rich renderer: tapbacks, inline photos, replies, search, attachments.
-- [ ] Keybind to toggle the window; remembered size/position; Esc closes;
+- [x] Keybind to toggle the window; remembered size/position; Esc closes;
   sidebar search; unread count in the title.
 
 **C. Polish for strangers' machines.**
@@ -135,19 +135,20 @@ on the Mac plus hand-made vic shims with `fnix` hardcoded.
   purpose. Still open: Linux-side dependency checks (`bun`/`jq`/`wl-copy`).
 - [ ] Remove vic assumptions: paths, mpv/xdg handlers, Hyprland-only bits;
   degrade gracefully (older macOS without `date_edited`, no sips, no HEIC).
-- [ ] First-run and offline UX: clear "Mac unreachable / grant missing"
+- [x] First-run and offline UX: clear "Mac unreachable / grant missing"
   states with the fix spelled out.
 - [ ] Contact photos; link preview cards (nice-to-have).
 
 **D. Ship hygiene.**
 - [x] Full Codex audit → docs/SECURITY.md (12 findings; 8 fixed in 1.9.4,
   then 1.10.0: forced-command ssh key + `automation=` IPC gate) + docs/PRIVACY.md.
-- [ ] `--text-stdin` end to end so bodies leave argv (audit #4).
-- [ ] README: the SUPER+M keybind recipe (Hyprland-driven; see CLAUDE.md
+- [x] `--text-stdin` end to end so bodies leave argv (audit #4) — 1.11.0.
+- [x] README: the SUPER+M keybind recipe (Hyprland-driven; see CLAUDE.md
   hot-reload invariant) — users must not bind a plain `qs ipc … window`.
 - [ ] Upstream: report the hot-reload zombie IpcHandler to Omarchy
   (shell.qml reloadPlugins → old bar widget keeps the ipc target).
-- [ ] Images Blip sends to OTHER people: chat.db's attachment row keeps the
+- [x] (1.11.0: imsg-send keeps sent files in ~/.blip/sent, imsg resolves outbox
+  paths to them — remote-recipient path verified by code only) Images Blip sends to OTHER people: chat.db's attachment row keeps the
   `~/Pictures/.blip-outbox/…` path (Messages did not copy it into its store),
   so the bubble can never re-fetch it once the outbox is swept. Keep sent
   files until the row points into ~/Library/Messages/Attachments, or cache

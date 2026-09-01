@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 
-const panel = readFileSync(new URL("./Panel.qml", import.meta.url), "utf8");
+// The renderer moved from Panel.qml into BlipView.qml in 1.8.0 (shared with the app window).
+const panel = readFileSync(new URL("./BlipView.qml", import.meta.url), "utf8");
 const widget = readFileSync(new URL("./BarWidget.qml", import.meta.url), "utf8");
 
 describe("QML safety invariants", () => {
@@ -24,6 +25,12 @@ describe("QML safety invariants", () => {
   test("send completion owns immutable chat and draft context", () => {
     expect(panel).toContain("var completedChat = root.sendChat");
     expect(panel).toContain("if (composeField.text === completedText) composeField.text = \"\"");
+  });
+
+  test("message text leaves this machine on stdin, never in argv (audit #4)", () => {
+    expect(panel).toContain('"--text-stdin"');
+    expect(panel).toContain("sendProc.write(text)");
+    expect(panel).not.toContain('["--yes", "--", text]');
   });
 
   test("read marks are queued and only applied after a successful load", () => {

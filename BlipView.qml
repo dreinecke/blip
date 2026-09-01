@@ -545,12 +545,16 @@ FocusScope {
       return
     }
 
-    // "--" so a message that starts with "-" is text, not a flag (argparse honours it).
+    // Body on STDIN (--text-stdin), never argv: argv is readable by every
+    // process on this machine and travels through ssh into the Mac's ps.
     var target = root.activeIsGroup
       ? ["--chat-id", String(root.active.guid)]
       : ["--to", sendChat]
-    sendProc.command = [root.home + "/bin/imsg-send"].concat(target).concat(["--yes", "--", text])
+    sendProc.command = [root.home + "/bin/imsg-send"].concat(target).concat(["--yes", "--text-stdin"])
+    sendProc.stdinEnabled = true
     sendProc.running = true
+    sendProc.write(text)
+    sendProc.stdinEnabled = false
   }
 
   Process { id: copyProc }
