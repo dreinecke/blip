@@ -11,10 +11,11 @@
 </p>
 
 <p align="center">
+  <img alt="version" src="https://img.shields.io/badge/version-2.0-0a84ff?style=flat-square">
   <img alt="Omarchy" src="https://img.shields.io/badge/Omarchy-plugin-5fd7ff?style=flat-square">
   <img alt="QuickShell" src="https://img.shields.io/badge/QuickShell-QML-0a84ff?style=flat-square">
   <img alt="bun" src="https://img.shields.io/badge/bun-TypeScript-f9f1e1?style=flat-square">
-  <img alt="tests" src="https://img.shields.io/badge/tests-172%20passing-2ea043?style=flat-square">
+  <img alt="tests" src="https://img.shields.io/badge/tests-177%20passing-2ea043?style=flat-square">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square">
 </p>
 
@@ -25,6 +26,31 @@
 > hardware, so Blip uses a Mac you already own — any Mac signed into your
 > Apple ID, awake and reachable over SSH — as the gateway. The Linux side is a
 > thin client. **No Mac, no Blip.** When the Mac sleeps, Blip dims and waits.
+
+## Blip 2.0
+
+Version 2.0 (2026-08-31) is the "this is what I wanted" release. Since 1.0:
+
+- **The app.** A Messages-style window — sidebar of every conversation,
+  the open thread, compose — next to the bar popout. `SUPER+M`,
+  double-click the bar icon, or `qs ipc … app`. Remembers size and whether
+  it was open across shell restarts; title shows the unread count.
+- **Contact photos** from the Mac's Contacts in the sidebar.
+- **Link cards** with preview image, title, and host, like Messages.
+- **Real-time push** — messages land in ~2 s via a watcher on the Mac.
+- **Attachments both ways** — photos inline, files as chips, send by
+  Ctrl+V / drag-and-drop / `/attach`, with captions; your own sent photos
+  stay showable.
+- **Search** across every message ever; **new conversation** from a
+  contact search; **reply from a toast**; failed-delivery flags.
+- **One source.** The Mac-side tools ship in this repo; `blip-setup`
+  installs everything including a dedicated ssh key the Mac confines to
+  the five bridge tools.
+- **Audited.** A full security + privacy audit, every finding fixed or
+  documented — [docs/SECURITY.md](docs/SECURITY.md), [docs/PRIVACY.md](docs/PRIVACY.md).
+  Message text never touches argv or disk on either machine.
+
+Full history: [CHANGELOG.md](CHANGELOG.md).
 
 ## Why this exists
 
@@ -290,7 +316,7 @@ The 273,000-message history stays on the Mac where it lives.
 ## Development
 
 ```sh
-bun test                                     # 172 tests, ~70 ms
+bun test                                     # 177 tests, ~70 ms
 bun collector.ts --deep | jq '.unread, (.threads|length)'
 bun thread.ts +15551234567 40 | jq '.bubbles[-1]'
 ```
@@ -301,7 +327,8 @@ screenshot your changes. See [CLAUDE.md](CLAUDE.md) for the invariants.
 
 ## Credits
 
-Built by Fred Nix and Larry (his Claude Code collaborator) in one evening on
+Built by Fred Nix and Larry (his Claude Code collaborator) — 1.0 in one
+evening, 2.0 the next — on
 [Omarchy](https://omarchy.org). The Mac side is entirely
 [claude-on-mac](https://github.com/nixfred/claude-on-mac) — it predates Blip,
 and it's the reason this took an evening, not a week.
