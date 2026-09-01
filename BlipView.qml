@@ -857,14 +857,14 @@ FocusScope {
         anchors.rightMargin: root.splitView ? Style.space(18) : 0
         anchors.topMargin: root.splitView ? Style.space(10) : 0
         anchors.bottomMargin: root.splitView ? Style.space(10) : 0
-        spacing: Style.space(8)
+        spacing: Style.space(root.splitView ? 14 : 8)
         PanelHero {
           Layout.fillWidth: true
           title: "Blip"
           meta: (!root.online
                 ? "Mac unreachable — bridge offline"
                 : (root.unread > 0 ? root.unread + " unread" : "all caught up"))
-          detail: "iMessage via your Mac"
+          detail: ""   // Fred: not needed — and it squeezed the title to "B…"
           foreground: root.foreground
           fontFamily: root.fontFamily
         }
@@ -911,7 +911,7 @@ FocusScope {
           ColumnLayout {
             id: listContent
             width: parent.width
-            spacing: root.inThread ? Style.space(2) : Style.space(6)
+            spacing: root.inThread ? Style.space(2) : Style.space(root.splitView ? 10 : 6)
 
             // ------------------------------------------------- OFFLINE
             Text {
@@ -1151,7 +1151,7 @@ FocusScope {
                 required property int index
 
                 Layout.fillWidth: true
-                implicitHeight: rowRow.implicitHeight + Style.space(12)
+                implicitHeight: rowRow.implicitHeight + Style.space(root.splitView ? 20 : 12)
                 radius: Style.cornerRadius
                 color: rowHover.hovered || root.cursor === index
                   ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
@@ -1273,7 +1273,7 @@ FocusScope {
               : ""
             detail: root.inThread
               ? (root.loading ? "loading…" : (root.splitView ? "" : "Esc = back"))
-              : (root.splitView ? "" : "iMessage via your Mac")
+              : ""
             foreground: root.foreground
             fontFamily: root.fontFamily
           }

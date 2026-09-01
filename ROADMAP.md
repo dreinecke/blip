@@ -143,6 +143,10 @@ on the Mac plus hand-made vic shims with `fnix` hardcoded.
 - [x] Full Codex audit → docs/SECURITY.md (12 findings; 8 fixed in 1.9.4,
   then 1.10.0: forced-command ssh key + `automation=` IPC gate) + docs/PRIVACY.md.
 - [ ] `--text-stdin` end to end so bodies leave argv (audit #4).
+- [ ] README: the SUPER+M keybind recipe (Hyprland-driven; see CLAUDE.md
+  hot-reload invariant) — users must not bind a plain `qs ipc … window`.
+- [ ] Upstream: report the hot-reload zombie IpcHandler to Omarchy
+  (shell.qml reloadPlugins → old bar widget keeps the ipc target).
 - [ ] Images Blip sends to OTHER people: chat.db's attachment row keeps the
   `~/Pictures/.blip-outbox/…` path (Messages did not copy it into its store),
   so the bubble can never re-fetch it once the outbox is swept. Keep sent

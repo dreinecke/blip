@@ -100,11 +100,17 @@ BarWidget {
     windowLoader.active = false
   }
   function ensureWindow() {
-    if (!windowLoader.active) windowLoader.active = true
-    if (windowLoader.item && !windowLoader.item.visible) {
-      windowLoader.item.visible = true
+    // An existing-but-hidden FloatingWindow is never re-mapped by Quickshell
+    // (setting visible=true shows nothing). Recreate it instead — this also
+    // covers a window the compositor closed (SUPER+M hide path).
+    if (windowLoader.item && !windowLoader.item.visible) windowLoader.active = false
+    if (!windowLoader.active) {
+      windowLoader.active = true
       root.refresh(true, false)          // full list, like the panel
     }
+    // A fresh BlipWindow honours window.json (which may say hidden) — this
+    // call means SHOW, so make it so once its restore pass has run.
+    Qt.callLater(function() { if (windowLoader.item && !windowLoader.item.visible) windowLoader.item.visible = true })
   }
   function toggleWindow() {
     if (root.windowVisible) hideWindow()
@@ -113,14 +119,15 @@ BarWidget {
   // Show AND focus: a window restored on another workspace is invisible to
   // the user, and a plain toggle would HIDE it ("SUPER+M doesn't load the
   // app"). Hyprland ≥0.56 dispatch takes Lua; classic focuswindow is rejected.
-  Process { id: focusProc }
   function showApp() {
     ensureWindow()
     if (!windowLoader.item) return
-    focusProc.command = ["sh", "-c",
+    // Fire-and-forget on purpose: a Process object silently ignores
+    // `running = true` while it thinks a previous run is alive, which left
+    // showApp() "succeeding" without ever focusing (SUPER+M "nothing at all").
+    Quickshell.execDetached(["sh", "-c",
       'for i in 1 2 3 4 5 6 7 8; do a=$(hyprctl clients -j | jq -r \'.[] | select(.title == "Blip") | .address\' | head -1); [ -n "$a" ] && break; sleep 0.15; done; ' +
-      '[ -n "$a" ] && hyprctl dispatch "hl.dsp.focus({ window = \\"address:$a\\" })" >/dev/null']
-    focusProc.running = true
+      '[ -n "$a" ] && hyprctl dispatch "hl.dsp.focus({ window = \\"address:$a\\" })" >/dev/null'])
   }
   /** Either surface open → keep the deep (complete) thread list. */
   function anySurfaceOpen() {

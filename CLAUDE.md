@@ -102,6 +102,18 @@ what it is handed. Keep it that way.
   BarWidget's `ensureWindow()`/`hideWindow()` toggle the Loader's `active`;
   BlipWindow persists size + was-open in `~/.local/state/blip/window.json`
   and restores on creation. Do not "simplify" this back to `visible`.
+- **After an Omarchy plugin HOT-RELOAD, `qs ipc` keeps serving the OLD
+  BarWidget.** Proved 2026-08-31 with a build tag (A after reload to B; C
+  after D): the destroyed widget's IpcHandler stays bound to the target,
+  its child objects (Process, Timers) are dead, its window state drifts —
+  "SUPER+M does nothing" after every plugin update. `ipc.enabled=false` in
+  onDestruction does NOT release it; only omarchy-restart-shell does.
+  Therefore: the SUPER+M bind decides from Hyprland's real client list
+  (focused → hl.dsp.window.close, elsewhere → hl.dsp.focus, none → ipc
+  `app`), `ensureWindow()` RECREATES a hidden window (Quickshell never
+  re-maps one), and focus is fired via `Quickshell.execDetached` — a
+  `Process` silently ignores `running=true` on the zombie. Deploy with a
+  restart, never rely on hot-reload for anything IPC.
 - **Never let one delegate's implicit width exceed the panel.** A single
   RowLayout of N attachment chips summed implicit widths and silently
   stretched the whole conversation column to 2× panel width — every
