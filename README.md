@@ -48,7 +48,7 @@ Linux side. If the Mac is asleep, the widget dims and says so.
 **In the bar**
 - unread count across every thread
 - dims with a slashed glyph when the Mac is unreachable
-- left-click panel · middle-click refresh · right-click mark all read
+- left-click panel · **double-click opens the app window** · middle-click refresh · right-click mark all read
 
 **Thread list**
 - avatar initials, name, preview, time
@@ -78,6 +78,11 @@ Linux side. If the Mac is asleep, the widget dims and says so.
 - click a toast and the panel opens ON that conversation with the compose
   box focused (the Omarchy daemon renders no action buttons, so click IS
   the reply path)
+
+**The app**
+- double-click the bar icon (or IPC `window`) for a Messages-style window:
+  sidebar of every conversation + the open thread + compose, tiled by
+  Hyprland like any app, sharing the bar widget's live data
 
 **Real-time**
 - a push watcher on the Mac pings when chat.db changes — messages land in

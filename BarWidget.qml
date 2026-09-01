@@ -15,7 +15,7 @@ import qs.Ui
 // (~/.config/blip/allowlist.json) — chat.db is mostly bank alerts and 2FA codes,
 // and none of that deserves an interruption.
 //
-// Left-click = panel · middle-click = refresh · right-click = mark all read.
+// Left-click = panel · double-click = the app window · middle-click = refresh · right-click = mark all read.
 BarWidget {
   id: root
   moduleName: "nixfred.blip"
@@ -91,6 +91,20 @@ BarWidget {
   function toggleWindow() {
     if (!windowLoader.item) return
     windowLoader.item.visible = !windowLoader.item.visible
+  }
+
+  // Single click = panel (opens immediately — no double-click lag); a second
+  // click within the double-click window = close the panel and open the APP.
+  Timer { id: dblClick; interval: 320 }
+  function leftClick() {
+    if (dblClick.running) {
+      dblClick.stop()
+      root.close()
+      if (windowLoader.item) windowLoader.item.visible = true
+      return
+    }
+    dblClick.restart()
+    root.toggle()
   }
 
   // ------------------------------------------------------------ collector
@@ -463,7 +477,7 @@ BarWidget {
         parts.push("  " + hot[i].name + " (" + hot[i].unread + ")")
     }
     if (root.online && !root.healthy && root.lastError !== "") parts.push("⚠ " + root.lastError)
-    return parts.join("\n") + "\nleft: threads · middle: refresh · right: mark all read"
+    return parts.join("\n") + "\nclick: threads · double-click: app · middle: refresh · right: mark all read"
   }
 
   WidgetButton {
@@ -482,7 +496,7 @@ BarWidget {
     onPressed: function(code) {
       if (code === Qt.MiddleButton) root.refresh(false, false)
       else if (code === Qt.RightButton) root.markAllRead()
-      else root.toggle()
+      else root.leftClick()
     }
 
     Row {
