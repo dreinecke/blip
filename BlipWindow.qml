@@ -20,7 +20,10 @@ FloatingWindow {
   property var hostWidget: null
   // "Blip (3)" while unread exists — selectors match the "Blip" PREFIX.
   title: "Blip" + (hostWidget && hostWidget.unread > 0 ? " (" + hostWidget.unread + ")" : "")
-  color: Color.background
+  // Translucent like the rest of Omarchy: Hyprland blurs what shows through
+  // (decoration.blur is on; no no_blur rule for org.quickshell). Fred, 2.0.2.
+  readonly property real backdropAlpha: 0.80
+  color: Qt.rgba(Color.background.r, Color.background.g, Color.background.b, backdropAlpha)
   implicitWidth: 1040
   implicitHeight: 720
   minimumSize: Qt.size(720, 480)
