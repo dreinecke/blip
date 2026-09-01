@@ -91,6 +91,12 @@ BarWidget {
   function toggleWindow() {
     if (!windowLoader.item) return
     windowLoader.item.visible = !windowLoader.item.visible
+    if (windowLoader.item.visible) root.refresh(true, false)   // full list, like the panel
+  }
+  /** Either surface open → keep the deep (complete) thread list. */
+  function anySurfaceOpen() {
+    return (panelLoader.item && panelLoader.item.opened === true)
+        || (windowLoader.item && windowLoader.item.visible === true)
   }
 
   // Single click = panel (opens immediately — no double-click lag); a second
@@ -100,7 +106,7 @@ BarWidget {
     if (dblClick.running) {
       dblClick.stop()
       root.close()
-      if (windowLoader.item) windowLoader.item.visible = true
+      if (windowLoader.item && !windowLoader.item.visible) root.toggleWindow()
       return
     }
     dblClick.restart()
@@ -295,7 +301,7 @@ BarWidget {
     triggeredOnStart: true
     // While the panel is open keep the wide window, or the list would shrink
     // from 40 threads to 14 on the next tick.
-    onTriggered: root.refresh(panelLoader.item && panelLoader.item.opened === true, false,
+    onTriggered: root.refresh(root.anySurfaceOpen(), false,
                               root.activeReadChat(), root.activeSeenTs())
   }
 
@@ -345,7 +351,7 @@ BarWidget {
       // Carrying the open thread's chat means a message landing in the
       // conversation the user is READING is counted read in this same run —
       // no badge flash, no second round-trip.
-      root.refresh(panel && panel.opened === true, false, root.activeReadChat(), root.activeSeenTs())
+      root.refresh(root.anySurfaceOpen(), false, root.activeReadChat(), root.activeSeenTs())
       // Reload the OPEN conversation in parallel — waiting for the collector
       // and then reloading serially added a visible second of latency.
       if (panel && panel.opened === true && typeof panel.pushReload === "function")
@@ -454,7 +460,7 @@ BarWidget {
     function windowgoto(chat: string): string {
       var w = windowLoader.item
       if (!w) return "no window"
-      w.visible = true
+      if (!w.visible) root.toggleWindow()
       var want = String(chat)
       for (var i = 0; i < root.threads.length; i++) {
         var c = String(root.threads[i].chat)

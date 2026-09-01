@@ -591,6 +591,91 @@ export function unreadOldest(
 }
 
 /** `imsg --json groups` — claude-on-mac ≥ 1.4.0. */
+/** One row of `imsg --json chats`: a conversation with its latest preview. */
+export interface ChatInfo {
+  id: string;
+  name: string | null;
+  service: string;
+  last: string;
+  last_text: string;
+  last_from_me: boolean;
+  last_handle: string;
+  last_name: string | null;
+}
+
+/** How many conversations the sidebar lists (chat.db has hundreds). */
+export const CHAT_LIST_LIMIT = 300;
+
+/**
+ * The COMPLETE conversation list (imsg ≥1.11.0 `chats` with previews). The
+ * message window only ever covers the busiest few days — deriving the list
+ * from it lost every quiet conversation ("where is the group LMT?").
+ * Fetched on deep runs only; the shallow poll keeps the last list in the
+ * widget's memory. Previews are never persisted (no content on disk).
+ */
+export function fetchChats(runner = spawnSync): ChatInfo[] | null {
+  const res = runner(`${HOME}/bin/imsg`, ["--json", "chats", String(CHAT_LIST_LIMIT)], {
+    encoding: "utf8",
+    timeout: 20000,
+  });
+  if (res.status !== 0) return null;
+  try {
+    const rows = JSON.parse(res.stdout as string);
+    if (!Array.isArray(rows)) return null;
+    return rows
+      .filter((r) => r && typeof r.id === "string" && r.id !== "")
+      .map((r) => ({
+        id: String(r.id),
+        name: typeof r.name === "string" ? r.name : null,
+        service: String(r.service ?? ""),
+        last: String(r.last ?? ""),
+        last_text: String(r.last_text ?? ""),
+        last_from_me: r.last_from_me === true,
+        last_handle: String(r.last_handle ?? ""),
+        last_name: typeof r.last_name === "string" ? r.last_name : null,
+      }));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Window-derived threads (rich: accurate previews, counts) + every other
+ * conversation from the chat list, newest first. A chat already covered by
+ * the window keeps the window's row; the rest get a row built from the
+ * chat list's preview, with unread from the ledger.
+ */
+export function mergeChats(
+  threads: Thread[],
+  chats: ChatInfo[],
+  groups: Record<string, GroupInfo>,
+  unreadCounts: Record<string, number>,
+): Thread[] {
+  const have = new Set(threads.map((t) => t.chat));
+  const out = [...threads];
+  for (const c of chats) {
+    if (have.has(c.id)) continue;
+    have.add(c.id);
+    const group = isGroupChat(c.id);
+    const name = group
+      ? (groups[c.id]?.name || c.name || c.id)
+      : (c.last_name || c.name || c.id);
+    out.push({
+      chat: c.id,
+      guid: group ? groups[c.id]?.guid ?? "" : "",
+      name,
+      handle: group ? c.last_handle || c.id : c.id,
+      service: c.service,
+      last_ts: c.last,
+      last_text: c.last_text,
+      last_from_me: c.last_from_me,
+      count: 0,
+      unread: unreadCounts[c.id] ?? 0,
+    });
+  }
+  return out.sort((a, b) => (a.last_ts < b.last_ts ? 1 : a.last_ts > b.last_ts ? -1 : 0));
+}
+
 export function fetchGroups(runner = spawnSync): Record<string, GroupInfo> | null {
   const res = runner(`${HOME}/bin/imsg`, ["--json", "groups"], { encoding: "utf8", timeout: 15000 });
   if (res.status !== 0) return null;
@@ -698,7 +783,12 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   for (const [chat, ts] of Object.entries(readMarks)) {
     if (ts <= readMark) delete readMarks[chat];
   }
-  const threads = buildThreads(msgs, readMark, readMarks, groups, exactCounts);
+  const windowThreads = buildThreads(msgs, readMark, readMarks, groups, exactCounts);
+  // Deep runs (a surface is open) complete the list from `imsg chats`; a
+  // shallow poll returns the window's rows and the widget keeps its last
+  // complete list in memory (it skips identical assignments anyway).
+  const chats = deep ? fetchChats() : null;
+  const threads = chats ? mergeChats(windowThreads, chats, groups, exactCounts) : windowThreads;
   const toast = selectToasts(msgs, state.watermark, loadAllowlist(), state.toasted);
   const failures = selectFailures(fetched.msgs, state.toasted, nowTs);
   const unread = Object.values(exactCounts).reduce((n, count) => n + count, 0);
