@@ -104,6 +104,8 @@ Panel {
   property bool pinToBottom: false   // scroll to the newest bubble once layout settles
   property bool bubbleFocused: false // a bubble's TextEdit has focus (text selection in progress)
   property string threadRunningChat: "" // chat owned by the current threadProc
+  property string bubblesJson: ""       // last rendered bubbles, for no-op reload detection
+  property bool firstLoad: true         // first load of the open thread pins to bottom
   property string pendingThreadChat: "" // latest chat requested while it runs
   property string sendChat: ""          // immutable context for the current send
   property string sendText: ""
@@ -130,8 +132,11 @@ Panel {
         var busyHere = (threadProc.running && threadRunningChat === String(t.chat))
                        || pendingThreadChat === String(t.chat)
         if (!busyHere) {
-          pinToBottom = true
-          requestThreadLoad(String(t.chat))
+          if (!flick.stick) { pushPending = true }  // reading history — defer
+          else {
+            pinToBottom = true
+            requestThreadLoad(String(t.chat))
+          }
         }
       }
       return
@@ -203,6 +208,9 @@ Panel {
     active = t
     activeLastTs = String(t.last_ts || "")
     bubbles = []
+    bubblesJson = ""
+    firstLoad = true
+    pushPending = false
     note = ""
     loading = true
     composeField.text = ""
@@ -417,8 +425,14 @@ Panel {
   /** Push ping while this conversation is open: reload its bubbles now,
    *  without waiting for the collector round-trip. Cheap when nothing
    *  changed; the thread loader already serializes concurrent requests. */
+  // A reload REBUILDS every bubble and (when pinned) yanks the view to the
+  // bottom — doing that on every push ping made reading history impossible
+  // (Fred: "FIX SCROLLING!"). While the user is scrolled up, defer; the
+  // reload fires the moment they return to the bottom.
+  property bool pushPending: false
   function pushReload() {
     if (!inThread || !opened) return
+    if (!flick.stick) { pushPending = true; return }
     if (threadProc.running && pendingThreadChat !== "") return
     pinToBottom = true
     requestThreadLoad(String(active.chat))
@@ -550,8 +564,21 @@ Panel {
         try {
           var d = JSON.parse(text.trim())
           if (d.ok === true) {
-            root.bubbles = Array.isArray(d.bubbles) ? d.bubbles : []
-            root.pinToBottom = true
+            var list = Array.isArray(d.bubbles) ? d.bubbles : []
+            var j = JSON.stringify(list)
+            if (j === root.bubblesJson) {
+              // Nothing changed — do NOT rebuild the Repeater (a rebuild
+              // resets scroll and re-decodes every image). Push pings mostly
+              // produce identical content; this makes them free.
+              if (root.hostWidget) root.hostWidget.markThreadRead(root.threadRunningChat)
+              return
+            }
+            root.bubblesJson = j
+            root.bubbles = list
+            // Pin only on the thread's FIRST load or when the user was
+            // already at the bottom — never while they read history.
+            root.pinToBottom = root.firstLoad || flick.stick
+            root.firstLoad = false
             Qt.callLater(root.autoFetchImages)
             // A dot means "looked at", so clear it only after content loaded.
             if (root.hostWidget) root.hostWidget.markThreadRead(root.threadRunningChat)
@@ -847,6 +874,12 @@ Panel {
           }
           onMovementStarted: stick = false
           onMovementEnded: stick = atYEnd
+          // A reload deferred while the user read history fires the moment
+          // they return to the bottom.
+          onStickChanged: if (stick && root.pushPending) {
+            root.pushPending = false
+            Qt.callLater(root.pushReload)
+          }
 
           // Wheel scrolling is DIRECT, 1:1 — no animation. Two animated
           // schemes (restarted easing, SmoothedAnimation chase) both fought
