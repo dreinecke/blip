@@ -90,6 +90,12 @@ what it is handed. Keep it that way.
   (chipRow compensates contentY by its own height delta), and model
   reassignment rebuilds Repeaters and resets scroll (skip identical
   assignments; restore contentY after a list rebuild).
+- **The app window is RECREATED on show, never re-mapped.** Quickshell does
+  not re-map a `FloatingWindow` after `visible` has been false once: the
+  property flips true, no client appears (SUPER+M "did nothing", 1.8.3).
+  BarWidget's `ensureWindow()`/`hideWindow()` toggle the Loader's `active`;
+  BlipWindow persists size + was-open in `~/.local/state/blip/window.json`
+  and restores on creation. Do not "simplify" this back to `visible`.
 - **Never let one delegate's implicit width exceed the panel.** A single
   RowLayout of N attachment chips summed implicit widths and silently
   stretched the whole conversation column to 2× panel width — every
