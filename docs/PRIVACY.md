@@ -12,13 +12,19 @@ inventory of what lands on disk.
 | `~/.config/blip/allowlist.json` | handles allowed to raise desktop toasts | message text |
 | `~/.local/state/blip/state.json` (0600, atomic) | poll watermark, read marks, per-chat unread counts and oldest-unread timestamps, self-chat ids, group names/members, opaque SHA-256 toast keys | **message bodies — ever** |
 | `~/.local/state/blip/window.json` | whether the app window was open, its size | anything else |
-| `~/.cache/blip/att/` (0700, files 0600, 500 MB LRU) | attachments you viewed (photos, PDFs…), fetched on demand; HEIC arrives converted to JPEG | attachments you did not open |
-| `$XDG_RUNTIME_DIR/blip/` (tmpfs, 0700) | images pasted into the compose box, until sent; swept after an hour and gone at logout | — |
+| `~/.cache/blip/att/` (0700, files 0600, 500 MB LRU, no expiry) | attachments you viewed (photos, PDFs…), fetched on demand; HEIC arrives converted to JPEG. File names carry the Mac's attachment row id and the sanitized original name | attachments you did not open |
+| `$XDG_RUNTIME_DIR/blip/` (tmpfs, 0700) | images pasted into the compose box; swept after an hour (not on cancel) and gone at logout | — |
 | `~/bin/imsg`, `~/bin/imsg-send`, `~/bin/contacts` | the bridge shim (a bash script) | — |
 
 Message text lives only in memory while the panel or window is open. Desktop
 toasts show a sender name and a preview through your notification daemon,
-gated by the allowlist. Nothing is logged.
+gated by the allowlist — and your notification daemon may keep its own
+history. Blip itself logs nothing; the shell's stderr (journald) sees
+recipients and exit codes, never bodies (`imsg-send` prints a byte count).
+Message bodies do pass through process arguments on both machines, visible
+to other processes running as you.
+
+Threat model and the audit findings behind these notes: [SECURITY.md](SECURITY.md).
 
 ## On the Mac
 

@@ -545,6 +545,8 @@ export function fetchMessages(limit: number, runner = spawnSync): FetchResult {
  * and covers the unread reconciliation boundary without transferring the full
  * history during ordinary six-second polls.
  */
+export const CATCHUP_MAX_ROWS = 8192;
+
 export function fetchMessagesAfter(
   cutoff: string,
   minimum: number,
@@ -553,7 +555,8 @@ export function fetchMessagesAfter(
   let limit = minimum;
   while (true) {
     const fetched = fetchMessages(limit, runner);
-    if (!fetched.ok || !cutoff || fetched.msgs.length < limit) return fetched;
+    // A bridge that keeps returning "full" pages must not grow this forever.
+    if (!fetched.ok || !cutoff || fetched.msgs.length < limit || limit >= CATCHUP_MAX_ROWS) return fetched;
     // Fetch beyond the boundary, not merely to it: several rows can share a
     // one-second timestamp and otherwise straddle the window edge.
     if (minTs(fetched.msgs, "") < cutoff) return fetched;

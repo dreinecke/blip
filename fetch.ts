@@ -24,7 +24,7 @@ import {
   openSync,
   readdirSync,
   renameSync,
-  statSync,
+  lstatSync,
   unlinkSync,
   utimesSync,
   writeSync,
@@ -99,6 +99,7 @@ export function fetchAttachment(
   name: string,
   mime: string,
   runner = spawnSync,
+  maxBytes = FETCH_MAX_BYTES,
 ): FetchResult {
   const fail = (error: string, online = true): FetchResult =>
     ({ ok: false, online, path: "", url: "", error });
@@ -108,8 +109,9 @@ export function fetchAttachment(
 
   const file = join(CACHE_DIR, cacheFileName(id, name, mime));
   try {
-    const st = statSync(file);
-    if (st.size > 0) {
+    const st = lstatSync(file);
+    // A symlink planted in the cache must never be followed (or touched).
+    if (st.isFile() && st.size > 0) {
       const now = new Date();
       utimesSync(file, now, now); // mtime is the LRU clock
       return { ok: true, online: true, path: file, url: pathToFileURL(file).href, error: "" };
@@ -128,7 +130,7 @@ export function fetchAttachment(
   }
   const bytes = res.stdout as Buffer;
   if (!bytes || bytes.length === 0) return fail("empty attachment stream");
-  if (bytes.length > FETCH_MAX_BYTES) return fail("attachment exceeds the fetch ceiling");
+  if (bytes.length > Math.min(maxBytes, FETCH_MAX_BYTES)) return fail("attachment exceeds the fetch ceiling");
 
   // tmp + fsync + rename: a killed fetch must never leave a cache hit that
   // looks complete.
@@ -147,8 +149,9 @@ export function fetchAttachment(
 
 if (import.meta.main) {
   const [id, name, mime] = [process.argv[2] ?? "", process.argv[3] ?? "file", process.argv[4] ?? ""];
+  const cap = Number(process.argv[5] ?? "");
   try {
-    console.log(JSON.stringify(fetchAttachment(id, name, mime)));
+    console.log(JSON.stringify(fetchAttachment(id, name, mime, undefined, cap > 0 ? cap : FETCH_MAX_BYTES)));
   } catch (e) {
     console.log(JSON.stringify({ ok: false, online: true, path: "", url: "", error: String(e) }));
   }

@@ -272,8 +272,16 @@ FocusScope {
   // ---------------------------------------------------- attachment fetching
 
   function isImageMime(m) { return String(m || "").indexOf("image/") === 0 }
+  /** Only media/documents are handed to xdg-open. Anything a sender could
+   *  make executable (scripts, .desktop, unknown blobs) is saved and named,
+   *  never launched (Codex audit #10). */
+  function openableMime(m) {
+    m = String(m || "")
+    return m.indexOf("image/") === 0 || m.indexOf("video/") === 0 || m.indexOf("audio/") === 0 ||
+           m === "application/pdf" || m === "text/plain" || m === "text/vcard" || m === "text/calendar"
+  }
 
-  function enqueueFetch(att, openWhenDone) {
+  function enqueueFetch(att, openWhenDone, auto) {
     var id = String(att.id || "")
     if (id === "" || fetchingId === id) return
     if (attFiles[id] !== undefined && !openWhenDone) return
@@ -284,17 +292,21 @@ FocusScope {
       }
     }
     fetchQueue.push({ id: id, name: String(att.name || "file"),
-                      mime: String(att.mime || ""), open: openWhenDone === true })
+                      mime: String(att.mime || ""), open: openWhenDone === true,
+                      auto: auto === true })
     pumpFetch()
   }
 
   property bool fetchJobOpen: false
+  property string fetchJobMime: ""
   function pumpFetch() {
     if (fetchProc.running || fetchQueue.length === 0) return
     var job = fetchQueue.shift()
     fetchingId = job.id
     fetchJobOpen = job.open === true
-    fetchProc.command = ["bun", root.fetchScript, job.id, job.name, job.mime]
+    fetchJobMime = job.mime
+    // Auto-pulls carry a hard transfer cap: claimed metadata is not the limit.
+    fetchProc.command = ["bun", root.fetchScript, job.id, job.name, job.mime, job.auto ? "5242880" : ""]
     fetchProc.running = true
   }
 
@@ -309,7 +321,7 @@ FocusScope {
         // and auto-pull something the click-path 100 MB ceiling would allow.
         var b = atts[j].bytes
         if (isImageMime(atts[j].mime) && typeof b === "number" && b > 0 && b <= 5 * 1024 * 1024)
-          enqueueFetch(atts[j])
+          enqueueFetch(atts[j], false, true)
       }
     }
   }
@@ -378,7 +390,9 @@ FocusScope {
   function runContactSearch() {
     var q = newField.text.trim()
     if (q === "") return
-    if (contactProc.running) { contactPending = q; return }
+    // Bump the generation NOW so the in-flight (older) result is rejected,
+    // never shown as clickable rows under the newer query (Codex audit #5).
+    if (contactProc.running) { contactSeq++; newResults = []; newNote = "searching contacts…"; contactPending = q; return }
     contactSeq++
     newNote = "searching contacts…"
     newResults = []
@@ -425,7 +439,7 @@ FocusScope {
   function runSearch() {
     var q = searchField.text.trim()
     if (q === "") return
-    if (searchProc.running) { searchPending = q; return }
+    if (searchProc.running) { searchSeq++; searchResults = []; searchNote = "searching…"; searchPending = q; return }
     searchSeq++
     searchNote = "searching…"
     searchResults = []
@@ -648,8 +662,12 @@ FocusScope {
           m[id] = d.ok === true ? String(d.url || "") : ""
           root.attFiles = m
           if (d.ok === true && root.fetchJobOpen) {
-            openProc.command = ["xdg-open", String(d.url || "")]
-            openProc.running = true
+            if (root.openableMime(root.fetchJobMime)) {
+              openProc.command = ["xdg-open", String(d.url || "")]
+              openProc.running = true
+            } else {
+              root.note = "saved, not opened (" + (root.fetchJobMime || "unknown type") + "): " + String(d.path || "")
+            }
           }
           if (d.ok !== true && d.online === false) root.note = "fetch failed — Mac unreachable"
         } catch (e) {

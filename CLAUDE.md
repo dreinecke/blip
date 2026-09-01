@@ -74,6 +74,10 @@ what it is handed. Keep it that way.
 - **The vic shims' ssh preflight must use `ssh -n`.** A bare
   `ssh fnix true` connectivity probe EATS STDIN, which silently empties
   `imsg-send --file-stdin` payloads. Fixed 2026-08-31 in ~/.claude/bin shims.
+- **`bridge.conf` is data, never `source`d.** The shim parses three keys and
+  validates them; keep it that way (audit #7).
+- **Only media/pdf/text mimes reach `xdg-open`** (`openableMime`). Anything
+  else is saved and named, never launched (audit #10).
 - **`chat:null` exists.** Use `chatKey()`; never `String(m.chat)`.
 - **Group ids come in two shapes**: 32 hex, or `chat<digits>`. `isGroupChat()` is
   "not a phone/email" — never a positive regex on one shape.

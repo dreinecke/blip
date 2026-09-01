@@ -39,6 +39,9 @@ if [[ -z "${host:-}" ]]; then
   read -r -p "Mac ssh target ([user@]host, Tailscale name works best): " host
 fi
 [[ -n "$host" ]] || { echo "no host given" >&2; exit 64; }
+if ! [[ "$host" =~ ^([A-Za-z0-9._-]+@)?[A-Za-z0-9._:-]+$ ]]; then
+  echo "✗ '$host' is not a [user@]hostname — no spaces, quotes, or shell characters" >&2; exit 64
+fi
 
 # 1. config
 mkdir -p "$conf_dir"

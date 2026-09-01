@@ -49,7 +49,7 @@ FloatingWindow {
     if (restoring) return
     var j = JSON.stringify({ visible: visible, width: Math.round(width), height: Math.round(height) })
     winStateWriter.command = ["sh", "-c",
-      "mkdir -p \"$1\" && printf '%s' \"$2\" > \"$1/window.json.tmp\" && mv \"$1/window.json.tmp\" \"$1/window.json\"",
+      "umask 077 && mkdir -p \"$1\" && printf '%s' \"$2\" > \"$1/window.json.tmp\" && mv \"$1/window.json.tmp\" \"$1/window.json\"",
       "blip", stateDir, j]
     winStateWriter.running = true
   }

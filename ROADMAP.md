@@ -140,8 +140,10 @@ on the Mac plus hand-made vic shims with `fnix` hardcoded.
 - [ ] Contact photos; link preview cards (nice-to-have).
 
 **D. Ship hygiene.**
-- [ ] Full Codex audit (security: ssh, stdin file path, cache, drafts) +
-  privacy doc (what lands on disk: state.json, ~/.cache/blip, drafts).
+- [x] Full Codex audit → docs/SECURITY.md (12 findings; 8 fixed in 1.9.4,
+  2 architecture decisions for Fred: forced-command ssh key, IPC send surface)
+  + docs/PRIVACY.md.
+- [ ] `--text-stdin` end to end so bodies leave argv (audit #4).
 - [ ] README rewrite for non-Fred users; screenshots/GIF; manifest fields
   (description, author, screenshots); CHANGELOG; version 2.0.0.
 - [ ] Test on a second Mac/Linux pair before publishing — DEFERRED (Fred,

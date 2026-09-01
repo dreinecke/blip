@@ -76,7 +76,12 @@ def name_for(handle: str | None) -> str | None:
                     name = names.get(r["pk"])
                     key = _normalize_phone(r["num"] or "")
                     if name and key:
-                        idx.setdefault(key, name)
+                        # Two contacts sharing the last ten digits (different
+                        # country codes) → ambiguous → show the raw handle.
+                        if key in idx and idx[key] != name:
+                            idx[key] = ""
+                        else:
+                            idx.setdefault(key, name)
                 for r in con.execute(
                     "SELECT ZOWNER AS pk, ZADDRESS AS addr FROM ZABCDEMAILADDRESS"
                 ):
@@ -89,8 +94,8 @@ def name_for(handle: str | None) -> str | None:
                 continue
         _NAME_INDEX = idx
     if "@" in handle:
-        return _NAME_INDEX.get(handle.strip().lower())
-    return _NAME_INDEX.get(_normalize_phone(handle))
+        return _NAME_INDEX.get(handle.strip().lower()) or None
+    return _NAME_INDEX.get(_normalize_phone(handle)) or None
 
 
 def label(handle: str | None, is_from_me: int, with_names: bool) -> str:

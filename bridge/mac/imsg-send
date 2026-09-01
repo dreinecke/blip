@@ -345,8 +345,9 @@ def consent_banner(recipient: str, text: str) -> None:
     print("  CONSENT-GATED SEND  (this is a real outbound message)", file=sys.stderr)
     print("=" * 72, file=sys.stderr)
     print(f"  to  : {recipient}", file=sys.stderr)
-    preview = text.replace("\n", " | ")
-    print(f"  body: {preview[:120]}{'...' if len(preview) > 120 else ''}", file=sys.stderr)
+    # Body text is deliberately NOT echoed: stderr ends up in the caller's
+    # logs (journald on the Linux side). Length is enough for a sanity check.
+    print(f"  body: {len(text)} chars", file=sys.stderr)
     print("=" * 72, file=sys.stderr)
 
 

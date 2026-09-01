@@ -46,6 +46,13 @@ describe("fetch cache", () => {
     expect(spawned).toBe(false);
   });
 
+  test("an auto-fetch cap rejects a stream larger than claimed (Codex audit #9)", () => {
+    const runner = (() => ({ status: 0, stdout: Buffer.alloc(6 * 1024 * 1024), stderr: "" })) as never;
+    const r = fetchAttachment("123456789012346", "big.png", "image/png", runner, 5 * 1024 * 1024);
+    expect(r.ok).toBe(false);
+    expect(r.error).toMatch(/ceiling/);
+  });
+
   test("offline exit codes report online:false", () => {
     const runner = (() => ({ status: 69, stdout: Buffer.alloc(0), stderr: "" })) as never;
     const r = fetchAttachment("123456789012345", "x.png", "image/png", runner);

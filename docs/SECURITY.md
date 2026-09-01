@@ -1,0 +1,37 @@
+# Security — threat model and the 2026-08-31 audit
+
+Blip's trust boundary is simple and worth stating plainly: **the Mac is part
+of the trusted computing base.** It holds your Messages history, your
+Contacts, and the Automation grant that sends. A compromised Mac can read,
+alter, fabricate, or redirect everything Blip shows or sends, and no
+Linux-side code can change that. If the Mac is ever compromised: disconnect
+it, rotate the ssh key, reinstall the bridge on a clean machine.
+
+The threats Blip *does* defend against are: a hostile sender (attachments,
+message bodies, names), a corrupted or stale local state file, a bad
+`bridge.conf`, and mistakes in the client that would send to the wrong person.
+
+## Codex audit, 2026-08-31 (read-only, full repo, 178k tokens)
+
+| # | Severity | Finding | Status |
+|---|---|---|---|
+| 1 | critical | A hostile Mac is unsatisfiable as a threat | **Documented** above — by design |
+| 2 | critical | Any ssh login to the Mac account inherits Full Disk Access + Automation | **Open, Fred's call** — fix is a dedicated key with `restrict,command="~/.blip/bin/blip-dispatch"` |
+| 3 | critical | `qs ipc … compose --yes` / `goto` / `bubbles` let any local process send or read | **Open, Fred's call** — these are the automation surface; trade-off is a confirm step |
+| 4 | high | Bodies travel in argv (Linux `/proc`, Mac `osascript -e`) and `imsg-send` echoed 120 chars of body to stderr | **stderr fixed** (1.9.4). argv → `--text-stdin` is a roadmap item |
+| 5 | high | Stale contact/search result shown as clickable rows under a newer query | **Fixed** 1.9.4 — generation bumps when a query is queued, results cleared |
+| 6 | high | Group GUIDs are trusted from state/bridge | Accepted — same trust as #1; the Mac resolves them anyway |
+| 7 | high | `bridge.conf` was `source`d; a hostile `host=` runs shell | **Fixed** 1.9.4 — parsed key=value, three keys only, `[user@]host` validated, `ssh --` |
+| 8 | high | Contact names keyed by last ten digits can show the wrong person | **Fixed** 1.9.4 — collisions resolve to *no* name (raw handle shown) |
+| 9 | medium | Auto-download trusted claimed size, not actual bytes | **Fixed** 1.9.4 — auto jobs carry a hard 5 MB transfer cap |
+| 10 | medium | Clicked attachments went straight to `xdg-open` regardless of type | **Fixed** 1.9.4 — only image/video/audio/pdf/text/vcard/ics open; others are saved and named |
+| 11 | medium | Symlink in cache followed; `window.json.tmp` could be 0644 | **Fixed** 1.9.4 — `lstat`+regular-file check; `umask 077` |
+| 12 | medium | Catch-up fetch doubled without bound | **Fixed** 1.9.4 — capped at 8192 rows |
+
+Privacy-inventory items from the same audit are folded into
+[PRIVACY.md](PRIVACY.md).
+
+Still open and honest about it: drafts in `$XDG_RUNTIME_DIR/blip` are swept
+hourly rather than deleted on cancel; cache file names include the Mac
+attachment ROWID; `blip-setup` prints your latest message to the terminal
+as its smoke test.

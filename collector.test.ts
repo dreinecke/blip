@@ -7,6 +7,7 @@ import {
   buildThreads,
   detectSelfChats,
   fetchMessagesAfter,
+  CATCHUP_MAX_ROWS,
   fetchGroups,
   groupName,
   dedupeSelfEcho,
@@ -535,6 +536,20 @@ describe("adaptive unread catch-up", () => {
     expect(result.ok).toBe(true);
     expect(result.msgs).toHaveLength(4);
     expect(limits).toEqual([2, 4]);
+  });
+
+  test("catch-up stops doubling at CATCHUP_MAX_ROWS even if every page is full (Codex audit #12)", () => {
+    const limits: number[] = [];
+    const fake = ((_cmd: string, args: string[]) => {
+      const limit = Number(args[2]);
+      limits.push(limit);
+      const rows = Array.from({ length: limit }, (_, i) => msg({ ts: "2026-08-30 12:01:00", handle: "H" + i }));
+      return { status: 0, stdout: JSON.stringify(rows), stderr: "" };
+    }) as never;
+    const r = fetchMessagesAfter("2026-08-30 12:00:00", 2, fake);
+    expect(r.ok).toBe(true);
+    expect(limits[limits.length - 1]).toBeLessThanOrEqual(CATCHUP_MAX_ROWS);
+    expect(limits.length).toBeLessThan(20);
   });
 
   test("expands past an equal timestamp boundary", () => {
