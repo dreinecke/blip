@@ -1,0 +1,22 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - name: unit tests (collector, thread, tier2, ui invariants)
+        run: bun test
+      - name: Mac tools compile (python3 syntax, no macOS needed)
+        run: python3 -m py_compile bridge/mac/imsg bridge/mac/imsg-send bridge/mac/contacts bridge/mac/tcc-check bridge/mac/blip-check bridge/mac/blip-dispatch
+      - name: shell scripts (bash -n + shellcheck)
+        run: |
+          bash -n bridge/linux/blip-shim scripts/blip-setup scripts/sync-bridge.sh bridge/mac/install.sh
+          sudo apt-get install -y -q shellcheck >/dev/null
+          shellcheck -S warning bridge/linux/blip-shim scripts/blip-setup scripts/sync-bridge.sh bridge/mac/install.sh
