@@ -103,15 +103,19 @@ Gate: **Fred says "complete."** Nothing ships to the marketplace before that.
 
 **A. One source (blocker).** Blip currently depends on claude-on-mac ≥1.11.0
 on the Mac plus hand-made vic shims with `fnix` hardcoded.
-- [ ] Vendor the Mac tools into `bridge/mac/` (`imsg`, `imsg-send`,
-  `contacts`) as a pinned copy; `scripts/sync-bridge.sh` pulls a tagged
-  claude-on-mac version so upstream stays the general toolkit.
-- [ ] Generic Linux shims in `bridge/linux/` that read the Mac host from
-  `~/.config/blip/config.json` — no hostname in code; `ssh -n` preflight.
-- [ ] `blip-setup`: guided first run — Mac host + user, ControlMaster ssh
-  config, shim install, one-paste Mac install, and the two TCC grants
-  (Full Disk Access + Automation→Messages for sshd) with a `tcc-check`.
-- [ ] Self-handles from config/env, never hardcoded; allowlist editor.
+- [x] Vendor the Mac tools into `bridge/mac/` — 1.7.0: pinned in
+  `bridge/BRIDGE-VERSION` (claude-on-mac f3612e8 / v1.11.0),
+  `scripts/sync-bridge.sh <rev>` refreshes; upstream stays the toolkit.
+- [x] Generic Linux shim — 1.7.0: `bridge/linux/blip-shim` installed as
+  `~/bin/{imsg,imsg-send,contacts}`, reads `~/.config/blip/bridge.conf`
+  (host=, remote_bin single-quoted so it expands on the Mac); `ssh -n`.
+- [x] `scripts/blip-setup` — 1.7.0: config, ControlMaster block, shims
+  (backs up existing), Mac install over ssh (`bridge/mac/install.sh` →
+  `~/.blip/bin`), TCC grant walkthrough + `tcc-check`, smoke test. Dogfooded
+  on vic. Still open: `blip-setup` should trigger the Automation prompt with
+  a self-send, and tcc-check should filter to the Messages-relevant checks.
+- [ ] Self-handles: auto-detected from chat.db already (`imsg-send
+  --list-self`); allowlist editor still open. De-vic'd all strings (1.7.0).
 
 **B. Finish the app.**
 - [ ] Shared `BlipView` (docs/app-design-review.md) so the window has the

@@ -4,7 +4,7 @@
  * the QML bar widget and panel render.
  *
  * iMessage is macOS-only. chat.db and the AppleScript send path both live on
-* the Mac; this machine is a thin client over a multiplexed SSH socket (~47ms warm). This
+  * the Mac; this machine is a thin client over a multiplexed SSH socket (~47ms warm). This
  * script never touches SQLite itself — it shells out to ~/bin/imsg, which
  * proxies to the Mac.
  *
