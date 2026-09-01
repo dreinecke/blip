@@ -87,13 +87,14 @@ a daemon only returns if the app ever has to run outside the shell).
   two-pane layout (sidebar of every thread with dots/previews + a read-only
   text conversation + compose), toggled by IPC `window` (keybind next).
   Shares live data with the panel; reads mark through the same ledger.
-- [ ] **Shared `BlipView`** — extract Panel.qml's rich renderer into one
-  component both surfaces embed. Plan: `docs/app-design-review.md` (8 steps).
-  Progress: steps 1–4 DONE 1.7.1 — `BlipView.qml` holds all state/processes/
-  visuals behind the host contract; `Panel.qml` is a 97-line host with
-  proxies; renders identically. Remaining: 5 (threadPane/conversationPane
-  split + `splitView`), 6 (BarWidget host-neutral read ownership), 7
-  (`BlipWindow { BlipView { splitView: true } }`), 8 (screenshot compare).
+- [x] **Shared `BlipView`** — DONE 1.8.0 (plan: `docs/app-design-review.md`).
+  `BlipView.qml` holds all state/processes/visuals behind the host contract
+  with two always-instantiated panes behind `splitView`; `Panel.qml` is a
+  97-line popout host, `BlipWindow.qml` a 60-line window host. Both surfaces
+  render every feature from one file. Codex found no split-induced bugs.
+- [ ] **Window persistence** — the window lives inside the shell process, so
+  `omarchy-restart-shell` (every plugin deploy/update) kills it; remember
+  `visible` + geometry in state and restore on shell start.
 - [ ] **Keybind + window polish** — SUPER-something toggles it; remember
   size/position; Esc closes; sidebar search; unread counts in the title.
 - [ ] ~~`blipd` daemon~~ — retired (see above).
