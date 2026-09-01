@@ -82,24 +82,41 @@ BarWidget {
 
   // The app: a Messages-style FloatingWindow living in the same shell process,
   // sharing this widget's poller/push/read ledger (Tier 4, no daemon needed).
+  // Quickshell never re-maps a FloatingWindow after it has been hidden once
+  // (visible flips true, no client appears — found 2026-08-31 when SUPER+M
+  // "did nothing"). So the window is RECREATED on every show and destroyed
+  // on hide; it persists its own state to ~/.local/state/blip/window.json
+  // and restores size + "was open" on creation.
   Loader {
     id: windowLoader
-    active: true
+    active: true                       // created at start so it can self-restore
     source: Qt.resolvedUrl("BlipWindow.qml")
     onLoaded: item.hostWidget = root
   }
-  function toggleWindow() {
+  readonly property bool windowVisible: windowLoader.item ? windowLoader.item.visible === true : false
+  function hideWindow() {
     if (!windowLoader.item) return
-    windowLoader.item.visible = !windowLoader.item.visible
-    if (windowLoader.item.visible) root.refresh(true, false)   // full list, like the panel
+    windowLoader.item.visible = false  // writes visible:false to state
+    windowLoader.active = false
+  }
+  function ensureWindow() {
+    if (!windowLoader.active) windowLoader.active = true
+    if (windowLoader.item && !windowLoader.item.visible) {
+      windowLoader.item.visible = true
+      root.refresh(true, false)          // full list, like the panel
+    }
+  }
+  function toggleWindow() {
+    if (root.windowVisible) hideWindow()
+    else ensureWindow()
   }
   // Show AND focus: a window restored on another workspace is invisible to
   // the user, and a plain toggle would HIDE it ("SUPER+M doesn't load the
   // app"). Hyprland ≥0.56 dispatch takes Lua; classic focuswindow is rejected.
   Process { id: focusProc }
   function showApp() {
+    ensureWindow()
     if (!windowLoader.item) return
-    if (!windowLoader.item.visible) { windowLoader.item.visible = true; root.refresh(true, false) }
     focusProc.command = ["sh", "-c",
       'for i in 1 2 3 4 5 6 7 8; do a=$(hyprctl clients -j | jq -r \'.[] | select(.title == "Blip") | .address\' | head -1); [ -n "$a" ] && break; sleep 0.15; done; ' +
       '[ -n "$a" ] && hyprctl dispatch "hl.dsp.focus({ window = \\"address:$a\\" })" >/dev/null']
@@ -481,12 +498,12 @@ BarWidget {
     function bubbles(): string { return panelLoader.item ? panelLoader.item.bubbleModel() : "[]" }
     function find(query: string): string { return panelLoader.item ? panelLoader.item.searchFor(query) : "no panel" }
     function newchat(query: string): string { return panelLoader.item ? panelLoader.item.newChatFor(query) : "no panel" }
-    function window(): string { root.toggleWindow(); return windowLoader.item ? (windowLoader.item.visible ? "window shown" : "window hidden") : "no window" }
+    function window(): string { root.toggleWindow(); return root.windowVisible ? "window shown" : "window hidden" }
     function app(): string { root.showApp(); return "app shown + focused" }
     function windowgoto(chat: string): string {
+      root.ensureWindow()
       var w = windowLoader.item
       if (!w) return "no window"
-      if (!w.visible) root.toggleWindow()
       var want = String(chat)
       for (var i = 0; i < root.threads.length; i++) {
         var c = String(root.threads[i].chat)
