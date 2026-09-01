@@ -138,7 +138,9 @@ on the Mac plus hand-made vic shims with `fnix` hardcoded.
   privacy doc (what lands on disk: state.json, ~/.cache/blip, drafts).
 - [ ] README rewrite for non-Fred users; screenshots/GIF; manifest fields
   (description, author, screenshots); CHANGELOG; version 2.0.0.
-- [ ] Test on a second Mac/Linux pair before publishing.
+- [ ] Test on a second Mac/Linux pair before publishing — DEFERRED (Fred,
+  2026-08-31: "not interested in trying another machine yet"); revisit only
+  when he raises it.
 
 ## Prior art
 
