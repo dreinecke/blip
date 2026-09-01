@@ -336,7 +336,8 @@ FloatingWindow {
         TextField {
           id: composeField
           Layout.fillWidth: true
-          enabled: win.online && win.isSendable(win.active)
+          enabled: true
+          readOnly: !win.online || !win.isSendable(win.active)   // never disable a focused editor
           placeholderText: !win.active ? "select a conversation" : win.isSendable(win.active) ? "iMessage" : "read-only — group id unknown"
           foreground: win.fg
           accent: win.accent

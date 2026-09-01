@@ -112,6 +112,10 @@ Panel {
   property string reloadChat: ""
 
   readonly property bool inThread: active !== null
+  /** The surface hosting this view is showing (popout: opened; window: visible).
+   *  Gates reads, reloads, and autofocus — a hidden surface must never mark
+   *  anything read. */
+  property bool surfaceOpen: opened
   // last_ts of the open conversation as of its last load — the push watcher
   // refreshes the thread list, and when OUR thread advances, the bubbles
   // reload themselves. The guard makes unchanged refreshes free.
@@ -120,7 +124,7 @@ Panel {
     // LIST view: a rebuilt Repeater collapses contentHeight for a frame and
     // StopAtBounds clamps contentY to 0 — the reader's place in a long list
     // was lost on every genuine refresh. Restore it once layout settles.
-    if (!inThread && opened) {
+    if (!inThread && surfaceOpen) {
       var y = flick.contentY
       if (y > 0) Qt.callLater(function() {
         if (!root.inThread)
@@ -131,7 +135,7 @@ Panel {
     // `opened` too, not just inThread: a CLOSED panel still holds `active`,
     // and reloading a hidden thread marks it read without it ever being
     // seen (Codex HIGH, 1.1.0 review).
-    if (!inThread || !opened) return
+    if (!inThread || !surfaceOpen) return
     for (var i = 0; i < threads.length; i++) {
       var t = threads[i]
       if (String(t.chat) !== String(active.chat)) continue
@@ -442,7 +446,7 @@ Panel {
   // reload fires the moment they return to the bottom.
   property bool pushPending: false
   function pushReload() {
-    if (!inThread || !opened) return
+    if (!inThread || !surfaceOpen) return
     if (!flick.stick) { pushPending = true; return }
     if (threadProc.running && pendingThreadChat !== "") return
     pinToBottom = true
@@ -569,7 +573,7 @@ Panel {
       onStreamFinished: {
         // `opened` matters: a load finishing after the panel closed must not
         // render into a hidden view or mark the thread read unseen.
-        var belongsHere = root.opened && root.inThread && String(root.active.chat) === root.threadRunningChat
+        var belongsHere = root.surfaceOpen && root.inThread && String(root.active.chat) === root.threadRunningChat
         if (!belongsHere) return
         root.loading = false
         try {
@@ -1402,11 +1406,8 @@ Panel {
                       Layout.preferredHeight: status === Image.Ready && implicitWidth > 0
                         ? Layout.preferredWidth * implicitHeight / implicitWidth
                         : Style.space(120)
-                      MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: root.openAttachment(chipRow.modelData)
-                      }
+                      HoverHandler { cursorShape: Qt.PointingHandCursor }
+                      TapHandler { onTapped: root.openAttachment(chipRow.modelData) }
                     }
 
                     Rectangle {
@@ -1430,11 +1431,8 @@ Panel {
                         font.family: root.fontFamily
                         font.pixelSize: Style.font.caption
                       }
-                      MouseArea {
-                        anchors.fill: parent
-                        cursorShape: Qt.PointingHandCursor
-                        onClicked: root.openAttachment(chipRow.modelData)
-                      }
+                      HoverHandler { cursorShape: Qt.PointingHandCursor }
+                      TapHandler { onTapped: root.openAttachment(chipRow.modelData) }
                     }
                     Item { Layout.fillWidth: true; visible: !bubbleRow.mine }
                   }
@@ -1626,11 +1624,8 @@ Panel {
               font.family: root.fontFamily
               font.pixelSize: Style.font.caption
             }
-            MouseArea {
-              anchors.fill: parent
-              cursorShape: Qt.PointingHandCursor
-              onClicked: root.clearDraft()
-            }
+            HoverHandler { cursorShape: Qt.PointingHandCursor }
+            TapHandler { onTapped: root.clearDraft() }
           }
           Item { Layout.fillWidth: true }
         }
@@ -1643,10 +1638,12 @@ Panel {
           TextField {
             id: composeField
             Layout.fillWidth: true
-            // Never disable while sending: this field is the panel's exclusive
-            // keyboard-focus holder, and disabling it dismisses the panel the
-            // instant Enter is pressed. send() itself refuses concurrent sends.
-            enabled: root.online && root.isSendable(root.active)
+            // NEVER disabled: this field is the panel's exclusive keyboard-focus
+            // holder, and disabling the focused editor dismisses the whole
+            // panel (0.7.2 postmortem; Codex design review #8). readOnly
+            // instead; send() is the authoritative online/sendability guard.
+            enabled: true
+            readOnly: !root.online || !root.isSendable(root.active)
             placeholderText: root.draftPath !== ""
               ? "caption (optional) — Enter sends the file"
               : root.isSendable(root.active) ? "iMessage" : "Read-only — group id unknown"
