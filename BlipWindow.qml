@@ -22,7 +22,7 @@ FloatingWindow {
   title: "Blip" + (hostWidget && hostWidget.unread > 0 ? " (" + hostWidget.unread + ")" : "")
   // Translucent like the rest of Omarchy: Hyprland blurs what shows through
   // (decoration.blur is on; no no_blur rule for org.quickshell). Fred, 2.0.2.
-  readonly property real backdropAlpha: 0.80
+  readonly property real backdropAlpha: 0.70
   color: Qt.rgba(Color.background.r, Color.background.g, Color.background.b, backdropAlpha)
   implicitWidth: 1040
   implicitHeight: 720
