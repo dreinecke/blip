@@ -33,7 +33,7 @@ FocusScope {
   readonly property bool editorActive:
     composeField.activeFocus || searchField.activeFocus || newField.activeFocus || bubbleFocused
   readonly property alias composeEditor: composeField
-  readonly property real contentHeightHint: content.implicitHeight
+  readonly property real contentHeightHint: listContent.implicitHeight
   /** The view wants keyboard navigation focus back (list mode). */
   signal navigationFocusRequested()
   // Palette follows the Omarchy theme (Fred, 2026-08-31). Color.* is the
@@ -129,10 +129,10 @@ FocusScope {
     // StopAtBounds clamps contentY to 0 — the reader's place in a long list
     // was lost on every genuine refresh. Restore it once layout settles.
     if (!inThread && surfaceOpen) {
-      var y = flick.contentY
+      var y = threadFlick.contentY
       if (y > 0) Qt.callLater(function() {
         if (!root.inThread)
-          flick.contentY = Math.max(0, Math.min(y, flick.contentHeight - flick.height))
+          threadFlick.contentY = Math.max(0, Math.min(y, threadFlick.contentHeight - threadFlick.height))
       })
       return
     }
@@ -199,7 +199,7 @@ FocusScope {
     // Deep fetch for a real thread list. Does NOT clear dots: like iMessage,
     // a thread stays marked until that conversation is opened.
     if (hostWidget) hostWidget.refresh(true, false)
-    Qt.callLater(function() { flick.contentY = 0 })
+    Qt.callLater(function() { threadFlick.contentY = 0 })
   }
 
   function back() {
@@ -211,7 +211,7 @@ FocusScope {
     composeField.text = ""
     clearDraft()   // a queued file must never survive into another thread
     pinToBottom = false
-    Qt.callLater(function() { flick.contentY = 0; root.navigationFocusRequested() })
+    Qt.callLater(function() { threadFlick.contentY = 0; root.navigationFocusRequested() })
   }
 
   function openThread(t) {
@@ -814,24 +814,33 @@ FocusScope {
     else navigationFocusRequested()
   }
 
-        ColumnLayout {
+  // ---- layout: one pane (popout) or two (window). Both panes always exist —
+  // hiding, not unloading, keeps image state, selection, and scroll position.
+  property bool splitView: false
+  property int sidebarWidth: 320
+  readonly property bool listShowing: splitView || !inThread
+
+  RowLayout {
+    anchors.fill: parent
+    spacing: 0
+
+    // ------------------------------------------------------- thread pane
+    Item {
+      id: threadPane
+      visible: root.listShowing
+      Layout.fillHeight: true
+      Layout.fillWidth: !root.splitView
+      Layout.preferredWidth: root.splitView ? root.sidebarWidth : -1
+      ColumnLayout {
         anchors.fill: parent
         spacing: Style.space(8)
-
-        // ---------------------------------------------------------- header
         PanelHero {
           Layout.fillWidth: true
-          title: root.inThread ? String(root.active.name || root.active.chat) : "Blip"
-          meta: root.inThread
-            ? (root.activeIsGroup
-                ? (root.isSendable(root.active) ? "group" : "group · read-only (id unknown)")
-                : String(root.active.handle))
-            : (!root.online
+          title: "Blip"
+          meta: (!root.online
                 ? "Mac unreachable — bridge offline"
                 : (root.unread > 0 ? root.unread + " unread" : "all caught up"))
-          detail: root.inThread
-            ? (root.loading ? "loading…" : "Esc = back")
-            : "iMessage via your Mac"
+          detail: "iMessage via your Mac"
           foreground: root.foreground
           fontFamily: root.fontFamily
         }
@@ -840,39 +849,15 @@ FocusScope {
 
         // ---------------------------------------------------- scroll body
         Flickable {
-          id: flick
+          id: threadFlick
           Layout.fillWidth: true
           Layout.fillHeight: true
           contentWidth: width
-          contentHeight: content.implicitHeight
+          contentHeight: listContent.implicitHeight
           clip: true
           boundsBehavior: Flickable.StopAtBounds
           interactive: contentHeight > height
           ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
-          // stick-to-bottom (BlueFerry's pattern): once pinned, KEEP the
-          // view at the bottom through late content growth — async images
-          // finishing their decode were pushing the newest bubble below
-          // the fold. Scrolling up releases the stick; scrolling back to
-          // the end re-arms it.
-          property bool stick: false
-          onContentHeightChanged: {
-            if (!root.inThread) return
-            if (root.pinToBottom) {
-              stick = true
-              contentY = Math.max(0, contentHeight - height)
-              if (!root.loading) root.pinToBottom = false
-            } else if (stick) {
-              contentY = Math.max(0, contentHeight - height)
-            }
-          }
-          onMovementStarted: stick = false
-          onMovementEnded: stick = atYEnd
-          // A reload deferred while the user read history fires the moment
-          // they return to the bottom.
-          onStickChanged: if (stick && root.pushPending) {
-            root.pushPending = false
-            Qt.callLater(root.pushReload)
-          }
 
           // Wheel scrolling is DIRECT, 1:1 — no animation. Two animated
           // schemes (restarted easing, SmoothedAnimation chase) both fought
@@ -893,17 +878,14 @@ FocusScope {
             acceptedButtons: Qt.NoButton
             onWheel: function(wheel) {
               var d = wheel.pixelDelta.y !== 0 ? wheel.pixelDelta.y * 3.0 : wheel.angleDelta.y * 4.5
-              var max = Math.max(0, flick.contentHeight - flick.height)
-              flick.contentY = Math.max(0, Math.min(max, flick.contentY - d))
-              // the wheel bypasses Flickable movement signals — maintain the
-              // bottom-stick here too
-              flick.stick = flick.contentY >= max - 4
+              var max = Math.max(0, threadFlick.contentHeight - threadFlick.height)
+              threadFlick.contentY = Math.max(0, Math.min(max, threadFlick.contentY - d))
               wheel.accepted = true
             }
           }
 
           ColumnLayout {
-            id: content
+            id: listContent
             width: parent.width
             spacing: root.inThread ? Style.space(2) : Style.space(6)
 
@@ -924,7 +906,7 @@ FocusScope {
             // ---------------------------------------------- LIST VIEW
             RowLayout {
               Layout.fillWidth: true
-              visible: root.online && !root.inThread
+              visible: root.online && root.listShowing
               PanelSectionHeader {
                 Layout.fillWidth: true
                 text: root.newMode ? "NEW MESSAGE" : root.searchShowing ? "SEARCH" : "MESSAGES"
@@ -980,7 +962,7 @@ FocusScope {
             TextField {
               id: newField
               Layout.fillWidth: true
-              visible: root.online && !root.inThread && root.newMode
+              visible: root.online && root.listShowing && root.newMode
               placeholderText: "name, number, or email — Enter searches contacts"
               foreground: root.foreground
               accent: root.accent
@@ -1001,7 +983,7 @@ FocusScope {
             }
 
             Repeater {
-              model: root.online && !root.inThread && root.newMode ? root.newResults : []
+              model: root.online && root.listShowing && root.newMode ? root.newResults : []
               delegate: Rectangle {
                 required property var modelData
                 Layout.fillWidth: true
@@ -1045,7 +1027,7 @@ FocusScope {
             TextField {
               id: searchField
               Layout.fillWidth: true
-              visible: root.online && !root.inThread && !root.newMode
+              visible: root.online && root.listShowing && !root.newMode
               placeholderText: "🔍 search all messages"
               foreground: root.foreground
               accent: root.accent
@@ -1067,7 +1049,7 @@ FocusScope {
             }
 
             Repeater {
-              model: root.online && !root.inThread && root.searchShowing ? root.searchResults : []
+              model: root.online && root.listShowing && root.searchShowing ? root.searchResults : []
               delegate: Rectangle {
                 required property var modelData
                 Layout.fillWidth: true
@@ -1125,7 +1107,7 @@ FocusScope {
 
             Text {
               Layout.fillWidth: true
-              visible: root.online && !root.inThread && !root.searchShowing && !root.newMode && root.threads.length === 0
+              visible: root.online && root.listShowing && !root.searchShowing && !root.newMode && root.threads.length === 0
               text: "No threads in the current window yet — press r to refresh."
               textFormat: Text.PlainText
               color: root.dim
@@ -1135,7 +1117,7 @@ FocusScope {
             }
 
             Repeater {
-              model: root.online && !root.inThread && !root.searchShowing && !root.newMode ? root.threads : []
+              model: root.online && root.listShowing && !root.searchShowing && !root.newMode ? root.threads : []
               delegate: Rectangle {
                 required property var modelData
                 required property int index
@@ -1222,6 +1204,113 @@ FocusScope {
                 }
               }
             }
+
+          }
+        }
+      }
+    }
+
+    Rectangle {
+      visible: root.splitView
+      Layout.preferredWidth: 1
+      Layout.fillHeight: true
+      color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+    }
+
+    // ------------------------------------------------- conversation pane
+    Item {
+      id: conversationPane
+      visible: root.splitView || root.inThread
+      Layout.fillHeight: true
+      Layout.fillWidth: true
+      ColumnLayout {
+        anchors.fill: parent
+        spacing: Style.space(8)
+        PanelHero {
+          Layout.fillWidth: true
+          title: root.inThread ? String(root.active.name || root.active.chat) : "Select a conversation"
+          meta: root.inThread
+            ? (root.activeIsGroup
+                ? (root.isSendable(root.active) ? "group" : "group · read-only (id unknown)")
+                : String(root.active.handle))
+            : ""
+          detail: root.inThread
+            ? (root.loading ? "loading…" : "Esc = back")
+            : (root.splitView ? "" : "iMessage via your Mac")
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+        }
+
+        PanelSeparator { Layout.fillWidth: true; foreground: root.foreground }
+
+        // ---------------------------------------------------- scroll body
+        Flickable {
+          id: flick
+          Layout.fillWidth: true
+          Layout.fillHeight: true
+          contentWidth: width
+          contentHeight: content.implicitHeight
+          clip: true
+          boundsBehavior: Flickable.StopAtBounds
+          interactive: contentHeight > height
+          ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+          // stick-to-bottom (BlueFerry's pattern): once pinned, KEEP the
+          // view at the bottom through late content growth — async images
+          // finishing their decode were pushing the newest bubble below
+          // the fold. Scrolling up releases the stick; scrolling back to
+          // the end re-arms it.
+          property bool stick: false
+          onContentHeightChanged: {
+            if (!root.inThread) return
+            if (root.pinToBottom) {
+              stick = true
+              contentY = Math.max(0, contentHeight - height)
+              if (!root.loading) root.pinToBottom = false
+            } else if (stick) {
+              contentY = Math.max(0, contentHeight - height)
+            }
+          }
+          onMovementStarted: stick = false
+          onMovementEnded: stick = atYEnd
+          // A reload deferred while the user read history fires the moment
+          // they return to the bottom.
+          onStickChanged: if (stick && root.pushPending) {
+            root.pushPending = false
+            Qt.callLater(root.pushReload)
+          }
+
+          // Wheel scrolling is DIRECT, 1:1 — no animation. Two animated
+          // schemes (restarted easing, SmoothedAnimation chase) both fought
+          // the MX Master's hi-res event flood and felt broken; hi-res
+          // wheels are smooth by HARDWARE, so applying each delta
+          // immediately is what a browser does and what reads as smooth.
+          // The handler owns the event outright so the Flickable's own
+          // wheel path can never double-apply it.
+          // MouseArea.onWheel, NOT WheelHandler: instrumentation proved the
+          // WheelHandler never received a single event on this stack — every
+          // "stride" tweak was a placebo and the Flickable's native kinetic
+          // path (the decaying one) was doing the scrolling. Omarchy's own
+          // panels use MouseArea.onWheel; it works. NoButton + z:-1 so it
+          // never steals clicks/hover from the rows above it.
+          MouseArea {
+            anchors.fill: parent
+            z: -1
+            acceptedButtons: Qt.NoButton
+            onWheel: function(wheel) {
+              var d = wheel.pixelDelta.y !== 0 ? wheel.pixelDelta.y * 3.0 : wheel.angleDelta.y * 4.5
+              var max = Math.max(0, flick.contentHeight - flick.height)
+              flick.contentY = Math.max(0, Math.min(max, flick.contentY - d))
+              // the wheel bypasses Flickable movement signals — maintain the
+              // bottom-stick here too
+              flick.stick = flick.contentY >= max - 4
+              wheel.accepted = true
+            }
+          }
+
+          ColumnLayout {
+            id: content
+            width: parent.width
+            spacing: root.inThread ? Style.space(2) : Style.space(6)
 
             // ------------------------------------------- CONVERSATION
             Text {
@@ -1572,7 +1661,6 @@ FocusScope {
             }
           }
         }
-
         // ------------------------------------------------------ COMPOSE
         PanelSeparator {
           Layout.fillWidth: true
@@ -1670,6 +1758,8 @@ FocusScope {
           wrapMode: Text.WordWrap
         }
       }
+    }
+  }
 
     // drag a file from a file manager onto the open conversation → draft chip
     DropArea {

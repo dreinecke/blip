@@ -223,15 +223,24 @@ BarWidget {
    *  refreshes carry it so a message arriving in the thread the user is
    *  LOOKING AT is counted read in the same collector run, not flashed
    *  unread and cleared a round-trip later. */
-  function activeReadChat() {
+  /** The surface currently showing a conversation: the popout wins when open
+   *  (it is in front), else the window when visible, else none. Both hosts
+   *  expose the same proxies (inThread/active/loading/activeLastTs). */
+  function readingSurface() {
     var p = panelLoader.item
+    if (p && p.opened === true && p.inThread === true) return p
+    var w = windowLoader.item
+    if (w && w.visible === true && w.inThread === true) return w
+    return null
+  }
+  function activeReadChat() {
+    var s = readingSurface()
     // a still-LOADING conversation is not yet read (Codex #4)
-    return (p && p.opened === true && p.inThread === true && p.loading !== true)
-      ? String(p.active.chat) : ""
+    return (s && s.loading !== true) ? String(s.active.chat) : ""
   }
   function activeSeenTs() {
-    var p = panelLoader.item
-    return (p && p.opened === true && p.inThread === true) ? String(p.activeLastTs || "") : ""
+    var s = readingSurface()
+    return s ? String(s.activeLastTs || "") : ""
   }
 
   Process {
@@ -354,8 +363,12 @@ BarWidget {
       root.refresh(root.anySurfaceOpen(), false, root.activeReadChat(), root.activeSeenTs())
       // Reload the OPEN conversation in parallel — waiting for the collector
       // and then reloading serially added a visible second of latency.
+      // Both surfaces: each gates itself on its own surfaceOpen.
       if (panel && panel.opened === true && typeof panel.pushReload === "function")
         panel.pushReload()
+      var w = windowLoader.item
+      if (w && w.visible === true && typeof w.pushReload === "function")
+        w.pushReload()
     }
   }
   Timer {
