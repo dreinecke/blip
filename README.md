@@ -80,7 +80,9 @@ Linux side. If the Mac is asleep, the widget dims and says so.
   the reply path)
 
 **The app**
-- double-click the bar icon (or IPC `window`) for a Messages-style window:
+- double-click the bar icon, press `SUPER+M` (add
+  `o.bind("SUPER + M", "Blip", "qs -p /usr/share/omarchy/shell ipc call nixfred.blip window")`
+  to `~/.config/hypr/bindings.lua`), or IPC `window` for a Messages-style window:
   sidebar of every conversation + the open thread + compose, tiled by
   Hyprland like any app, sharing the bar widget's live data
 
