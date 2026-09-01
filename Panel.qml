@@ -1540,18 +1540,22 @@ Panel {
                 RowLayout {
                   Layout.fillWidth: true
                   visible: String(modelData.time || "") !== "" ||
-                           modelData.edited === true || String(modelData.effect || "") !== ""
+                           modelData.edited === true || String(modelData.effect || "") !== "" ||
+                           modelData.failed === true
                   spacing: 0
                   Item { Layout.fillWidth: true; visible: bubbleRow.mine }
                   Text {
                     Layout.rightMargin: bubbleRow.mine ? Style.space(6) : 0
                     Layout.leftMargin: bubbleRow.mine ? 0 : Style.space(6)
-                    text: [String(modelData.time || ""),
+                    text: [modelData.failed === true ? "⚠ Not Delivered" : "",
+                           String(modelData.time || ""),
                            modelData.edited === true ? "Edited" : "",
                            String(modelData.effect || "") !== "" ? "sent with " + modelData.effect : ""]
                           .filter(function(s) { return s !== "" }).join(" · ")
                     textFormat: Text.PlainText
-                    color: root.dim
+                    // a failed send is the one thing here that must not be dim
+                    color: modelData.failed === true ? root.urgent : root.dim
+                    font.bold: modelData.failed === true
                     font.family: root.fontFamily
                     font.pixelSize: Style.font.caption
                     bottomPadding: Style.space(4)

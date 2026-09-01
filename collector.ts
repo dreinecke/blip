@@ -65,6 +65,10 @@ export interface ImsgMessage {
   /** True for tapback rows ("Loved …") — previews show them, badges don't
    *  (matches every Apple client). imsg ≥1.9.0. */
   tapback?: boolean;
+  /** Delivery failure code on OWN messages (chat.db message.error; 0 = ok).
+   *  AppleScript reports success for sends that die later — this is where
+   *  the truth lands. imsg ≥1.10.0. */
+  error?: number;
   // ---- imsg --rich extras (claude-on-mac ≥ 1.5.0); absent on plain fetches
   read_at?: string | null;
   tapbacks?: Tapback[] | null;
@@ -140,6 +144,8 @@ export interface BlipOutput {
   unread: number;
   threads: Thread[];
   toast: Toast[];
+  /** Your own recent sends that died (chat.db error≠0); toasted once each. */
+  failures: Toast[];
   /** False means models are fresh but state could not be committed. */
   persisted: boolean;
 }
@@ -428,6 +434,35 @@ export function selectToasts(
   return out;
 }
 
+/** How far back a delivery failure is still worth interrupting for. */
+export const FAILURE_TOAST_WINDOW_MS = 15 * 60 * 1000;
+
+/**
+ * Your own recent messages that Messages could not deliver. AppleScript
+ * reports success for sends that die later; chat.db's `error` is the only
+ * truth. Not allowlist-gated — it is YOUR message. Deduped through the same
+ * opaque-key ring as toasts, so a failure interrupts exactly once.
+ */
+export function selectFailures(
+  msgs: ImsgMessage[],
+  toasted: string[],
+  nowTs = localNowTs(),
+): Toast[] {
+  const seen = new Set(toasted);
+  const out: Toast[] = [];
+  const cutoff = localNowTs(new Date(Date.parse(nowTs.replace(" ", "T")) - FAILURE_TOAST_WINDOW_MS));
+  for (const m of msgs) {
+    if (!m.from_me || typeof m.error !== "number" || m.error === 0) continue;
+    if (m.ts < cutoff) continue;
+    const key = "fail:" + toastKey(m);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ chat: chatKey(m), name: m.name ?? m.handle ?? chatKey(m),
+               text: `Not delivered (error ${m.error})`, ts: m.ts, key });
+  }
+  return out;
+}
+
 export function maxTs(msgs: ImsgMessage[], fallback: string): string {
   let hi = fallback;
   for (const m of msgs) if (m.ts > hi) hi = m.ts;
@@ -605,6 +640,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
       unread: 0,
       threads: [],
       toast: [],
+      failures: [],
       persisted: true,
     };
   }
@@ -664,6 +700,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   }
   const threads = buildThreads(msgs, readMark, readMarks, groups, exactCounts);
   const toast = selectToasts(msgs, state.watermark, loadAllowlist(), state.toasted);
+  const failures = selectFailures(fetched.msgs, state.toasted, nowTs);
   const unread = Object.values(exactCounts).reduce((n, count) => n + count, 0);
 
   // Both marks advance only on a good fetch, so an outage cannot silently
@@ -679,7 +716,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     selfChats,
     readMarks,
     groups,
-    toasted: [...state.toasted, ...toast.map((t) => t.key)],
+    toasted: [...state.toasted, ...toast.map((t) => t.key), ...failures.map((f) => f.key)],
   });
 
   const warning = !persisted
@@ -694,6 +731,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     threads,
     // Never emit notifications that could not be committed to the dedupe ring.
     toast: persisted ? toast : [],
+    failures: persisted ? failures : [],
     persisted,
   };
 }
@@ -711,7 +749,7 @@ if (import.meta.main) {
     console.log(
       JSON.stringify({
         ok: false, online: false, error: String(e), ts: new Date().toISOString(),
-        unread: 0, threads: [], toast: [], persisted: false,
+        unread: 0, threads: [], toast: [], failures: [], persisted: false,
       }),
     );
   }

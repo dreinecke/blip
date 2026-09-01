@@ -229,6 +229,11 @@ BarWidget {
             root.unread = list.reduce(function(n, t) { return n + (Number(t.unread) || 0) }, 0)
             root.healthy = d.persisted !== false
             if (Array.isArray(d.toast)) root.fireToasts(d.toast)
+            // A send of YOURS that died — not allowlist-gated, interrupts once.
+            if (Array.isArray(d.failures) && d.failures.length > 0)
+              root.fireToasts(d.failures.map(function(f) {
+                return { chat: f.chat, name: "⚠ Not delivered to " + f.name, text: f.text, ts: f.ts, key: f.key }
+              }))
           } else {
             root.healthy = false
             if (!root.online) root.unread = 0     // offline: no honest count to show

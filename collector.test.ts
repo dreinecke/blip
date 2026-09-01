@@ -667,3 +667,32 @@ describe("future-dated messages must not poison read marks", () => {
     expect(isUnread(arriving, mark)).toBe(true);  // new arrival still badges
   });
 });
+
+describe("failed-delivery detection", () => {
+  const { selectFailures } = require("./collector") as typeof import("./collector");
+  const now = "2026-08-31 20:30:00";
+  const mine = (over: Record<string, unknown>) => ({
+    ts: "2026-08-31 20:25:00", from_me: true, handle: "+15551234567", name: "Pat",
+    service: "iMessage", chat: "+15551234567", text: "photo", ...over,
+  }) as never;
+
+  test("a recent own message with error≠0 becomes one failure toast", () => {
+    const out = selectFailures([mine({ error: 25 })], [], now);
+    expect(out.length).toBe(1);
+    expect(out[0]!.name).toBe("Pat");
+    expect(out[0]!.text).toContain("25");
+    expect(out[0]!.key.startsWith("fail:")).toBe(true);
+  });
+
+  test("error 0, inbound rows, and old failures are ignored", () => {
+    expect(selectFailures([mine({ error: 0 })], [], now).length).toBe(0);
+    expect(selectFailures([mine({ error: 25, from_me: false })], [], now).length).toBe(0);
+    expect(selectFailures([mine({ error: 25, ts: "2026-08-31 19:00:00" })], [], now).length).toBe(0);
+  });
+
+  test("dedupes through the toasted ring — interrupts exactly once", () => {
+    const first = selectFailures([mine({ error: 25 })], [], now);
+    const again = selectFailures([mine({ error: 25 })], first.map((f) => f.key), now);
+    expect(again.length).toBe(0);
+  });
+});

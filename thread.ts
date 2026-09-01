@@ -58,6 +58,9 @@ export interface Bubble {
   /** Escaped rich text with clickable anchors; "" when the text has no URL
    *  (QML keeps the cheap PlainText path then). */
   html: string;
+  /** A message of yours that Messages could not deliver (chat.db error≠0) —
+   *  rendered as a red "Not Delivered" tag. */
+  failed: boolean;
 }
 
 export interface ThreadOutput {
@@ -173,6 +176,7 @@ export function decorate(msgs: ImsgMessage[], today: string): Bubble[] {
       effect: m.effect ?? "",
       audio: m.audio === true,
       html: linkify((m.text ?? "").replace(/￼/g, "").trim()),
+      failed: m.from_me && typeof m.error === "number" && m.error !== 0,
     });
   }
 
