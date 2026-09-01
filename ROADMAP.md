@@ -90,7 +90,9 @@ a daemon only returns if the app ever has to run outside the shell).
 - [ ] **Shared `BlipView`** — extract Panel.qml's rich renderer (tapbacks,
   receipts, inline photos, replies, attachments, search, composer) into one
   component both the panel and the window embed, so the window is not the
-  "simple" version. The big refactor; do it with a Codex design review.
+  "simple" version. Design reviewed by Codex 2026-08-31 — the contract,
+  focus strategy, and 8-step migration order are in
+  `docs/app-design-review.md`. Execute in that order; ship after each step.
 - [ ] **Keybind + window polish** — SUPER-something toggles it; remember
   size/position; Esc closes; sidebar search; unread counts in the title.
 - [ ] ~~`blipd` daemon~~ — retired (see above).
