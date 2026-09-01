@@ -75,6 +75,17 @@ what it is handed. Keep it that way.
   "not a phone/email" — never a positive regex on one shape.
 - **Deleted messages stay in chat.db for 30 days** (`chat_recoverable_message_join`).
   claude-on-mac's `imsg` hides them (1.4.0+); Blip assumes that.
+- **Wheel scrolling = `MouseArea.onWheel`, direct 1:1, and INSTRUMENT before
+  tuning.** A `WheelHandler` on the Flickable received ZERO events on this
+  stack (proved by logging after four "fixes" that were placebos — the
+  Flickable's native decaying kinetic path was doing the scrolling the whole
+  time). Omarchy's own panels use `MouseArea.onWheel`; so does Blip now.
+  Never animate wheel scroll (two schemes collapsed under MX Master hi-res
+  event floods). Two other scroll killers, both fixed and both invisible
+  without logging: async image growth ABOVE the viewport cancels wheel motion
+  (chipRow compensates contentY by its own height delta), and model
+  reassignment rebuilds Repeaters and resets scroll (skip identical
+  assignments; restore contentY after a list rebuild).
 - **Never let one delegate's implicit width exceed the panel.** A single
   RowLayout of N attachment chips summed implicit widths and silently
   stretched the whole conversation column to 2× panel width — every

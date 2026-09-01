@@ -26,6 +26,7 @@ BarWidget {
 
   // ---- collector state
   property var threads: []           // [{chat,name,handle,service,last_ts,last_text,last_from_me,count,unread}]
+  property string threadsJson: ""    // last assigned list, for no-op detection
   property int unread: 0
   property bool online: false        // fnix reachable
   property bool healthy: false       // last collector run parsed cleanly
@@ -217,7 +218,14 @@ BarWidget {
             // already in flight when the user opened a thread must not
             // resurrect its dot for one round-trip (the double-flash).
             var list = root.applyLocalReads(Array.isArray(d.threads) ? d.threads : [])
-            root.threads = list
+            // Reassigning `threads` rebuilds the panel's list Repeater and
+            // resets its scroll — with push, that was every few seconds.
+            // Skip the assignment when nothing actually changed.
+            var j = JSON.stringify(list)
+            if (j !== root.threadsJson) {
+              root.threadsJson = j
+              root.threads = list
+            }
             root.unread = list.reduce(function(n, t) { return n + (Number(t.unread) || 0) }, 0)
             root.healthy = d.persisted !== false
             if (Array.isArray(d.toast)) root.fireToasts(d.toast)

@@ -117,6 +117,17 @@ Panel {
   // reload themselves. The guard makes unchanged refreshes free.
   property string activeLastTs: ""
   onThreadsChanged: {
+    // LIST view: a rebuilt Repeater collapses contentHeight for a frame and
+    // StopAtBounds clamps contentY to 0 — the reader's place in a long list
+    // was lost on every genuine refresh. Restore it once layout settles.
+    if (!inThread && opened) {
+      var y = flick.contentY
+      if (y > 0) Qt.callLater(function() {
+        if (!root.inThread)
+          flick.contentY = Math.max(0, Math.min(y, flick.contentHeight - flick.height))
+      })
+      return
+    }
     // `opened` too, not just inThread: a CLOSED panel still holds `active`,
     // and reloading a hidden thread marks it read without it ever being
     // seen (Codex HIGH, 1.1.0 review).
@@ -888,18 +899,24 @@ Panel {
           // immediately is what a browser does and what reads as smooth.
           // The handler owns the event outright so the Flickable's own
           // wheel path can never double-apply it.
-          WheelHandler {
-            target: null
-            onWheel: (ev) => {
-              // Fred-tuned stride (2026-08-31): 1.25× read as "very small
-              // increments" on the MX Master hi-res wheel.
-              var d = ev.pixelDelta.y !== 0 ? ev.pixelDelta.y * 2.0 : ev.angleDelta.y * 3.0
+          // MouseArea.onWheel, NOT WheelHandler: instrumentation proved the
+          // WheelHandler never received a single event on this stack — every
+          // "stride" tweak was a placebo and the Flickable's native kinetic
+          // path (the decaying one) was doing the scrolling. Omarchy's own
+          // panels use MouseArea.onWheel; it works. NoButton + z:-1 so it
+          // never steals clicks/hover from the rows above it.
+          MouseArea {
+            anchors.fill: parent
+            z: -1
+            acceptedButtons: Qt.NoButton
+            onWheel: function(wheel) {
+              var d = wheel.pixelDelta.y !== 0 ? wheel.pixelDelta.y * 3.0 : wheel.angleDelta.y * 4.5
               var max = Math.max(0, flick.contentHeight - flick.height)
               flick.contentY = Math.max(0, Math.min(max, flick.contentY - d))
               // the wheel bypasses Flickable movement signals — maintain the
               // bottom-stick here too
               flick.stick = flick.contentY >= max - 4
-              ev.accepted = true
+              wheel.accepted = true
             }
           }
 
@@ -1332,6 +1349,23 @@ Panel {
                     id: chipRow
                     required property var modelData
                     required property int index
+                    // THE scroll killer (Fred: "each scroll gets smaller and
+                    // smaller until it stops"): while reading history, image
+                    // fetches complete and each chip ABOVE the viewport grows
+                    // ~10× — content expansion visually cancels every wheel
+                    // motion. Compensate: when this row grows above the
+                    // viewport top, shift contentY by the same delta so the
+                    // reader's position is anchored.
+                    property real prevH: -1
+                    onHeightChanged: {
+                      if (prevH < 0) { prevH = height; return }
+                      var d = height - prevH
+                      prevH = height
+                      if (d === 0 || flick.stick || root.pinToBottom) return
+                      var yc = chipRow.mapToItem(content, 0, 0).y
+                      if (yc < flick.contentY)
+                        flick.contentY = Math.max(0, flick.contentY + d)
+                    }
                     readonly property string attId: String(modelData.id || "")
                     // undefined = not fetched, "" = failed, else file:// url
                     readonly property var fileUrl: root.attFiles[chipRow.attId]
