@@ -28,7 +28,7 @@ BarWidget {
   property var threads: []           // [{chat,name,handle,service,last_ts,last_text,last_from_me,count,unread}]
   property string threadsJson: ""    // last assigned list, for no-op detection
   property int unread: 0
-  property bool online: false        // fnix reachable
+  property bool online: false        // the Mac is reachable
   property bool healthy: false       // last collector run parsed cleanly
   property string lastError: ""
   property string lastRun: ""
@@ -294,7 +294,7 @@ BarWidget {
 
   Timer {
     // With the push watcher connected this is only a safety net; without it
-    // (fnix down, watcher restarting) it is the old 6 s poll.
+    // (Mac down, watcher restarting) it is the old 6 s poll.
     interval: root.watchAlive ? 60000 : 6000
     running: true
     repeat: true
@@ -306,7 +306,7 @@ BarWidget {
   }
 
   // ------------------------------------------------- real-time push
-  // `imsg watch` blocks on fnix and emits one line per chat.db change — an
+  // `imsg watch` blocks on the Mac and emits one line per chat.db change — an
   // INVALIDATION, no content (BlueFerry's design: session-visible push
   // channels carry "something changed", clients fetch privately). Each ping
   // debounces into the normal refresh, so a burst of messages costs one
@@ -473,7 +473,7 @@ BarWidget {
   // ------------------------------------------------------------ bar button
   function tooltip() {
     var parts = []
-    if (!root.online) parts.push("fnix unreachable — iMessage bridge offline")
+    if (!root.online) parts.push("Mac unreachable — iMessage bridge offline")
     else if (root.unread === 0) parts.push("No unread messages")
     else parts.push(root.unread + " unread message" + (root.unread === 1 ? "" : "s"))
 

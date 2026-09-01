@@ -6,7 +6,7 @@
  *   bun fetch.ts <attachment-id> <name> <mime>
  *
  * The cache DELIBERATELY relaxes the "no message content on disk" invariant,
- * scoped to media (Fred's call, 2026-08-31): vic's disk is LUKS-encrypted at
+ * scoped to media (Fred's call, 2026-08-31): the disk is LUKS-encrypted at
  * rest, so plain files under ~/.cache/blip/att (dir 0700, files 0600) are
  * acceptable. state.json still never holds content.
  *

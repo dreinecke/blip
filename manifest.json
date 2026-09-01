@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "nixfred.blip",
   "name": "Blip",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "author": "Larry & Fred",
   "license": "MIT",
-  "description": "iMessage in the Omarchy bar. Reads and sends through fnix over a multiplexed SSH socket — iMessage is macOS-only, so vic is a thin client and fnix is the gateway. Bar badge counts every unread; desktop toasts fire only for handles on your allowlist, because chat.db is mostly bank alerts and 2FA codes. Left-click = panel (thread list, history, compose). Middle-click = refresh. Right-click = mark all read.",
+  "description": "iMessage in the Omarchy bar. Reads and sends through a Mac you own over a multiplexed SSH socket — iMessage is macOS-only, so this machine is a thin client and the Mac is the gateway. Bar badge counts every unread; desktop toasts fire only for handles on your allowlist, because chat.db is mostly bank alerts and 2FA codes. Left-click = panel (thread list, history, compose). Middle-click = refresh. Right-click = mark all read.",
   "kinds": [
     "bar-widget"
   ],
@@ -14,7 +14,7 @@
   },
   "barWidget": {
     "displayName": "Blip",
-    "description": "iMessage unread count via fnix. Dimmed = fnix unreachable and the bridge is offline. Click for threads, history, and a compose box.",
+    "description": "iMessage unread count via your Mac. Dimmed = Mac unreachable and the bridge is offline. Click for threads, history, and a compose box.",
     "category": "Network",
     "allowMultiple": false,
     "defaultSection": "right",

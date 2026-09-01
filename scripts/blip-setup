@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+# blip-setup — Linux-side first run for Blip. Idempotent; safe to re-run.
+#
+#   blip-setup [user@]mac-host        # e.g. blip-setup pi@fnix, or a Tailscale name
+#
+# Steps:
+#   1. ~/.config/blip/bridge.conf   host= (and remote_bin=, python=)
+#   2. ~/.ssh/config                 ControlMaster block for the host (47 ms warm
+#                                    round trips — Blip polls; this is required)
+#   3. ~/bin/{imsg,imsg-send,contacts}  the bridge shim (existing files backed up;
+#                                    claude-on-mac remote shims are left alone)
+#   4. Mac install                   copies bridge/mac to the Mac and runs
+#                                    install.sh there (needs ssh access already)
+#   5. smoke test                    imsg recent 1 through the shim
+set -euo pipefail
+
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+host="${1:-}"
+conf_dir="$HOME/.config/blip"
+conf="$conf_dir/bridge.conf"
+
+if [[ -z "$host" && -r "$conf" ]]; then
+  # shellcheck disable=SC1090
+  source "$conf"
+fi
+if [[ -z "${host:-}" ]]; then
+  read -r -p "Mac ssh target ([user@]host, Tailscale name works best): " host
+fi
+[[ -n "$host" ]] || { echo "no host given" >&2; exit 64; }
+
+# 1. config
+mkdir -p "$conf_dir"
+{
+  echo "# Blip bridge — sourced by ~/bin/imsg, imsg-send, contacts"
+  echo "host=$host"
+  echo "# single-quoted on purpose: expanded on the MAC, not here"
+  echo "remote_bin='\$HOME/.blip/bin'"
+  echo "python=python3"
+} > "$conf"
+chmod 0600 "$conf"
+echo "✓ $conf"
+
+# 2. ssh ControlMaster (append a block only if this host has none)
+mkdir -p "$HOME/.ssh" && chmod 700 "$HOME/.ssh"
+sshcfg="$HOME/.ssh/config"
+touch "$sshcfg"
+hostname_only="${host##*@}"
+if ! grep -qE "^Host[[:space:]]+.*\b${hostname_only}\b" "$sshcfg"; then
+  cat >> "$sshcfg" <<EOF
+
+# blip-setup: multiplexed sessions so Blip's polling costs ~50 ms, not a handshake
+Host $hostname_only
+  ControlMaster auto
+  ControlPath ~/.ssh/cm-%r@%h:%p
+  ControlPersist 10m
+  ServerAliveInterval 30
+EOF
+  echo "✓ ssh ControlMaster block added for $hostname_only"
+else
+  echo "• ssh config already has a Host block for $hostname_only — left as is (make sure ControlMaster auto is on)"
+fi
+
+# 3. shims
+mkdir -p "$HOME/bin"
+for t in imsg imsg-send contacts; do
+  target="$HOME/bin/$t"
+  if [[ -e "$target" && ! -L "$target" ]] && ! grep -q "blip-shim" "$target" 2>/dev/null; then
+    cp -p "$target" "$target.pre-blip.$(date +%s)"
+    echo "• backed up existing $target"
+  fi
+  install -m 0755 "$here/bridge/linux/blip-shim" "$target"
+done
+echo "✓ shims installed: ~/bin/imsg ~/bin/imsg-send ~/bin/contacts"
+
+# 4. Mac install (needs ssh to already work — key-based)
+if ssh -n -o ConnectTimeout=6 -o BatchMode=yes "$host" true 2>/dev/null; then
+  ssh "$host" 'mkdir -p ~/.blip/src'
+  scp -q "$here"/bridge/mac/* "$host:~/.blip/src/"
+  ssh "$host" 'bash ~/.blip/src/install.sh'
+else
+  echo "✗ cannot ssh to $host non-interactively yet. Set up key auth (ssh-copy-id $host), then re-run blip-setup." >&2
+  echo "  On the Mac, you can also run the installer by hand:" >&2
+  echo "    scp -r $here/bridge/mac $host:~/.blip/src && ssh $host bash ~/.blip/src/install.sh" >&2
+  exit 69
+fi
+
+# 5. smoke test
+echo
+if out="$("$HOME/bin/imsg" recent 1 2>&1)"; then
+  echo "✓ bridge is up — latest message:"; echo "  $out"
+  echo
+  echo "Next: restart the Omarchy shell (omarchy-restart-shell). Toasts are allowlist-only:"
+  echo "  ~/.config/blip/allowlist.json  →  { \"allow\": [\"+15551234567\"] }"
+else
+  echo "✗ imsg failed through the bridge:"; echo "  $out"
+  echo "  Usually a missing Full Disk Access grant on the Mac — see install.sh's notes, then re-run."
+  exit 1
+fi

@@ -102,7 +102,7 @@ Linux side. If the Mac is asleep, the widget dims and says so.
 ```
 Linux                                         Mac
 ─────                                         ───
-BarWidget.qml  ── every 6 s ──▶ collector.ts ──▶ ssh ──▶ imsg --json recent 150+
+BarWidget.qml  ── push/poll ──▶ collector.ts ──▶ ssh ──▶ imsg --json recent 150+
                                                           (sqlite, read-only)
 Panel.qml      ── open thread ─▶ thread.ts   ──▶ ssh ──▶ imsg --json thread <id> 80
 Panel.qml      ── Enter ───────────────────────▶ ssh ──▶ imsg-send --to <id> --yes -- "text"
@@ -120,45 +120,47 @@ enough to poll, fast enough that the panel feels local.
 
 ## Install
 
-Blip's entire Mac side is **[claude-on-mac](https://github.com/nixfred/claude-on-mac)** —
-a small toolkit that teaches an AI agent (or a shell) to read `chat.db` and drive
-Messages.app with per-message consent. Blip doesn't fork it or vendor it; it
-calls `imsg` and `imsg-send` and nothing else. Install that first.
+Blip is **one source**: the Mac-side tools ride along in `bridge/mac/`
+(vendored from [claude-on-mac](https://github.com/nixfred/claude-on-mac),
+pinned in `bridge/BRIDGE-VERSION`), and `blip-setup` wires everything.
 
 **Requirements**
 
 - A Mac signed into Messages with your Apple ID (a Mac mini in a closet is
-  perfect), reachable from the Linux box over SSH — Tailscale recommended.
-- *Messages in iCloud* on, so the Mac's `chat.db` mirrors your phone.
-- claude-on-mac **≥ 1.6.0** (`imsg --rich` + `imsg attachment` streaming +
-  `imsg-send --file-stdin`; plus `imsg groups` and the Recently-Deleted filter).
+  perfect), reachable from the Linux box over SSH with key auth — Tailscale
+  recommended. *Messages in iCloud* on, so its `chat.db` mirrors your phone.
 - Linux: [Omarchy](https://omarchy.org), `bun`, `notify-send`, `wl-copy`.
 
-**1. On the Mac** — follow claude-on-mac's README (it's one paste into Claude
-Code), then its [`docs/remote-ssh.md`](https://github.com/nixfred/claude-on-mac/blob/main/docs/remote-ssh.md):
-enable Remote Login, grant Full Disk Access to `/usr/libexec/sshd-keygen-wrapper`,
-and warm the Messages Automation grant once from an SSH session.
-
-**2. On Linux** — claude-on-mac's remote shims, per the same doc:
-
-```sh
-export CLAUDE_ON_MAC_TARGET=you@your-mac.tail1234.ts.net   # in your shell rc
-ln -s ~/claude-on-mac/bin/remote/imsg      ~/bin/imsg
-ln -s ~/claude-on-mac/bin/remote/imsg-send ~/bin/imsg-send
-imsg recent 5                                   # if this prints messages, the bridge is up
-imsg --json groups 3                            # needs ≥ 1.4.0
-```
-
-**3. Blip**
+**1. Install the plugin**
 
 ```sh
 git clone https://github.com/nixfred/blip ~/.config/omarchy/plugins/nixfred.blip
-omarchy-restart-shell
 ```
 
-Add `{ "id": "nixfred.blip" }` to `bar.layout.right` in
-`~/.config/omarchy/shell.json`, restart the shell again, and the speech bubble
-is in your bar.
+**2. Run the wizard** (idempotent — re-run any time)
+
+```sh
+~/.config/omarchy/plugins/nixfred.blip/scripts/blip-setup you@your-mac
+```
+
+It writes `~/.config/blip/bridge.conf`, adds an ssh ControlMaster block
+(polling costs ~50 ms instead of a handshake), installs the bridge shim as
+`~/bin/imsg`, `~/bin/imsg-send`, `~/bin/contacts`, copies the Mac tools to
+`~/.blip/bin` on the Mac and runs `install.sh` there, then smoke-tests the
+bridge.
+
+**3. Two grants on the Mac** (macOS won't let a script do these)
+
+- *Full Disk Access* → add `/usr/libexec/sshd-keygen-wrapper` — that's what
+  lets an ssh session read `chat.db`.
+- *Automation → Messages* → the first send from ssh pops an Allow prompt on
+  the Mac's screen; click it once.
+
+`ssh your-mac python3 ~/.blip/bin/tcc-check` tells you what's still missing.
+
+**4.** Add `{ "id": "nixfred.blip" }` to `bar.layout.right` in
+`~/.config/omarchy/shell.json`, `omarchy-restart-shell`, and the speech
+bubble is in your bar.
 
 **Toasts**
 

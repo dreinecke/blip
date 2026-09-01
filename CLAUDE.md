@@ -6,11 +6,15 @@ treating a Mac as the gateway. Read this before touching anything.
 ## Shape
 
 ```
-(Mac side)    imsg, imsg-send      from github.com/nixfred/claude-on-mac ≥ 1.5.1 — sqlite read of chat.db;
-                                    `--rich` adds tapbacks/read_at/reply_to/attachments to thread JSON.
-                                    AppleScript send; `imsg --json groups`; Recently Deleted hidden.
-(Linux side)  ~/bin/imsg, imsg-send claude-on-mac's bin/remote/ ssh shims (CLAUDE_ON_MAC_TARGET), or any
-                                    equivalent that execs the Mac tool over ssh. Blip only calls ~/bin/imsg*.
+(Mac side)    bridge/mac/           VENDORED from claude-on-mac (pin in bridge/BRIDGE-VERSION; refresh with
+              imsg imsg-send        scripts/sync-bridge.sh <rev>). Installed to ~/.blip/bin on the Mac by
+              contacts tcc-check    bridge/mac/install.sh. Blip is ONE source for release (Fred's rule).
+                                    imsg: sqlite read of chat.db, `--rich` (tapbacks/read_at/reply_to/
+                                    attachments/error), `watch`, `attachment`, `chats`; Recently Deleted hidden.
+(Linux side)  bridge/linux/blip-shim installed as ~/bin/{imsg,imsg-send,contacts} by scripts/blip-setup;
+                                    reads ~/.config/blip/bridge.conf (host=, remote_bin='$HOME/.blip/bin'
+                                    — single-quoted, expands on the MAC). `ssh -n` preflight; exit 69 offline.
+                                    Blip only ever calls ~/bin/imsg*. No hostnames in code, ever.
 collector.ts                        poll → {threads, unread, toast}. Pure functions + one spawn.
 thread.ts                           one conversation → decorated bubbles. Pure + one spawn.
 fetch.ts                            attachment id → ~/.cache/blip/att (0700/0600, 500MB LRU).

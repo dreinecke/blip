@@ -500,7 +500,7 @@ Panel {
     var text = composeField.text
     if (!root.inThread) return
 
-    // "/attach <path>" queues a file from anywhere on vic as the draft.
+    // "/attach <path>" queues a file from anywhere on this machine as the draft.
     var trimmed = text.trim()
     if (trimmed.indexOf("/attach ") === 0) {
       var p = trimmed.slice(8).trim()
@@ -631,7 +631,7 @@ Panel {
         root.reloadChat = completedChat
         reloadTimer.restart()
       } else if (belongsHere) {
-        if (code === 69 || code === 255) root.note = "not sent — fnix unreachable"
+        if (code === 69 || code === 255) root.note = "not sent — Mac unreachable"
         else root.note = "send failed (exit " + code + ")"
       }
       if (belongsHere) composeField.forceActiveFocus()
@@ -653,7 +653,7 @@ Panel {
             openProc.command = ["xdg-open", String(d.url || "")]
             openProc.running = true
           }
-          if (d.ok !== true && d.online === false) root.note = "fetch failed — fnix unreachable"
+          if (d.ok !== true && d.online === false) root.note = "fetch failed — Mac unreachable"
         } catch (e) {
           var m2 = Object.assign({}, root.attFiles)
           m2[id] = ""
@@ -696,7 +696,7 @@ Panel {
         try {
           var d = JSON.parse(text.trim())
           ok = d.ok === true
-          if (!ok) err = d.online === false ? "not sent — fnix unreachable" : String(d.error || err)
+          if (!ok) err = d.online === false ? "not sent — Mac unreachable" : String(d.error || err)
         } catch (e) { /* fall through */ }
         if (ok) {
           // Only clear the draft this send actually shipped — the user may
@@ -845,11 +845,11 @@ Panel {
                 ? (root.isSendable(root.active) ? "group" : "group · read-only (id unknown)")
                 : String(root.active.handle))
             : (!root.online
-                ? "fnix unreachable — bridge offline"
+                ? "Mac unreachable — bridge offline"
                 : (root.unread > 0 ? root.unread + " unread" : "all caught up"))
           detail: root.inThread
             ? (root.loading ? "loading…" : "Esc = back")
-            : "iMessage via fnix"
+            : "iMessage via your Mac"
           foreground: root.foreground
           fontFamily: root.fontFamily
         }
@@ -929,9 +929,9 @@ Panel {
             Text {
               Layout.fillWidth: true
               visible: !root.online
-              text: "fnix is not reachable, so there is no iMessage bridge right now. "
-                  + "chat.db and the AppleScript send path both live on fnix — vic can only ever be a client. "
-                  + "Wake fnix (or check Tailscale) and Blip reconnects on its own."
+              text: "The Mac is not reachable, so there is no iMessage bridge right now. "
+                  + "chat.db and the AppleScript send path both live on the Mac — this machine is only a client. "
+                  + "Wake the Mac (or check the network) and Blip reconnects on its own."
               textFormat: Text.PlainText
               color: root.dim
               font.family: root.fontFamily

@@ -1,0 +1,887 @@
+#!/usr/bin/env python3
+"""
+imsg: read-only iMessage / SMS query tool
+
+Reads ~/Library/Messages/chat.db using sqlite3 in read-only mode and decodes
+the typedstream-encoded `attributedBody` BLOB used by macOS Ventura+ for
+message text.
+
+Subcommands:
+  recent [N], last N messages across all chats (default 20)
+  from <handle> [N], messages exchanged with one handle (phone/email)
+                                  matches by substring against handle.id
+  search <text> [N], full-text-ish LIKE search across messages
+  thread <handle> [N], same as `from`, oldest→newest
+  contacts, list known handles with message counts
+  chats, list chats (group + 1:1) with last activity
+  groups [N], group chats with the AppleScript GUID needed to send to them
+
+All output is `ts | who | text` (or JSON with --json).
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import json
+import os
+import re
+import sqlite3
+import struct
+import sys
+from glob import glob
+
+DB_PATH = os.path.expanduser("~/Library/Messages/chat.db")
+APPLE_EPOCH = 978307200  # 2001-01-01 UTC
+
+# ---------- Contacts name resolution (built-in, no external deps) ----------
+
+_AB_GLOB = os.path.expanduser(
+    "~/Library/Application Support/AddressBook/Sources/*/AddressBook-v22.abcddb"
+)
+
+
+def _normalize_phone(s: str) -> str:
+    digits = re.sub(r"\D", "", s or "")
+    return digits[-10:] if len(digits) >= 10 else digits
+
+
+_NAME_INDEX: dict[str, str] | None = None
+
+
+def name_for(handle: str | None) -> str | None:
+    """Resolve a Messages handle (phone or email) to a Contacts display name.
+    Lazily builds an in-memory index from all AddressBook source DBs on first
+    call. Returns None if no contact match."""
+    global _NAME_INDEX
+    if not handle:
+        return None
+    if _NAME_INDEX is None:
+        idx: dict[str, str] = {}
+        for path in glob(_AB_GLOB):
+            try:
+                con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+                con.row_factory = sqlite3.Row
+                names = {
+                    r["pk"]: " ".join(filter(None, [r["first"], r["last"]])).strip()
+                    or r["org"] or r["nick"] or ""
+                    for r in con.execute(
+                        "SELECT Z_PK AS pk, ZFIRSTNAME AS first, ZLASTNAME AS last, "
+                        "ZORGANIZATION AS org, ZNICKNAME AS nick FROM ZABCDRECORD"
+                    )
+                }
+                for r in con.execute(
+                    "SELECT ZOWNER AS pk, ZFULLNUMBER AS num FROM ZABCDPHONENUMBER"
+                ):
+                    name = names.get(r["pk"])
+                    key = _normalize_phone(r["num"] or "")
+                    if name and key:
+                        idx.setdefault(key, name)
+                for r in con.execute(
+                    "SELECT ZOWNER AS pk, ZADDRESS AS addr FROM ZABCDEMAILADDRESS"
+                ):
+                    name = names.get(r["pk"])
+                    addr = (r["addr"] or "").strip().lower()
+                    if name and addr:
+                        idx.setdefault(addr, name)
+                con.close()
+            except sqlite3.DatabaseError:
+                continue
+        _NAME_INDEX = idx
+    if "@" in handle:
+        return _NAME_INDEX.get(handle.strip().lower())
+    return _NAME_INDEX.get(_normalize_phone(handle))
+
+
+def label(handle: str | None, is_from_me: int, with_names: bool) -> str:
+    """Pretty label for the 'who' column."""
+    if is_from_me:
+        return "me"
+    if not handle:
+        return "?"
+    if with_names:
+        n = name_for(handle)
+        if n:
+            return f"{n} <{handle}>"
+    return handle
+
+
+def open_db() -> sqlite3.Connection:
+    if not os.path.exists(DB_PATH):
+        sys.exit(f"chat.db not found at {DB_PATH}")
+    # mode=ro alone (without immutable=1) so we still see uncommitted WAL writes
+    con = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+    con.row_factory = sqlite3.Row
+    return con
+
+
+def decode_attributed_body(blob: bytes | None) -> str | None:
+    """Pull text from the NSAttributedString typedstream blob.
+    Layout after class chain: \\x84\\x01+ <length> <utf-8 bytes>.
+    Length: 1 byte, or 0x81 + u16 LE, or 0x82 + u32 LE."""
+    if not blob:
+        return None
+    i = blob.find(b"NSString")
+    if i == -1:
+        return None
+    marker = blob.find(b"\x84\x01+", i)
+    if marker == -1:
+        return None
+    p = marker + 3
+    if p >= len(blob):
+        return None
+    first = blob[p]
+    if first == 0x81:
+        length = struct.unpack_from("<H", blob, p + 1)[0]
+        p += 3
+    elif first == 0x82:
+        length = struct.unpack_from("<I", blob, p + 1)[0]
+        p += 5
+    else:
+        length = first
+        p += 1
+    return blob[p : p + length].decode("utf-8", errors="replace")
+
+
+def fmt_ts(apple_ns: int | None) -> str:
+    if not apple_ns:
+        return "?"
+    return dt.datetime.fromtimestamp(apple_ns / 1e9 + APPLE_EPOCH).strftime(
+        "%Y-%m-%d %H:%M:%S"
+    )
+
+
+def message_text(row: sqlite3.Row) -> str:
+    return row["text"] or decode_attributed_body(row["attributedBody"]) or ""
+
+
+# ---------- --rich enrichment (tapbacks, read receipts, replies, attachments) ----------
+
+# Tapback rows are their own messages pointing at a target via
+# associated_message_guid ("p:0/<GUID>" / "bp:<GUID>"). 2xxx adds, 3xxx removes;
+# a sender's latest row for a target wins.
+TAPBACK_EMOJI = {0: "❤️", 1: "\U0001f44d", 2: "\U0001f44e",
+                 3: "\U0001f602", 4: "‼️", 5: "❓"}
+
+_COLS: set[str] | None = None
+
+
+def _has_col(con, name: str) -> bool:
+    global _COLS
+    if _COLS is None:
+        _COLS = {r["name"] for r in con.execute("PRAGMA table_info(message)")}
+    return name in _COLS
+
+
+def _strip_assoc(guid: str | None) -> str:
+    """'p:0/ABC' / 'bp:ABC' / 'ABC' → 'ABC'."""
+    if not guid:
+        return ""
+    if "/" in guid:
+        return guid.rsplit("/", 1)[1]
+    if ":" in guid:
+        return guid.rsplit(":", 1)[1]
+    return guid
+
+
+def _effect_name(style_id: str | None) -> str | None:
+    """'com.apple.messages.effect.CKConfettiEffect' → 'confetti'."""
+    if not style_id:
+        return None
+    last = style_id.rsplit(".", 1)[-1]
+    if last.startswith("CK"):
+        last = last[2:]
+    if last.endswith("Effect"):
+        last = last[: -len("Effect")]
+    return last.lower() or None
+
+
+def _chunked_in(con, sql_tmpl: str, ids: list, chunk: int = 500):
+    for i in range(0, len(ids), chunk):
+        part = ids[i : i + chunk]
+        marks = ",".join("?" * len(part))
+        yield from con.execute(sql_tmpl.format(marks=marks), part)
+
+
+def enrich(con, rows, with_names: bool):
+    """Per-ROWID extras for --rich JSON. Returns (kept_rows, extras) where
+    tapback rows are folded onto their targets and dropped from kept_rows."""
+    rows = list(rows)
+    has_emoji = _has_col(con, "associated_message_emoji")
+    has_edit = _has_col(con, "date_edited")
+
+    kept = [r for r in rows if not (r["assoc_type"] and 2000 <= r["assoc_type"] < 4000)]
+    targets = {r["guid"]: r["ROWID"] for r in kept if r["guid"]}
+    extras: dict[int, dict] = {r["ROWID"]: {} for r in kept}
+
+    # Tapbacks: scan every assoc row in the DB (type-filtered), net per sender+target.
+    emoji_col = ", m.associated_message_emoji AS emo" if has_emoji else ""
+    latest: dict[tuple[str, str], sqlite3.Row] = {}
+    for r in con.execute(
+        f"""SELECT m.associated_message_guid AS ag, m.associated_message_type AS t,
+                   m.is_from_me, m.date, h.id AS handle{emoji_col}
+            FROM {MESSAGE_SRC} m LEFT JOIN handle h ON h.ROWID = m.handle_id
+            WHERE m.associated_message_type BETWEEN 2000 AND 3999"""
+    ):
+        tg = _strip_assoc(r["ag"])
+        if tg not in targets:
+            continue
+        who = "me" if r["is_from_me"] else (r["handle"] or "?")
+        key = (who, tg)
+        if key not in latest or r["date"] > latest[key]["date"]:
+            latest[key] = r
+    for (who, tg), r in latest.items():
+        if not (2000 <= r["t"] < 3000):
+            continue  # net-removed
+        kind = r["t"] - 2000
+        emoji = (r["emo"] if has_emoji and r["emo"] else None) or TAPBACK_EMOJI.get(kind, "⭐")
+        extras[targets[tg]].setdefault("tapbacks", []).append({
+            "emoji": emoji,
+            "from_me": bool(r["is_from_me"]),
+            "by": None if r["is_from_me"] else (name_for(r["handle"]) if with_names else None) or r["handle"],
+        })
+
+    # Attachments. transfer_name is null mid-download; .pluginPayloadAttachment
+    # blobs are rich-link-preview internals (a URL message can carry four of
+    # them), not user files — both are noise to a client.
+    rowids = [r["ROWID"] for r in kept]
+    for a in _chunked_in(
+        con,
+        """SELECT maj.message_id AS mid, a.ROWID AS aid, a.transfer_name AS name,
+                  a.mime_type AS mime, a.total_bytes AS bytes
+           FROM message_attachment_join maj
+           JOIN attachment a ON a.ROWID = maj.attachment_id
+           WHERE a.transfer_name IS NOT NULL
+             AND a.transfer_name NOT LIKE '%.pluginPayloadAttachment'
+             AND maj.message_id IN ({marks})""",
+        rowids,
+    ):
+        extras.setdefault(a["mid"], {}).setdefault("attachments", []).append(
+            # id as a STRING: attachment ROWIDs are 64-bit and JS number
+            # consumers lose precision past 2^53.
+            {"id": str(a["aid"]), "name": a["name"], "mime": a["mime"], "bytes": a["bytes"]}
+        )
+
+    # Inline-reply context: resolve originator guids (often outside the window).
+    origins = sorted({r["orig_guid"] for r in kept if r["orig_guid"]})
+    osnip: dict[str, dict] = {}
+    if origins:
+        for o in _chunked_in(
+            con,
+            "SELECT guid, text, attributedBody, is_from_me FROM message WHERE guid IN ({marks})",
+            origins,
+        ):
+            osnip[o["guid"]] = {
+                "text": (o["text"] or decode_attributed_body(o["attributedBody"]) or "")[:120],
+                "from_me": bool(o["is_from_me"]),
+            }
+
+    for r in kept:
+        e = extras[r["ROWID"]]
+        if r["is_from_me"] and r["date_read"]:
+            e["read_at"] = fmt_ts(r["date_read"])
+        if has_edit and r["date_edited"]:
+            e["edited"] = True
+        if has_edit and r["date_retracted"]:
+            e["retracted"] = True
+        if r["orig_guid"] and r["orig_guid"] in osnip:
+            e["reply_to"] = osnip[r["orig_guid"]]
+        fx = _effect_name(r["style_id"])
+        if fx:
+            e["effect"] = fx
+        if r["is_audio_message"]:
+            e["audio"] = True
+    return kept, extras
+
+
+def render(rows, as_json: bool, with_names: bool = True, con=None, rich: bool = False) -> None:
+    if as_json:
+        extras: dict[int, dict] = {}
+        if rich and con is not None:
+            rows, extras = enrich(con, rows, with_names)
+        out = []
+        for r in rows:
+            row = {
+                "ts": fmt_ts(r["date"]),
+                "from_me": bool(r["is_from_me"]),
+                "handle": r["handle"],
+                "name": name_for(r["handle"]) if with_names else None,
+                "service": r["service"],
+                "chat": r["room_name"] or r["chat_identifier"],
+                "text": message_text(r),
+                # The APPLE-side read state — is_read syncs from the iPhone
+                # via Messages in iCloud, so a client can mirror the phone's
+                # badge. Own messages are trivially "read".
+                "read": bool(r["is_from_me"]) or bool(r["is_read"]),
+                # Tapback rows are messages too, but no Apple client counts
+                # them toward a badge — flag them so clients can match.
+                "tapback": bool(r["assoc_type"] and 2000 <= r["assoc_type"] < 4000),
+                # Delivery failure code on OWN messages (0 = fine). AppleScript
+                # reports success for sends that die later; this is the only
+                # place the truth lands (e.g. 25 = attachment not readable).
+                "error": int(r["error"] or 0) if r["is_from_me"] else 0,
+            }
+            if rich:
+                row["guid"] = r["guid"]
+                row.update(extras.get(r["ROWID"], {}))
+            out.append(row)
+        print(json.dumps(out, indent=2, ensure_ascii=False))
+        return
+    for r in rows:
+        who = label(r["handle"], r["is_from_me"], with_names)
+        text = message_text(r).replace("\n", " | ")
+        chat = r["room_name"] or r["chat_identifier"] or ""
+        chat_tag = f" [{chat}]" if chat and chat != (r["handle"] or "") else ""
+        print(f"{fmt_ts(r['date'])}  {who:>30}{chat_tag}: {text}")
+
+
+# Recently Deleted (the 30-day bin, synced from iPhone via Messages in iCloud)
+# keeps its rows in chat.db. Hide them by default, or a conversation deleted on
+# the phone lingers in every client for a month. IMSG_INCLUDE_DELETED=1 shows them.
+MESSAGE_SRC = (
+    "message"
+    if os.environ.get("IMSG_INCLUDE_DELETED") == "1"
+    else "(SELECT * FROM message WHERE ROWID NOT IN (SELECT message_id FROM chat_recoverable_message_join))"
+)
+
+_BASE_SELECT_CACHE: str | None = None
+
+
+def base_select(con) -> str:
+    """Column list adapts to the schema: date_edited/date_retracted arrived in
+    macOS 13, associated_message_emoji in 14 — older DBs must still query."""
+    global _BASE_SELECT_CACHE
+    if _BASE_SELECT_CACHE is None:
+        edit_cols = (
+            "m.date_edited, m.date_retracted,"
+            if _has_col(con, "date_edited")
+            else "0 AS date_edited, 0 AS date_retracted,"
+        )
+        _BASE_SELECT_CACHE = f"""
+            SELECT m.ROWID, m.date, m.is_from_me, m.text, m.attributedBody,
+                   m.service, h.id AS handle, c.chat_identifier, c.room_name,
+                   m.guid, m.date_read, m.is_read, m.error, {edit_cols}
+                   m.associated_message_type AS assoc_type,
+                   m.thread_originator_guid AS orig_guid,
+                   m.expressive_send_style_id AS style_id,
+                   m.is_audio_message
+            FROM {MESSAGE_SRC} m
+            LEFT JOIN handle h ON h.ROWID = m.handle_id
+            LEFT JOIN chat_message_join cmj ON cmj.message_id = m.ROWID
+            LEFT JOIN chat c ON c.ROWID = cmj.chat_id
+        """
+    return _BASE_SELECT_CACHE
+
+
+def cmd_recent(con, args):
+    rows = con.execute(
+        base_select(con) + " ORDER BY m.date DESC LIMIT ?", (args.n,)
+    ).fetchall()
+    render(reversed(rows) if args.chrono else rows, args.json,
+           with_names=not args.no_names, con=con, rich=args.rich)
+
+
+def cmd_from(con, args):
+    rows = con.execute(
+        base_select(con)
+        + " WHERE h.id LIKE ? ORDER BY m.date DESC LIMIT ?",
+        (f"%{args.handle}%", args.n),
+    ).fetchall()
+    render(reversed(rows) if args.chrono else rows, args.json,
+           with_names=not args.no_names, con=con, rich=args.rich)
+
+
+def cmd_thread(con, args):
+    if args.chat:
+        # Exact chat_identifier match — the ONLY way to load a group (its
+        # 32-hex / chat<digits> id never matches a handle LIKE), and exact
+        # for DMs too. Clients previously scanned `recent 1500` and filtered,
+        # which both cost more and missed anything older than the window.
+        # `imsg thread --chat <id> 40`: the count lands in the (unused)
+        # handle slot, so accept it from either positional.
+        n = int(args.handle) if str(args.handle).isdigit() else args.n
+        rows = con.execute(
+            base_select(con)
+            + " WHERE c.chat_identifier = ? ORDER BY m.date DESC LIMIT ?",
+            (args.chat, n),
+        ).fetchall()
+        render(reversed(rows), args.json,
+               with_names=not args.no_names, con=con, rich=args.rich)
+        return
+    if not args.handle:
+        sys.exit("error: pass a handle, or --chat <chat_identifier>")
+    rows = con.execute(
+        base_select(con)
+        + " WHERE h.id LIKE ? ORDER BY m.date DESC LIMIT ?",
+        (f"%{args.handle}%", args.n),
+    ).fetchall()
+    render(reversed(rows), args.json,
+           with_names=not args.no_names, con=con, rich=args.rich)
+
+
+def cmd_search(con, args):
+    # text column is null for newer messages; also scan attributedBody as bytes
+    rows = con.execute(
+        base_select(con)
+        + """
+        WHERE m.text LIKE ?
+           OR (m.attributedBody IS NOT NULL AND instr(m.attributedBody, CAST(? AS BLOB)) > 0)
+        ORDER BY m.date DESC LIMIT ?""",
+        (f"%{args.query}%", args.query, args.n),
+    ).fetchall()
+    render(reversed(rows) if args.chrono else rows, args.json,
+           with_names=not args.no_names, con=con, rich=args.rich)
+
+
+def cmd_contacts(con, args):
+    rows = con.execute(
+        """
+        SELECT h.id AS handle, h.service, COUNT(m.ROWID) AS n,
+               MAX(m.date) AS last_date
+        FROM handle h LEFT JOIN message m ON m.handle_id = h.ROWID
+        GROUP BY h.id, h.service
+        HAVING n > 0
+        ORDER BY last_date DESC
+        LIMIT ?""",
+        (args.n,),
+    ).fetchall()
+    if args.json:
+        print(
+            json.dumps(
+                [
+                    {"handle": r["handle"], "service": r["service"],
+                     "messages": r["n"], "last": fmt_ts(r["last_date"])}
+                    for r in rows
+                ],
+                indent=2,
+            )
+        )
+        return
+    for r in rows:
+        nm = name_for(r["handle"]) if not args.no_names else None
+        suffix = f"  ({nm})" if nm else ""
+        print(f"{fmt_ts(r['last_date'])}  {r['n']:>6}  {r['service']:>8}  {r['handle']}{suffix}")
+
+
+def cmd_chats(con, args):
+    # Every conversation, newest activity first — the COMPLETE list a client
+    # should build its sidebar from (deriving it from a window of recent
+    # messages loses every quiet conversation). JSON rows carry a preview of
+    # the latest visible message so the list needs no second query.
+    rows = con.execute(
+        f"""
+        SELECT c.ROWID AS cid, c.chat_identifier, c.display_name, c.room_name,
+               c.service_name, MAX(m.date) AS last_date,
+               COUNT(m.ROWID) AS n
+        FROM chat c
+        LEFT JOIN chat_message_join cmj ON cmj.chat_id = c.ROWID
+        LEFT JOIN {MESSAGE_SRC} m ON m.ROWID = cmj.message_id
+        GROUP BY c.ROWID
+        HAVING n > 0
+        ORDER BY last_date DESC
+        LIMIT ?""",
+        (args.n,),
+    ).fetchall()
+    if args.json:
+        out = []
+        for r in rows:
+            last = con.execute(
+                f"""SELECT m.text, m.attributedBody, m.is_from_me, h.id AS handle
+                    FROM chat_message_join cmj
+                    JOIN {MESSAGE_SRC} m ON m.ROWID = cmj.message_id
+                    LEFT JOIN handle h ON h.ROWID = m.handle_id
+                    WHERE cmj.chat_id = ?
+                    ORDER BY m.date DESC LIMIT 1""",
+                (r["cid"],),
+            ).fetchone()
+            out.append({
+                "id": r["chat_identifier"],
+                "name": r["display_name"] or r["room_name"],
+                "service": r["service_name"],
+                "messages": r["n"],
+                "last": fmt_ts(r["last_date"]),
+                "last_text": message_text(last) if last else "",
+                "last_from_me": bool(last["is_from_me"]) if last else False,
+                "last_handle": (last["handle"] if last else None) or "",
+                "last_name": (name_for(last["handle"]) if last and last["handle"] and not args.no_names else None),
+            })
+        print(json.dumps(out, indent=2, ensure_ascii=False))
+        return
+    for r in rows:
+        name = r["display_name"] or r["room_name"] or r["chat_identifier"]
+        print(f"{fmt_ts(r['last_date'])}  {r['n']:>5}  {r['service_name']:>8}  {name}")
+
+
+def cmd_groups(con, args):
+    """Group chats with the metadata a sender needs: the bare chat_identifier
+    that appears in message rows, the full GUID that AppleScript's `chat id`
+    requires (`any;+;<id>`), the display_name (empty for unnamed groups), and
+    the member handles. Sending to a group MUST use --chat-id <guid>; a group
+    message's `handle` is whichever member spoke last, and sending to that
+    silently DMs one person."""
+    rows = con.execute(
+        """
+        SELECT c.chat_identifier, c.guid,
+               -- display_name can be blanked by an iCloud re-sync; the latest
+               -- rename event (message.group_title) is the durable name.
+               COALESCE(NULLIF(c.display_name, ''),
+                        (SELECT m2.group_title
+                           FROM chat_message_join j2 JOIN message m2 ON m2.ROWID = j2.message_id
+                          WHERE j2.chat_id = c.ROWID AND m2.group_title IS NOT NULL
+                          ORDER BY m2.ROWID DESC LIMIT 1),
+                        '') AS display_name,
+               (SELECT GROUP_CONCAT(h.id, ',')
+                  FROM chat_handle_join chj JOIN handle h ON h.ROWID = chj.handle_id
+                 WHERE chj.chat_id = c.ROWID) AS participants,
+               (SELECT MAX(m.date)
+                  FROM chat_message_join cmj JOIN message m ON m.ROWID = cmj.message_id
+                 WHERE cmj.chat_id = c.ROWID) AS last_date
+        FROM chat c
+        WHERE c.style = 43
+        ORDER BY last_date DESC
+        LIMIT ?""",
+        (args.n,),
+    ).fetchall()
+    if args.json:
+        print(
+            json.dumps(
+                [
+                    {
+                        "chat": r["chat_identifier"],
+                        "guid": r["guid"],
+                        "name": r["display_name"] or "",
+                        "participants": (r["participants"] or "").split(",") if r["participants"] else [],
+                        "last": fmt_ts(r["last_date"]) if r["last_date"] else None,
+                    }
+                    for r in rows
+                ],
+                indent=2,
+            )
+        )
+        return
+    for r in rows:
+        members = ", ".join(
+            (name_for(h) if not args.no_names else None) or h
+            for h in ((r["participants"] or "").split(",") if r["participants"] else [])
+        )
+        name = r["display_name"] or members or r["chat_identifier"]
+        print(f"{fmt_ts(r['last_date']) if r['last_date'] else '':19}  {r['guid']}  {name}")
+
+
+ATTACHMENTS_ROOT = os.path.expanduser("~/Library/Messages/Attachments")
+ATTACH_MAX_BYTES = 100 * 1024 * 1024  # hard ceiling, deliberately no flag
+
+
+def cmd_attachment(con, args):
+    """Stream one attachment's bytes to stdout, for a remote client to cache.
+
+    Hardening (the id comes from an untrusted client over ssh):
+    - decimal-only id;
+    - the attachment must join to a VISIBLE message (the Recently Deleted
+      filter applies — a deleted conversation's media must not be fetchable);
+    - the resolved file must live under ~/Library/Messages/Attachments
+      (commonpath, not string prefix), be a regular file opened O_NOFOLLOW,
+      and the DESCRIPTOR is streamed after fstat — no reopen-by-path window;
+    - hard 100 MB ceiling, checked on the fstat'd size and again while
+      streaming in case the file grows.
+    --jpeg converts image/* (HEIC in practice) through sips first so the
+    Linux side never needs an HEIC decoder.
+    """
+    if not re.fullmatch(r"[0-9]{1,18}", args.id):
+        sys.exit("error: attachment id must be decimal digits")
+    row = con.execute(
+        f"""SELECT a.filename, a.mime_type
+            FROM attachment a
+            JOIN message_attachment_join maj ON maj.attachment_id = a.ROWID
+            JOIN {MESSAGE_SRC} m ON m.ROWID = maj.message_id
+            WHERE a.ROWID = ? AND a.transfer_name IS NOT NULL
+            LIMIT 1""",
+        (int(args.id),),
+    ).fetchone()
+    if not row or not row["filename"]:
+        sys.exit("error: no such visible attachment")
+
+    path = os.path.realpath(os.path.expanduser(row["filename"]))
+    root = os.path.realpath(ATTACHMENTS_ROOT)
+    if os.path.commonpath([path, root]) != root:
+        sys.exit("error: attachment path escapes the Messages store")
+
+    # Ceiling applies to the SOURCE before any conversion — sips must not be
+    # fed an arbitrarily large input just because its output would shrink.
+    try:
+        if os.lstat(path).st_size > ATTACH_MAX_BYTES:
+            sys.exit(f"error: attachment exceeds {ATTACH_MAX_BYTES} bytes")
+    except OSError:
+        sys.exit("error: attachment file missing on disk")
+
+    src = path
+    tmp = None
+    if args.jpeg and (row["mime_type"] or "").startswith("image/"):
+        import subprocess
+        import tempfile
+
+        fd_t, tmp = tempfile.mkstemp(suffix=".jpg")
+        os.close(fd_t)
+        r = subprocess.run(
+            ["sips", "-s", "format", "jpeg", path, "--out", tmp],
+            capture_output=True, timeout=60,
+        )
+        if r.returncode != 0:
+            os.unlink(tmp)
+            sys.exit(f"error: sips conversion failed: {r.stderr.decode()[:200]}")
+        src = tmp
+
+    try:
+        fd = os.open(src, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        try:
+            st = os.fstat(fd)
+            import stat as stat_mod
+
+            if not stat_mod.S_ISREG(st.st_mode):
+                sys.exit("error: not a regular file")
+            # Close the reopen-by-path window: the DESCRIPTOR we stream must
+            # be the same inode the validated path resolves to right now.
+            # (Residual: sips above reopens by path; the store is Apple-owned
+            # 0700, so parent-swap there requires owning the account anyway.)
+            st_now = os.stat(src)
+            if (st.st_dev, st.st_ino) != (st_now.st_dev, st_now.st_ino):
+                sys.exit("error: attachment changed identity mid-read")
+            if st.st_size > ATTACH_MAX_BYTES:
+                sys.exit(f"error: attachment exceeds {ATTACH_MAX_BYTES} bytes")
+            sent = 0
+            while True:
+                chunk = os.read(fd, 1 << 20)
+                if not chunk:
+                    break
+                sent += len(chunk)
+                if sent > ATTACH_MAX_BYTES:
+                    sys.exit("error: file grew past the ceiling mid-stream")
+                sys.stdout.buffer.write(chunk)
+            sys.stdout.buffer.flush()
+        finally:
+            os.close(fd)
+    finally:
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
+
+
+def cmd_watch(con, args):
+    """Block forever, emitting one line whenever chat.db changes — a push
+    channel for remote clients (Blip) that otherwise poll.
+
+    The line is just a unix timestamp: an INVALIDATION, never content —
+    anything sniffing the stream learns only "a message happened". Detection
+    is mtime on chat.db and its WAL (every Messages write touches the WAL;
+    checkpoints touch the db), sampled every 0.4 s — a local stat is
+    microseconds, so this is effectively free and needs no fswatch install.
+    Exits on SIGPIPE/BrokenPipeError when the consumer (the ssh session)
+    goes away."""
+    import time
+
+    wal = DB_PATH + "-wal"
+
+    def sig():
+        try:
+            s = os.stat(DB_PATH).st_mtime_ns
+        except OSError:
+            return None
+        try:
+            w = os.stat(wal).st_mtime_ns
+        except OSError:
+            w = 0
+        return (s, w)
+
+    last = sig()
+    print("ready", flush=True)
+    ticks = 0
+    try:
+        while True:
+            time.sleep(0.4)
+            cur = sig()
+            if cur != last:
+                last = cur
+                print(int(time.time()), flush=True)
+            # Heartbeat every ~30s: a half-open ssh channel emits nothing
+            # forever, and a silent stream is indistinguishable from a quiet
+            # evening — the client needs a liveness signal to time out on.
+            ticks += 1
+            if ticks >= 75:
+                ticks = 0
+                print("hb", flush=True)
+    except BrokenPipeError:
+        pass
+
+
+def cmd_analyze(con, args):
+    """Relationship-arc analysis for one handle: lifetime totals, by-month,
+    hour-of-day, initiation balance, late-night ratio, message length.
+    Surface the data; you (the human or the agent) write the narrative."""
+    like = f"%{args.handle}%"
+    APPLE_NS_TO_UNIX = "date/1000000000+978307200"
+
+    totals = con.execute(f"""
+        SELECT COUNT(*) AS total,
+               SUM(CASE WHEN m.is_from_me=1 THEN 1 ELSE 0 END) AS sent_by_me,
+               SUM(CASE WHEN m.is_from_me=0 THEN 1 ELSE 0 END) AS sent_by_them,
+               date(MIN(m.date)/1000000000+978307200,'unixepoch','localtime') AS earliest,
+               date(MAX(m.date)/1000000000+978307200,'unixepoch','localtime') AS latest
+        FROM message m JOIN handle h ON h.ROWID=m.handle_id
+        WHERE h.id LIKE ?""", (like,)).fetchone()
+    if not totals or totals["total"] == 0:
+        sys.exit(f"no messages found for handle matching {args.handle!r}")
+
+    monthly = con.execute(f"""
+        SELECT strftime('%Y-%m', {APPLE_NS_TO_UNIX}, 'unixepoch','localtime') AS mo,
+               SUM(CASE WHEN m.is_from_me=1 THEN 1 ELSE 0 END) AS me,
+               SUM(CASE WHEN m.is_from_me=0 THEN 1 ELSE 0 END) AS them,
+               COUNT(*) AS total
+        FROM message m JOIN handle h ON h.ROWID=m.handle_id
+        WHERE h.id LIKE ?
+        GROUP BY mo ORDER BY mo""", (like,)).fetchall()
+
+    hourly = con.execute(f"""
+        SELECT strftime('%H', {APPLE_NS_TO_UNIX}, 'unixepoch','localtime') AS hr,
+               SUM(CASE WHEN m.is_from_me=1 THEN 1 ELSE 0 END) AS me,
+               SUM(CASE WHEN m.is_from_me=0 THEN 1 ELSE 0 END) AS them
+        FROM message m JOIN handle h ON h.ROWID=m.handle_id
+        WHERE h.id LIKE ?
+        GROUP BY hr ORDER BY hr""", (like,)).fetchall()
+
+    init = con.execute(f"""
+        WITH daily AS (
+          SELECT date({APPLE_NS_TO_UNIX},'unixepoch','localtime') AS day,
+                 m.is_from_me, m.date
+          FROM message m JOIN handle h ON h.ROWID=m.handle_id
+          WHERE h.id LIKE ?),
+        first_per_day AS (
+          SELECT day, is_from_me,
+                 ROW_NUMBER() OVER (PARTITION BY day ORDER BY date ASC) rn
+          FROM daily)
+        SELECT SUM(CASE WHEN is_from_me=1 THEN 1 ELSE 0 END) AS me_first,
+               SUM(CASE WHEN is_from_me=0 THEN 1 ELSE 0 END) AS them_first,
+               COUNT(*) AS active_days
+        FROM first_per_day WHERE rn=1""", (like,)).fetchone()
+
+    late = con.execute(f"""
+        SELECT COUNT(*) AS n
+        FROM message m JOIN handle h ON h.ROWID=m.handle_id
+        WHERE h.id LIKE ?
+          AND CAST(strftime('%H',{APPLE_NS_TO_UNIX},'unixepoch','localtime') AS INT)
+              IN (22, 23, 0, 1, 2, 3)""", (like,)).fetchone()
+
+    avg_len = con.execute("""
+        SELECT m.is_from_me,
+               AVG(length(COALESCE(m.text,'')) + length(COALESCE(m.attributedBody,''))) AS avg_len
+        FROM message m JOIN handle h ON h.ROWID=m.handle_id
+        WHERE h.id LIKE ?
+        GROUP BY m.is_from_me""", (like,)).fetchall()
+    me_len = next((r["avg_len"] for r in avg_len if r["is_from_me"] == 1), 0)
+    them_len = next((r["avg_len"] for r in avg_len if r["is_from_me"] == 0), 0)
+
+    contact_name = name_for(args.handle) or "(no contact match)"
+
+    if args.json:
+        out = {
+            "handle": args.handle,
+            "contact_name": contact_name,
+            "lifetime": dict(totals),
+            "monthly": [dict(r) for r in monthly],
+            "hourly":  [dict(r) for r in hourly],
+            "initiation": dict(init) if init else {},
+            "late_night_msgs_22_to_03": late["n"] if late else 0,
+            "late_night_pct": round((late["n"] / totals["total"] * 100) if totals["total"] else 0, 1),
+            "avg_msg_len_me":   round(me_len or 0, 1),
+            "avg_msg_len_them": round(them_len or 0, 1),
+        }
+        print(json.dumps(out, indent=2))
+        return
+
+    print(f"\n  Handle: {args.handle}   Contact: {contact_name}")
+    print(f"  Lifetime: {totals['total']} msgs   you sent {totals['sent_by_me']}   they sent {totals['sent_by_them']}")
+    print(f"  Date range: {totals['earliest']}  to  {totals['latest']}")
+    if init and init["active_days"]:
+        pct_me   = round(100 * init["me_first"]   / init["active_days"])
+        pct_them = round(100 * init["them_first"] / init["active_days"])
+        print(f"  Initiation (first msg of day): you {init['me_first']} ({pct_me}%)   them {init['them_first']} ({pct_them}%)   over {init['active_days']} active days")
+    if late and totals["total"]:
+        pct = round(100 * late["n"] / totals["total"], 1)
+        print(f"  Late-night (22:00 to 03:00): {late['n']} msgs ({pct}% of all)")
+    print(f"  Avg msg length: you {round(me_len or 0):>4} chars   them {round(them_len or 0):>4} chars")
+
+    print("\n  Monthly cadence:")
+    print(f"  {'month':<8}  {'you':>5}  {'them':>5}  {'total':>5}")
+    for r in monthly:
+        print(f"  {r['mo']:<8}  {r['me']:>5}  {r['them']:>5}  {r['total']:>5}")
+
+    print("\n  Hour-of-day distribution (when you talk):")
+    max_n = max((r["me"] + r["them"]) for r in hourly) or 1
+    for r in hourly:
+        n = r["me"] + r["them"]
+        bar = "█" * int(40 * n / max_n)
+        print(f"  {r['hr']}h  {bar:<40}  {n:>4}  (you {r['me']:>3} / them {r['them']:>3})")
+    print()
+
+
+def main() -> None:
+    p = argparse.ArgumentParser(prog="imsg", description=__doc__,
+                                formatter_class=argparse.RawDescriptionHelpFormatter)
+    # Top-level convenience flags (also added to each subparser via parents=
+    # so they work POST-subcommand, e.g. `imsg from "+1..." 6 --chrono`)
+    # These live on BOTH the parent (so they parse before the subcommand) and on
+    # each subparser via parents=[common] (so they parse after it). The subparser
+    # copies MUST default to SUPPRESS: a plain store_true defaults to False, and
+    # the subparser writes that False into the namespace AFTER the parent already
+    # set True for a pre-subcommand flag -- silently clobbering it, so
+    # `imsg --json recent 5` was ignored. With SUPPRESS the subparser only sets
+    # these when the flag actually appears after the subcommand; otherwise the
+    # parent's value survives. The parent copies keep a real False default so the
+    # attributes always exist.
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--json", action="store_true", default=argparse.SUPPRESS,
+                        help="emit JSON")
+    common.add_argument("--chrono", action="store_true", default=argparse.SUPPRESS,
+                        help="print oldest to newest instead of newest to oldest")
+    common.add_argument("--no-names", action="store_true", default=argparse.SUPPRESS,
+                        help="do not resolve handles via Contacts")
+    common.add_argument("--rich", action="store_true", default=argparse.SUPPRESS,
+                        help="JSON only: fold tapbacks onto their targets and add "
+                             "read_at/edited/retracted/reply_to/attachments/effect/audio")
+    # also accept on the parent for `imsg --json recent 5` style
+    p.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--chrono", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--no-names", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--rich", action="store_true", help=argparse.SUPPRESS)
+
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    s = sub.add_parser("recent",   parents=[common]); s.add_argument("n", nargs="?", type=int, default=20); s.set_defaults(func=cmd_recent)
+    s = sub.add_parser("from",     parents=[common]); s.add_argument("handle"); s.add_argument("n", nargs="?", type=int, default=50); s.set_defaults(func=cmd_from)
+    s = sub.add_parser("thread",   parents=[common]); s.add_argument("handle", nargs="?", default=""); s.add_argument("n", nargs="?", type=int, default=50); s.add_argument("--chat", default="", help="exact chat_identifier (groups: 32-hex / chat<digits>)"); s.set_defaults(func=cmd_thread)
+    s = sub.add_parser("search",   parents=[common]); s.add_argument("query"); s.add_argument("n", nargs="?", type=int, default=50); s.set_defaults(func=cmd_search)
+    s = sub.add_parser("contacts", parents=[common]); s.add_argument("n", nargs="?", type=int, default=30); s.set_defaults(func=cmd_contacts)
+    s = sub.add_parser("chats",    parents=[common]); s.add_argument("n", nargs="?", type=int, default=30); s.set_defaults(func=cmd_chats)
+    s = sub.add_parser("groups",   parents=[common]); s.add_argument("n", nargs="?", type=int, default=2000); s.set_defaults(func=cmd_groups)
+    s = sub.add_parser("analyze",  parents=[common],
+                       help="relationship arc analysis for one handle")
+    s.add_argument("handle")
+    s.set_defaults(func=cmd_analyze)
+    s = sub.add_parser("attachment", parents=[common],
+                       help="stream one attachment's bytes to stdout (id from --rich)")
+    s.add_argument("id")
+    s.add_argument("--jpeg", action="store_true",
+                   help="convert image/* (HEIC) to JPEG via sips before streaming")
+    s.set_defaults(func=cmd_attachment)
+    s = sub.add_parser("watch", parents=[common],
+                       help="emit a line whenever chat.db changes (push channel)")
+    s.set_defaults(func=cmd_watch)
+
+    args = p.parse_args()
+    with open_db() as con:
+        args.func(con, args)
+
+
+if __name__ == "__main__":
+    main()

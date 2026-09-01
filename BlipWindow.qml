@@ -116,7 +116,7 @@ FloatingWindow {
     id: sendProc
     onExited: function(code) {
       if (code === 0) { win.note = ""; composeField.text = "" }
-      else win.note = code === 69 || code === 255 ? "not sent — fnix unreachable" : "send failed (exit " + code + ")"
+      else win.note = code === 69 || code === 255 ? "not sent — Mac unreachable" : "send failed (exit " + code + ")"
       if (win.active && win.hostWidget) win.hostWidget.refresh(true, false)
     }
   }
@@ -135,7 +135,7 @@ FloatingWindow {
         spacing: 0
         Text {
           Layout.fillWidth: true
-          text: win.online ? "Messages" : "Messages · fnix offline"
+          text: win.online ? "Messages" : "Messages · Mac offline"
           color: win.fg
           font.family: Style.font.family
           font.pixelSize: Style.font.body

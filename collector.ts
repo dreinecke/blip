@@ -1,12 +1,12 @@
 #!/usr/bin/env bun
 /**
- * Blip collector — turns fnix's `imsg --json recent N` into the thread model
+ * Blip collector — turns the Mac's `imsg --json recent N` into the thread model
  * the QML bar widget and panel render.
  *
  * iMessage is macOS-only. chat.db and the AppleScript send path both live on
- * fnix; vic is a thin client over a multiplexed SSH socket (~47ms warm). This
+* the Mac; this machine is a thin client over a multiplexed SSH socket (~47ms warm). This
  * script never touches SQLite itself — it shells out to ~/bin/imsg, which
- * proxies to fnix.
+ * proxies to the Mac.
  *
  * Output: one JSON object on stdout. Never throws — a failure is reported as
  * {ok:false, online:false} so the bar can grey out instead of crashing.
