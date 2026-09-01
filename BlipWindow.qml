@@ -81,6 +81,9 @@ FloatingWindow {
     BlipView {
       id: view
       anchors.fill: parent
+      // Inset from the window edge: Hyprland rounds the corners, and text
+      // flush to the border got clipped by the radius (Fred).
+      anchors.margins: Style.space(12)
       hostWidget: win.hostWidget
       splitView: true
       surfaceOpen: win.visible
