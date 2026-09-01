@@ -833,6 +833,12 @@ FocusScope {
       Layout.preferredWidth: root.splitView ? root.sidebarWidth : -1
       ColumnLayout {
         anchors.fill: parent
+        // Gutters for the app: the popout's card supplies its own padding,
+        // the window's panes had text flush against the borders (Fred).
+        anchors.leftMargin: root.splitView ? Style.space(18) : 0
+        anchors.rightMargin: root.splitView ? Style.space(18) : 0
+        anchors.topMargin: root.splitView ? Style.space(10) : 0
+        anchors.bottomMargin: root.splitView ? Style.space(10) : 0
         spacing: Style.space(8)
         PanelHero {
           Layout.fillWidth: true
@@ -1229,6 +1235,12 @@ FocusScope {
       Layout.fillWidth: true
       ColumnLayout {
         anchors.fill: parent
+        // Gutters for the app: the popout's card supplies its own padding,
+        // the window's panes had text flush against the borders (Fred).
+        anchors.leftMargin: root.splitView ? Style.space(18) : 0
+        anchors.rightMargin: root.splitView ? Style.space(18) : 0
+        anchors.topMargin: root.splitView ? Style.space(10) : 0
+        anchors.bottomMargin: root.splitView ? Style.space(10) : 0
         spacing: Style.space(8)
         RowLayout {
           Layout.fillWidth: true
