@@ -80,6 +80,19 @@ BarWidget {
     }
   }
 
+  // The app: a Messages-style FloatingWindow living in the same shell process,
+  // sharing this widget's poller/push/read ledger (Tier 4, no daemon needed).
+  Loader {
+    id: windowLoader
+    active: true
+    source: Qt.resolvedUrl("BlipWindow.qml")
+    onLoaded: item.hostWidget = root
+  }
+  function toggleWindow() {
+    if (!windowLoader.item) return
+    windowLoader.item.visible = !windowLoader.item.visible
+  }
+
   // ------------------------------------------------------------ collector
   // `deep` widens the fetch window for the panel; `markRead` clears the badge.
   // `readChat` clears one thread's blue dot — iMessage semantics: the dot
@@ -423,6 +436,18 @@ BarWidget {
     function bubbles(): string { return panelLoader.item ? panelLoader.item.bubbleModel() : "[]" }
     function find(query: string): string { return panelLoader.item ? panelLoader.item.searchFor(query) : "no panel" }
     function newchat(query: string): string { return panelLoader.item ? panelLoader.item.newChatFor(query) : "no panel" }
+    function window(): string { root.toggleWindow(); return windowLoader.item ? (windowLoader.item.visible ? "window shown" : "window hidden") : "no window" }
+    function windowgoto(chat: string): string {
+      var w = windowLoader.item
+      if (!w) return "no window"
+      w.visible = true
+      var want = String(chat)
+      for (var i = 0; i < root.threads.length; i++) {
+        var c = String(root.threads[i].chat)
+        if (c === want || c === "+" + want) { w.openThread(root.threads[i]); return "opened " + c }
+      }
+      return "unknown chat"
+    }
   }
 
   // ------------------------------------------------------------ bar button

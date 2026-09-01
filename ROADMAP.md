@@ -77,11 +77,23 @@ changes to the Mac beyond claude-on-mac updates.
 
 ## Tier 4 — the actual app
 
-- [ ] **`blipd` daemon** — extract collector/thread/watcher behind a local
-  socket; bar plugin becomes a thin client.
-- [ ] **Standalone window** — QuickShell window reusing the existing QML,
-  Messages.app layout (sidebar + conversation). Tauri v2 only if it ever needs
-  to run off-Omarchy.
+Architecture (decided 2026-08-31): the app is a `FloatingWindow` hosted
+INSIDE the Omarchy shell by the plugin itself — exactly how Omarchy's
+dev-gallery does it. It shares the bar widget's poller, push watcher, and
+read-state ledger, so **no `blipd` daemon is needed** (that item is retired;
+a daemon only returns if the app ever has to run outside the shell).
+
+- [x] **Window skeleton** — shipped 1.5.0: `BlipWindow.qml`, Messages-style
+  two-pane layout (sidebar of every thread with dots/previews + a read-only
+  text conversation + compose), toggled by IPC `window` (keybind next).
+  Shares live data with the panel; reads mark through the same ledger.
+- [ ] **Shared `BlipView`** — extract Panel.qml's rich renderer (tapbacks,
+  receipts, inline photos, replies, attachments, search, composer) into one
+  component both the panel and the window embed, so the window is not the
+  "simple" version. The big refactor; do it with a Codex design review.
+- [ ] **Keybind + window polish** — SUPER-something toggles it; remember
+  size/position; Esc closes; sidebar search; unread counts in the title.
+- [ ] ~~`blipd` daemon~~ — retired (see above).
 
 ## Prior art
 
