@@ -1,0 +1,24 @@
+name: Bug report
+description: Something in Blip does not behave as documented
+labels: [bug]
+body:
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: Blip (manifest.json), Omarchy, quickshell, macOS on the gateway Mac
+      placeholder: "Blip 2.0.3 · Omarchy 4.0.2 · quickshell 0.3.1 · macOS 15.6"
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you saw. Output of `qs -p /usr/share/omarchy/shell ipc call nixfred.blip status` and `ssh <mac> python3 ~/.blip/bin/blip-check` helps enormously.
+    validations:
+      required: true
+  - type: textarea
+    id: privacy
+    attributes:
+      label: Before you paste logs
+      value: "Please strip phone numbers, names, and message text. Blip never needs them to be debugged."

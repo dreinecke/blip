@@ -325,6 +325,12 @@ Logic lives in TypeScript where it can be tested; QML only renders. Every
 layout bug so far was found with `grim` and eyeballs, not by reading code —
 screenshot your changes. See [CLAUDE.md](CLAUDE.md) for the invariants.
 
+## Contributing
+
+Pull requests welcome — see [CONTRIBUTING.md](CONTRIBUTING.md) (short; the
+one rule that matters: never test sends against a real contact). Security
+reports go through GitHub's private reporting, not issues.
+
 ## Credits
 
 Built by Fred Nix and Larry (his Claude Code collaborator) — 1.0 in one

@@ -1,0 +1,11 @@
+name: Feature request
+description: Something Blip should do
+labels: [enhancement]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What, and the situation where you wanted it. Check README "What it can't do" first — read receipts and outbound tapbacks need Apple's private API and are out of scope.
+    validations:
+      required: true
