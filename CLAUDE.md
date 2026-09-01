@@ -9,6 +9,7 @@ treating a Mac as the gateway. Read this before touching anything.
 (Mac side)    bridge/mac/           VENDORED from claude-on-mac (pin in bridge/BRIDGE-VERSION; refresh with
               imsg imsg-send        scripts/sync-bridge.sh <rev>). Installed to ~/.blip/bin on the Mac by
               contacts tcc-check    bridge/mac/install.sh. Blip is ONE source for release (Fred's rule).
+              blip-dispatch         forced-command gate for ~/.ssh/blip_ed25519: only the five tools run.
                                     imsg: sqlite read of chat.db, `--rich` (tapbacks/read_at/reply_to/
                                     attachments/error), `watch`, `attachment`, `chats`; Recently Deleted hidden.
 (Linux side)  bridge/linux/blip-shim installed as ~/bin/{imsg,imsg-send,contacts} by scripts/blip-setup;
@@ -74,8 +75,9 @@ what it is handed. Keep it that way.
 - **The vic shims' ssh preflight must use `ssh -n`.** A bare
   `ssh fnix true` connectivity probe EATS STDIN, which silently empties
   `imsg-send --file-stdin` payloads. Fixed 2026-08-31 in ~/.claude/bin shims.
-- **`bridge.conf` is data, never `source`d.** The shim parses three keys and
-  validates them; keep it that way (audit #7).
+- **`bridge.conf` is data, never `source`d.** The shim parses four keys and
+  validates them; keep it that way (audit #7). `automation=on` is what lets
+  `qs ipc … goto/compose/bubbles` work — off, they return a refusal string.
 - **Only media/pdf/text mimes reach `xdg-open`** (`openableMime`). Anything
   else is saved and named, never launched (audit #10).
 - **`chat:null` exists.** Use `chatKey()`; never `String(m.chat)`.

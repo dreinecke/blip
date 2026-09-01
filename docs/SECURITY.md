@@ -16,8 +16,8 @@ message bodies, names), a corrupted or stale local state file, a bad
 | # | Severity | Finding | Status |
 |---|---|---|---|
 | 1 | critical | A hostile Mac is unsatisfiable as a threat | **Documented** above — by design |
-| 2 | critical | Any ssh login to the Mac account inherits Full Disk Access + Automation | **Open, Fred's call** — fix is a dedicated key with `restrict,command="~/.blip/bin/blip-dispatch"` |
-| 3 | critical | `qs ipc … compose --yes` / `goto` / `bubbles` let any local process send or read | **Open, Fred's call** — these are the automation surface; trade-off is a confirm step |
+| 2 | critical | Any ssh login to the Mac account inherits Full Disk Access + Automation | **Fixed** 1.10.0 — `blip-setup` enrols `~/.ssh/blip_ed25519` on the Mac as `restrict,command="$HOME/.blip/bin/blip-dispatch"`; that key can run only the five bridge tools (no shell, no forwarding, no pty), with its own ssh mux so it never rides the general key's master |
+| 3 | critical | `qs ipc … compose --yes` / `goto` / `bubbles` let any local process send or read | **Fixed** 1.10.0 — `goto`/`compose`/`bubbles`/`threads`/`find`/`newchat`/`windowgoto`/`read` require `automation=on` in `bridge.conf` (default off; live-reloaded). `status`/`open`/`close`/`toggle`/`window`/`app` expose nothing and stay open |
 | 4 | high | Bodies travel in argv (Linux `/proc`, Mac `osascript -e`) and `imsg-send` echoed 120 chars of body to stderr | **stderr fixed** (1.9.4). argv → `--text-stdin` is a roadmap item |
 | 5 | high | Stale contact/search result shown as clickable rows under a newer query | **Fixed** 1.9.4 — generation bumps when a query is queued, results cleared |
 | 6 | high | Group GUIDs are trusted from state/bridge | Accepted — same trust as #1; the Mac resolves them anyway |
@@ -27,6 +27,9 @@ message bodies, names), a corrupted or stale local state file, a bad
 | 10 | medium | Clicked attachments went straight to `xdg-open` regardless of type | **Fixed** 1.9.4 — only image/video/audio/pdf/text/vcard/ics open; others are saved and named |
 | 11 | medium | Symlink in cache followed; `window.json.tmp` could be 0644 | **Fixed** 1.9.4 — `lstat`+regular-file check; `umask 077` |
 | 12 | medium | Catch-up fetch doubled without bound | **Fixed** 1.9.4 — capped at 8192 rows |
+
+Your everyday ssh key to the Mac still carries Full Disk Access (that grant is per
+`sshd-keygen-wrapper`, not per key) — Blip just no longer *needs* it.
 
 Privacy-inventory items from the same audit are folded into
 [PRIVACY.md](PRIVACY.md).

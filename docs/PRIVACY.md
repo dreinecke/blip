@@ -8,7 +8,8 @@ inventory of what lands on disk.
 
 | Path | Contains | Never contains |
 |---|---|---|
-| `~/.config/blip/bridge.conf` (0600) | Mac ssh target, remote tool dir | credentials (ssh keys stay in `~/.ssh`) |
+| `~/.config/blip/bridge.conf` (0600) | Mac ssh target, remote tool dir, path of Blip's key, `automation=` switch | credentials |
+| `~/.ssh/blip_ed25519` | Blip's dedicated ssh key — confined on the Mac to the bridge tools | — |
 | `~/.config/blip/allowlist.json` | handles allowed to raise desktop toasts | message text |
 | `~/.local/state/blip/state.json` (0600, atomic) | poll watermark, read marks, per-chat unread counts and oldest-unread timestamps, self-chat ids, group names/members, opaque SHA-256 toast keys | **message bodies — ever** |
 | `~/.local/state/blip/window.json` | whether the app window was open, its size | anything else |

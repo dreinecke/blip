@@ -9,8 +9,10 @@
 # what makes a plain ssh session a working transport.
 #
 # Config: ~/.config/blip/bridge.conf (written by scripts/blip-setup), sourced
-# as shell — keys: host (ssh target), remote_bin (dir on the Mac holding the
-# tools; default ~/.blip/bin), python (default python3).
+# key=value — keys: host (ssh target), key (dedicated identity, default
+# ~/.ssh/blip_ed25519; absent → general ssh), remote_bin (dir on the Mac
+# holding the tools; default ~/.blip/bin), python (default python3),
+# automation (on|off — read by the plugin, not the shim).
 #
 # The connectivity probe MUST be `ssh -n`: a bare probe eats stdin and
 # silently empties `imsg-send --file-stdin` payloads (learned the hard way).
@@ -19,7 +21,7 @@ set -euo pipefail
 CONF="${BLIP_BRIDGE_CONF:-$HOME/.config/blip/bridge.conf}"
 # remote_bin is expanded by the MAC's shell, so keep it literal here — a bare
 # ~ or $HOME in bridge.conf would expand to the Linux home (it did).
-host=""; remote_bin='$HOME/.blip/bin'; python="python3"
+host=""; remote_bin='$HOME/.blip/bin'; python="python3"; key="$HOME/.ssh/blip_ed25519"
 # Parsed, not sourced: the file is data. Only the three known keys are read,
 # quotes are stripped, and each value is validated below.
 if [[ -r "$CONF" ]]; then
@@ -32,6 +34,7 @@ if [[ -r "$CONF" ]]; then
       host) host="$v" ;;
       remote_bin) remote_bin="$v" ;;
       python) python="$v" ;;
+      key) key="$v" ;;
     esac
   done < "$CONF"
 fi
@@ -43,7 +46,7 @@ fi
 if ! [[ "$host" =~ ^([A-Za-z0-9._-]+@)?[A-Za-z0-9._:-]+$ ]]; then
   echo "blip: refusing host '$host' — expected [user@]hostname" >&2; exit 78
 fi
-if ! [[ "$python" =~ ^[A-Za-z0-9._/-]+$ && "$remote_bin" =~ ^[A-Za-z0-9._/\$-]+$ ]]; then
+if ! [[ "$python" =~ ^[A-Za-z0-9._/-]+$ && "$remote_bin" =~ ^[A-Za-z0-9._/\$-]+$ && "$key" =~ ^[A-Za-z0-9._/-]+$ ]]; then
   echo "blip: refusing python/remote_bin in $CONF — plain paths only" >&2; exit 78
 fi
 
@@ -53,11 +56,23 @@ case "$tool" in
   *) echo "blip-shim: unknown tool name '$tool' (install as imsg, imsg-send, or contacts)" >&2; exit 64 ;;
 esac
 
-if ! ssh -n -o ConnectTimeout=5 -o BatchMode=yes -- "$host" true 2>/dev/null; then
+# With the dedicated key (blip-setup enrolls it as restrict,command=blip-dispatch)
+# the Mac side can ONLY run the bridge tools, so the remote command is bare and
+# the probe is dispatch's "ping". The key gets its own ControlMaster socket:
+# sharing the general key's master would silently bypass the forced command.
+if [[ -r "$key" ]]; then
+  ssh=(ssh -i "$key" -o IdentitiesOnly=yes -o ControlMaster=auto
+       -o "ControlPath=$HOME/.ssh/cm-blip-%r@%h:%p" -o ControlPersist=10m)
+  probe="ping"; remote="$tool ${*@Q}"
+else
+  ssh=(ssh)
+  probe="true"; remote="PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH $python $remote_bin/$tool ${*@Q}"
+fi
+if ! "${ssh[@]}" -n -o ConnectTimeout=5 -o BatchMode=yes -- "$host" "$probe" >/dev/null 2>&1; then
   echo "$tool: $host unreachable — the iMessage bridge is offline." >&2
   exit 69   # EX_UNAVAILABLE (Blip greys out on this code)
 fi
 
-# ${*@Q} quotes each argument for the remote shell: apostrophes, spaces,
-# and leading dashes survive the double hop intact.
-exec ssh -- "$host" "PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH $python $remote_bin/$tool ${*@Q}"
+# ${*@Q} quotes each argument for the remote side (dispatch shlex-splits it
+# exactly like a shell): apostrophes, spaces, leading dashes survive intact.
+exec "${ssh[@]}" -- "$host" "$remote"

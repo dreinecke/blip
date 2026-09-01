@@ -46,11 +46,14 @@ fi
 # 1. config
 mkdir -p "$conf_dir"
 {
-  echo "# Blip bridge — sourced by ~/bin/imsg, imsg-send, contacts"
+  echo "# Blip bridge — read (never sourced) by ~/bin/imsg, imsg-send, contacts"
   echo "host=$host"
   echo "# single-quoted on purpose: expanded on the MAC, not here"
   echo "remote_bin='\$HOME/.blip/bin'"
   echo "python=python3"
+  echo "key=$HOME/.ssh/blip_ed25519"
+  echo "# on = local scripts may send/read through 'qs ipc call nixfred.blip …'"
+  echo "automation=${BLIP_AUTOMATION:-off}"
 } > "$conf"
 chmod 0600 "$conf"
 echo "✓ $conf"
@@ -93,6 +96,22 @@ if ssh -n -o ConnectTimeout=6 -o BatchMode=yes "$host" true 2>/dev/null; then
   scp -q "$here"/bridge/mac/* "$host:~/.blip/src/"
   ssh "$host" 'bash ~/.blip/src/install.sh'
 
+  # 4b. Dedicated key, confined on the Mac to blip-dispatch (restrict = no
+  # shell, no forwarding, no pty). Your everyday key is untouched; Blip's key
+  # cannot do anything but run the five bridge tools.
+  key="$HOME/.ssh/blip_ed25519"
+  [[ -f "$key" ]] || ssh-keygen -q -t ed25519 -N "" -C "blip@$(hostname)" -f "$key"
+  pub="$(cut -d" " -f1,2 < "$key.pub")"
+  ssh "$host" "umask 077; mkdir -p ~/.ssh; touch ~/.ssh/authorized_keys; \
+    grep -qF -- '$pub' ~/.ssh/authorized_keys || \
+    printf '%s\n' 'restrict,command=\"\$HOME/.blip/bin/blip-dispatch\" $pub' >> ~/.ssh/authorized_keys"
+  if [[ "$(ssh -i "$key" -o IdentitiesOnly=yes -o BatchMode=yes -o ControlPath=none "$host" ping 2>/dev/null)" == pong ]] \
+     && ! ssh -i "$key" -o IdentitiesOnly=yes -o BatchMode=yes -o ControlPath=none "$host" true >/dev/null 2>&1; then
+    echo "✓ dedicated key enrolled: $key can run only the Blip tools on $host"
+  else
+    echo "✗ dedicated key did not confine as expected — check ~/.ssh/authorized_keys on the Mac" >&2; exit 1
+  fi
+
   # The three grants, checked in the ssh context that matters. The automation
   # check TALKS to Messages.app, which pops the one-time Allow prompt on the
   # Mac's screen when the grant is missing — so give the user a beat to click.
@@ -110,7 +129,7 @@ else
   exit 69
 fi
 
-# 5. smoke test
+# 5. smoke test (through the shim, i.e. the dedicated key)
 echo
 if out="$("$HOME/bin/imsg" recent 1 2>&1)"; then
   echo "✓ bridge is up — latest message:"; echo "  $out"

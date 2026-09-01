@@ -479,6 +479,20 @@ BarWidget {
   }
 
   // ------------------------------------------------------------ IPC
+  // IPC that sends or reads message content is a deputy for any local
+  // process (Codex audit #3). It is opt-in: automation=on in bridge.conf.
+  // status/open/close/toggle/window/app stay available — they expose nothing.
+  property bool automationOn: false
+  readonly property string automationOff: "blip: automation=off — set automation=on in ~/.config/blip/bridge.conf to allow ipc send/read"
+  FileView {
+    id: bridgeConf
+    path: root.home + "/.config/blip/bridge.conf"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: root.automationOn = /^\s*automation\s*=\s*['"]?(on|true|1|yes)\b/mi.test(text())
+    onLoadFailed: root.automationOn = false
+  }
   IpcHandler {
     target: root.moduleName
     function status(): string {
@@ -487,20 +501,21 @@ BarWidget {
         + " push=" + root.watchAlive
         + (root.lastError !== "" ? " error=" + root.lastError : "")
     }
-    function threads(): string { return JSON.stringify(root.threads) }
+    function threads(): string { return root.automationOn ? JSON.stringify(root.threads) : root.automationOff }
     function refresh(): void { root.refresh(false, false) }
-    function read(): void { root.markAllRead() }
+    function read(): string { if (!root.automationOn) return root.automationOff; root.markAllRead(); return "read" }
     function open(): void { root.open() }
     function close(): void { root.close() }
     function toggle(): void { root.toggle() }
-    function goto(chat: string): void { root.show(chat) }
-    function compose(text: string): string { return panelLoader.item ? panelLoader.item.composeAndSend(text) : "no panel" }
-    function bubbles(): string { return panelLoader.item ? panelLoader.item.bubbleModel() : "[]" }
-    function find(query: string): string { return panelLoader.item ? panelLoader.item.searchFor(query) : "no panel" }
-    function newchat(query: string): string { return panelLoader.item ? panelLoader.item.newChatFor(query) : "no panel" }
+    function goto(chat: string): string { if (!root.automationOn) return root.automationOff; root.show(chat); return "shown" }
+    function compose(text: string): string { if (!root.automationOn) return root.automationOff; return panelLoader.item ? panelLoader.item.composeAndSend(text) : "no panel" }
+    function bubbles(): string { if (!root.automationOn) return root.automationOff; return panelLoader.item ? panelLoader.item.bubbleModel() : "[]" }
+    function find(query: string): string { if (!root.automationOn) return root.automationOff; return panelLoader.item ? panelLoader.item.searchFor(query) : "no panel" }
+    function newchat(query: string): string { if (!root.automationOn) return root.automationOff; return panelLoader.item ? panelLoader.item.newChatFor(query) : "no panel" }
     function window(): string { root.toggleWindow(); return root.windowVisible ? "window shown" : "window hidden" }
     function app(): string { root.showApp(); return "app shown + focused" }
     function windowgoto(chat: string): string {
+      if (!root.automationOn) return root.automationOff
       root.ensureWindow()
       var w = windowLoader.item
       if (!w) return "no window"

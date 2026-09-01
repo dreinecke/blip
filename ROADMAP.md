@@ -141,9 +141,13 @@ on the Mac plus hand-made vic shims with `fnix` hardcoded.
 
 **D. Ship hygiene.**
 - [x] Full Codex audit → docs/SECURITY.md (12 findings; 8 fixed in 1.9.4,
-  2 architecture decisions for Fred: forced-command ssh key, IPC send surface)
-  + docs/PRIVACY.md.
+  then 1.10.0: forced-command ssh key + `automation=` IPC gate) + docs/PRIVACY.md.
 - [ ] `--text-stdin` end to end so bodies leave argv (audit #4).
+- [ ] Images Blip sends to OTHER people: chat.db's attachment row keeps the
+  `~/Pictures/.blip-outbox/…` path (Messages did not copy it into its store),
+  so the bubble can never re-fetch it once the outbox is swept. Keep sent
+  files until the row points into ~/Library/Messages/Attachments, or cache
+  the outgoing bytes locally under the attachment id.
 - [ ] README rewrite for non-Fred users; screenshots/GIF; manifest fields
   (description, author, screenshots); CHANGELOG; version 2.0.0.
 - [ ] Test on a second Mac/Linux pair before publishing — DEFERRED (Fred,

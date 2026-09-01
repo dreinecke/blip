@@ -4,7 +4,9 @@
 #
 # What it does:
 #   1. copies the bridge tools into ~/.blip/bin (imsg, imsg-send, contacts,
-#      tcc-check) — read-only sqlite over chat.db, AppleScript send, Contacts;
+#      tcc-check, blip-check) — read-only sqlite over chat.db, AppleScript
+#      send, Contacts — plus blip-dispatch, the forced-command gate that
+#      confines Blip's dedicated ssh key to exactly those tools;
 #   2. makes sure Remote Login (sshd) is on, since Blip talks over ssh;
 #   3. explains the two TCC grants that cannot be scripted:
 #        • Full Disk Access  → /usr/libexec/sshd-keygen-wrapper (reads chat.db)
@@ -15,7 +17,7 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 dest="$HOME/.blip/bin"
 mkdir -p "$dest"
-for t in imsg imsg-send contacts tcc-check blip-check; do
+for t in imsg imsg-send contacts tcc-check blip-check blip-dispatch; do
   if [[ -f "$here/$t" ]]; then
     install -m 0755 "$here/$t" "$dest/$t"
   else
