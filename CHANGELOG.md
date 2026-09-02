@@ -1,7 +1,11 @@
 # Changelog
 
-## Unreleased
+## 2.2.3 — 2026-09-02
 
+- **Received bubbles showed a lighter square in the tail corner.** The
+  "tail" was a second translucent rectangle drawn over the corner, so the
+  14 % fill composited twice. The corner is now squared with Qt 6.7
+  per-corner radii and the extra rectangle is gone. (Adam Gamble, #10)
 - **iPhone photos rendered on their side — inline AND in the viewer.** A
   camera photo stores its rotation as an EXIF orientation tag, and `sips`
   keeps that tag when the bridge converts HEIC to JPEG — so the pixels
@@ -11,7 +15,7 @@
   orientation into the cached JPEG losslessly with `jpegtran` (libjpeg-turbo,
   already on every Qt box) — colour profile kept, EXIF dropped so nothing
   double-rotates. Files cached before this release stay as they were; clear
-  `~/.cache/blip/att` to re-fetch them upright. (Adam Gamble)
+  `~/.cache/blip/att` to re-fetch them upright. (Adam Gamble, #9)
 
 ## 2.2.2 — 2026-09-02
 
