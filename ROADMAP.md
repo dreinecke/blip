@@ -119,7 +119,7 @@ on the Mac plus hand-made the Linux box shims with `the gateway Mac` hardcoded.
   Contacts, checked over ssh — the automation check itself pops the Allow
   prompt) with a grant-then-recheck loop in the wizard.
 - [ ] Self-handles: auto-detected from chat.db already (`imsg-send
-  --list-self`); allowlist editor still open. De-vic'd all strings (1.7.0).
+  --list-self`); allowlist editor still open. Machine-specific strings removed (1.7.0).
 
 **B. Finish the app.**
 - [x] Shared `BlipView` (docs/app-design-review.md) so the window has the
