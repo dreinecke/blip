@@ -92,6 +92,11 @@ what it is handed. Keep it that way.
   `qs ipc … goto/compose/bubbles` work — off, they return a refusal string.
 - **Only media/pdf/text mimes reach `xdg-open`** (`openableMime`). Anything
   else is saved and named, never launched (audit #10).
+- **One person lives in several Contacts sources** (iCloud, Exchange, On My
+  Mac) under slightly different spellings. That is NOT ambiguity — names
+  (`name_for`) and photos (`cmd_avatar`) treat a collision only WITHIN one
+  source as ambiguous; across sources the most common spelling wins. Got
+  this wrong twice (2.0.0 photos, 1.9.4 names → "Rob T shows as a number").
 - **`chat:null` exists.** Use `chatKey()`; never `String(m.chat)`.
 - **Group ids come in two shapes**: 32 hex, or `chat<digits>`. `isGroupChat()` is
   "not a phone/email" — never a positive regex on one shape.

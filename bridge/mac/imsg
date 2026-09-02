@@ -57,8 +57,13 @@ def name_for(handle: str | None) -> str | None:
     if not handle:
         return None
     if _NAME_INDEX is None:
-        idx: dict[str, str] = {}
-        for path in glob(_AB_GLOB):
+        # One person usually exists in SEVERAL sources (iCloud, Exchange, On My
+        # Mac) under slightly different spellings ("Rob" vs "Robert"). That is
+        # not ambiguity. Ambiguity is two DIFFERENT records inside ONE source
+        # sharing the key — that source is skipped for that key. Across
+        # sources the most common spelling wins; ties go to the first source.
+        votes: dict[str, dict[str, int]] = {}   # key -> name -> count
+        for path in sorted(glob(_AB_GLOB)):
             try:
                 con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
                 con.row_factory = sqlite3.Row
@@ -70,29 +75,29 @@ def name_for(handle: str | None) -> str | None:
                         "ZORGANIZATION AS org, ZNICKNAME AS nick FROM ZABCDRECORD"
                     )
                 }
+                local: dict[str, str | None] = {}   # None = ambiguous within this source
                 for r in con.execute(
                     "SELECT ZOWNER AS pk, ZFULLNUMBER AS num FROM ZABCDPHONENUMBER"
                 ):
                     name = names.get(r["pk"])
                     key = _normalize_phone(r["num"] or "")
                     if name and key:
-                        # Two contacts sharing the last ten digits (different
-                        # country codes) → ambiguous → show the raw handle.
-                        if key in idx and idx[key] != name:
-                            idx[key] = ""
-                        else:
-                            idx.setdefault(key, name)
+                        local[key] = None if (key in local and local[key] not in (None, name)) else (local.get(key) or name)
                 for r in con.execute(
                     "SELECT ZOWNER AS pk, ZADDRESS AS addr FROM ZABCDEMAILADDRESS"
                 ):
                     name = names.get(r["pk"])
                     addr = (r["addr"] or "").strip().lower()
                     if name and addr:
-                        idx.setdefault(addr, name)
+                        local[addr] = None if (addr in local and local[addr] not in (None, name)) else (local.get(addr) or name)
                 con.close()
+                for key, name in local.items():
+                    if name:
+                        votes.setdefault(key, {})
+                        votes[key][name] = votes[key].get(name, 0) + 1
             except sqlite3.DatabaseError:
                 continue
-        _NAME_INDEX = idx
+        _NAME_INDEX = {k: max(v.items(), key=lambda kv: kv[1])[0] for k, v in votes.items()}
     if "@" in handle:
         return _NAME_INDEX.get(handle.strip().lower()) or None
     return _NAME_INDEX.get(_normalize_phone(handle)) or None
