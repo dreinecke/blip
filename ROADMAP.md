@@ -25,10 +25,11 @@ changes to the Mac beyond claude-on-mac updates.
 - [x] **Pinned conversation mirror** — reads the Mac's ordered Messages pin
   metadata and keeps those conversations at the top of Blip's list; Blip has
   no pin or unpin control and writes nothing back. (#11)
-- [ ] **A migrated group is listed twice.** `chats` returns one row per
-  service for a group that moved iMessage→SMS/RCS (both rows have messages),
-  so it shows twice in the list and twice as a pinned tile. #8 deduped
-  `groups`; `chats` needs the same one-row-per-group_id rule.
+- [x] **A migrated/re-keyed group is listed twice** — fixed: `chats`
+  clusters group rows by (display_name, members), lists the live one with the
+  others as `aliases`, and the collector folds threads and the unread ledger
+  onto it. Verified on a Mac where one group had two rows with 5263 and 3477
+  messages; it now lists once with 8740.
 
 ## Tier 2 — attachments both directions (SHIPPED 0.9.0, 2026-08-31)
 

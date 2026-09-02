@@ -144,6 +144,10 @@ export interface BlipState {
   /** Per-thread read marks — iMessage semantics: the blue dot stays on a
    *  thread until THAT conversation is opened, not until the list is viewed. */
   readMarks: Record<string, string>;
+  /** Older chat rows of a re-keyed group → the row Messages writes to now.
+   *  Refreshed on --deep with the chat list; cached so a shallow poll folds
+   *  the same way and a conversation never blinks into two. */
+  chatAliases: Record<string, string>;
   toasted: string[];   // recent opaque sha256 keys; never message content
 }
 
@@ -194,6 +198,9 @@ export function loadState(path = STATE_PATH): BlipState {
         : [],
       readMarks: s.readMarks && typeof s.readMarks === "object" ? { ...s.readMarks } : {},
       groups: s.groups && typeof s.groups === "object" ? { ...s.groups } : {},
+      chatAliases: s.chatAliases && typeof s.chatAliases === "object"
+        ? Object.fromEntries(Object.entries(s.chatAliases).filter(([, v]) => typeof v === "string" && v !== ""))
+        : {},
       // Older releases stored ts|chat|text verbatim. Hash legacy entries while
       // loading so the next successful save scrubs message bodies from disk.
       toasted: Array.isArray(s.toasted)
@@ -203,7 +210,7 @@ export function loadState(path = STATE_PATH): BlipState {
   } catch {
     return {
       watermark: "", readMark: "", unreadCounts: {}, unreadOldest: {}, unreadInitialized: false,
-      selfChats: [], readMarks: {}, groups: {}, toasted: [],
+      selfChats: [], readMarks: {}, groups: {}, chatAliases: {}, toasted: [],
     };
   }
 }
@@ -687,6 +694,8 @@ export interface ChatInfo {
   /** Mirrored from Messages' pinning preferences; absent on old bridges. */
   pinned: boolean;
   pin_order: number | null;
+  /** Other chat rows of this same conversation (imsg ≥ 2.3.0). */
+  aliases: string[];
 }
 
 /** How many conversations the sidebar lists (chat.db has hundreds). */
@@ -722,6 +731,7 @@ export function fetchChats(runner = spawnSync): ChatInfo[] | null {
         last_name: typeof r.last_name === "string" ? r.last_name : null,
         pinned: r.pinned === true,
         pin_order: Number.isInteger(r.pin_order) ? Number(r.pin_order) : null,
+        aliases: Array.isArray(r.aliases) ? r.aliases.filter((a: unknown) => typeof a === "string" && a !== "") : [],
       }));
   } catch {
     return null;
@@ -734,6 +744,62 @@ export function fetchChats(runner = spawnSync): ChatInfo[] | null {
  * the window keeps the window's row; the rest get a row built from the
  * chat list's preview, with unread from the ledger.
  */
+/**
+ * alias chat id → the id it should appear under.
+ *
+ * Messages re-keys a group (re-invite, iCloud re-sync, service move) by
+ * writing a NEW chat row with the same name and members. The bridge marks the
+ * older rows as `aliases` of the live one; without this fold the same
+ * conversation is listed twice ("2x Sportsball!").
+ */
+export function aliasesFromChats(chats: ChatInfo[]): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const c of chats) for (const a of c.aliases) if (a !== c.id) out[a] = c.id;
+  return out;
+}
+
+/** Fold threads carrying an alias id into the canonical thread. */
+export function foldThreadAliases(threads: Thread[], aliases: Record<string, string>): Thread[] {
+  if (Object.keys(aliases).length === 0) return threads;
+  const out: Thread[] = [];
+  const at = new Map<string, number>();
+  for (const t of threads) {
+    const canon = aliases[t.chat] ?? t.chat;
+    const seen = at.get(canon);
+    if (seen === undefined) {
+      at.set(canon, out.length);
+      out.push(canon === t.chat ? t : { ...t, chat: canon });
+      continue;
+    }
+    const prev = out[seen]!;
+    const newer = t.last_ts > prev.last_ts ? t : prev;
+    out[seen] = {
+      ...newer,
+      chat: canon,
+      guid: prev.guid || t.guid,
+      count: prev.count + t.count,
+      unread: prev.unread + t.unread,
+    };
+  }
+  return out;
+}
+
+/** Same fold for a per-chat ledger (unread counts, oldest-unread stamps). */
+export function foldChatRecord<T>(
+  rec: Record<string, T>,
+  aliases: Record<string, string>,
+  merge: (a: T, b: T) => T,
+): Record<string, T> {
+  if (Object.keys(aliases).length === 0) return rec;
+  const out: Record<string, T> = {};
+  for (const [chat, v] of Object.entries(rec)) {
+    const canon = aliases[chat] ?? chat;
+    const prev = out[canon];
+    out[canon] = prev === undefined ? v : merge(prev, v);
+  }
+  return out;
+}
+
 export function mergeChats(
   threads: Thread[],
   chats: ChatInfo[],
@@ -890,7 +956,15 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   // shallow poll returns the window's rows and the widget keeps its last
   // complete list in memory (it skips identical assignments anyway).
   const chats = deep ? fetchChats() : null;
-  const threads = chats ? mergeChats(windowThreads, chats, groups, exactCounts) : windowThreads;
+  // One entry per CONVERSATION. A re-keyed group has several chat rows; the
+  // bridge names the older ones as aliases of the live row, and the map is
+  // cached so shallow polls fold identically (a conversation must never
+  // blink into two between a deep run and the next poll).
+  const chatAliases = chats ? aliasesFromChats(chats) : state.chatAliases;
+  exactCounts = foldChatRecord(exactCounts, chatAliases, (a, b) => a + b);
+  exactOldest = foldChatRecord(exactOldest, chatAliases, (a, b) => (a < b ? a : b));
+  const foldedWindow = foldThreadAliases(windowThreads, chatAliases);
+  const threads = chats ? mergeChats(foldedWindow, chats, groups, exactCounts) : foldedWindow;
   const toast = selectToasts(msgs, state.watermark, loadAllowlist(), state.toasted);
   const failures = selectFailures(fetched.msgs, state.toasted, nowTs);
   const unread = Object.values(exactCounts).reduce((n, count) => n + count, 0);
@@ -908,6 +982,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     selfChats,
     readMarks,
     groups,
+    chatAliases,
     toasted: [...state.toasted, ...toast.map((t) => t.key), ...failures.map((f) => f.key)],
   });
 

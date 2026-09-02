@@ -377,7 +377,7 @@ describe("state and allowlist I/O", () => {
       watermark: "2026-08-30 10:00:00", readMark: "2026-08-30 09:00:00",
       unreadCounts: { A: 2 }, unreadOldest: { A: "2026-08-30 09:01:00" },
       unreadInitialized: true, selfChats: ["SELF"],
-      readMarks: { A: "x" }, groups: {}, toasted: [opaque],
+      readMarks: { A: "x" }, groups: {}, chatAliases: { OLD: "A" }, toasted: [opaque],
     }, p)).toBe(true);
     expect(loadState(p)).toEqual({
       watermark: "2026-08-30 10:00:00",
@@ -388,6 +388,7 @@ describe("state and allowlist I/O", () => {
       selfChats: ["SELF"],
       readMarks: { A: "x" },
       groups: {},
+      chatAliases: { OLD: "A" },
       toasted: [opaque],
     });
     expect(statSync(p).mode & 0o777).toBe(0o600);
@@ -396,7 +397,7 @@ describe("state and allowlist I/O", () => {
   test("a missing state file yields a safe empty watermark", () => {
     expect(loadState(join(tmp(), "nope.json"))).toEqual({
       watermark: "", readMark: "", unreadCounts: {}, unreadOldest: {}, unreadInitialized: false,
-      selfChats: [], readMarks: {}, groups: {}, toasted: [],
+      selfChats: [], readMarks: {}, groups: {}, chatAliases: {}, toasted: [],
     });
   });
 
@@ -405,7 +406,7 @@ describe("state and allowlist I/O", () => {
     writeFileSync(p, "{ this is not json");
     expect(loadState(p)).toEqual({
       watermark: "", readMark: "", unreadCounts: {}, unreadOldest: {}, unreadInitialized: false,
-      selfChats: [], readMarks: {}, groups: {}, toasted: [],
+      selfChats: [], readMarks: {}, groups: {}, chatAliases: {}, toasted: [],
     });
   });
 
@@ -716,6 +717,61 @@ describe("failed-delivery detection", () => {
     const first = selectFailures([mine({ error: 25 })], [], now);
     const again = selectFailures([mine({ error: 25 })], first.map((f) => f.key), now);
     expect(again.length).toBe(0);
+  });
+});
+
+describe("a re-keyed group is ONE conversation", () => {
+  const { aliasesFromChats, foldThreadAliases, foldChatRecord } =
+    require("./collector") as typeof import("./collector");
+  const chat = (id: string, aliases: string[] = []) => ({
+    id, name: "Sportsball!", service: "iMessage", messages: 3, last: "2026-08-09 21:50:59",
+    last_text: "", last_from_me: false, last_handle: "", last_name: null,
+    pinned: false, pin_order: null, aliases,
+  });
+  const thread = (c: string, ts: string, count: number, unread: number) => ({
+    chat: c, guid: "", name: "Sportsball!", handle: "+15551234567", service: "iMessage",
+    last_ts: ts, last_text: "hi", last_from_me: false, count, unread,
+    pinned: false, pin_order: null,
+  }) as never;
+
+  test("aliases map every older chat row onto the live one", () => {
+    expect(aliasesFromChats([chat("chat2244", ["chat6703"]), chat("+1555", [])]))
+      .toEqual({ chat6703: "chat2244" });
+    // a row never aliases itself
+    expect(aliasesFromChats([chat("chat2244", ["chat2244"])])).toEqual({});
+  });
+
+  test("two rows of one group become a single thread, counts summed", () => {
+    const out = foldThreadAliases(
+      [thread("chat6703", "2026-02-26 22:26:56", 5263, 1), thread("chat2244", "2026-08-09 21:50:59", 3477, 2)],
+      { chat6703: "chat2244" },
+    );
+    expect(out.length).toBe(1);
+    expect(out[0]!.chat).toBe("chat2244");
+    expect(out[0]!.last_ts).toBe("2026-08-09 21:50:59");   // the LIVE row's preview
+    expect(out[0]!.count).toBe(5263 + 3477);
+    expect(out[0]!.unread).toBe(3);
+  });
+
+  test("the older row alone still shows, under the live id", () => {
+    const out = foldThreadAliases([thread("chat6703", "2026-02-26 22:26:56", 5, 0)], { chat6703: "chat2244" });
+    expect(out.length).toBe(1);
+    expect(out[0]!.chat).toBe("chat2244");
+  });
+
+  test("no aliases is a no-op (same array back)", () => {
+    const t = [thread("chat2244", "2026-08-09 21:50:59", 1, 0)];
+    expect(foldThreadAliases(t, {})).toBe(t);
+  });
+
+  test("the unread ledger folds too — one badge, not two", () => {
+    expect(foldChatRecord({ chat6703: 1, chat2244: 2, "+1555": 4 }, { chat6703: "chat2244" }, (a, b) => a + b))
+      .toEqual({ chat2244: 3, "+1555": 4 });
+    expect(foldChatRecord(
+      { chat6703: "2026-02-26 22:26:56", chat2244: "2026-08-09 21:50:59" },
+      { chat6703: "chat2244" },
+      (a, b) => (a < b ? a : b),
+    )).toEqual({ chat2244: "2026-02-26 22:26:56" });
   });
 });
 

@@ -600,10 +600,16 @@ def cmd_thread(con, args):
         # `imsg thread --chat <id> 40`: the count lands in the (unused)
         # handle slot, so accept it from either positional.
         n = int(args.handle) if str(args.handle).isdigit() else args.n
+        # A re-keyed group's history is split across chat rows; load them all
+        # so opening the conversation shows everything Messages shows.
+        clusters = _group_cluster_map(con)
+        canon = clusters.get(args.chat, args.chat)
+        ids = sorted({c for c, k in clusters.items() if k == canon} | {args.chat, canon})
+        placeholders = ",".join("?" for _ in ids)
         rows = con.execute(
             base_select(con)
-            + " WHERE c.chat_identifier = ? ORDER BY m.date DESC LIMIT ?",
-            (args.chat, n),
+            + f" WHERE c.chat_identifier IN ({placeholders}) ORDER BY m.date DESC LIMIT ?",
+            (*ids, n),
         ).fetchall()
         render(reversed(rows), args.json,
                with_names=not args.no_names, con=con, rich=args.rich)
@@ -688,8 +694,19 @@ def cmd_chats(con, args):
     ).fetchall()
     if args.json:
         pin_ids = pinned_chat_identifiers()
+        # One entry per CONVERSATION: a group re-keyed by Messages leaves
+        # several chat rows and used to list once per row.
+        clusters = _group_cluster_map(con)
+        merged_counts: dict = {}
+        for r in rows:
+            canon = clusters.get(r["chat_identifier"])
+            if canon:
+                merged_counts[canon] = merged_counts.get(canon, 0) + r["n"]
         out = []
         for r in rows:
+            canon = clusters.get(r["chat_identifier"])
+            if canon and canon != r["chat_identifier"]:
+                continue                 # an older row of a conversation listed under `canon`
             pin_order = pin_order_for(pin_ids, r["chat_identifier"], r["guid"],
                                       r["group_id"], r["original_group_id"])
             last = con.execute(
@@ -713,7 +730,13 @@ def cmd_chats(con, args):
                 "last_name": (name_for(last["handle"]) if last and last["handle"] and not args.no_names else None),
                 "pinned": pin_order is not None,
                 "pin_order": pin_order,
+                # Other chat rows of this same conversation. A client must fold
+                # any thread carrying one of these onto this id.
+                "aliases": [c for c, k in clusters.items()
+                            if k == r["chat_identifier"] and c != r["chat_identifier"]],
             })
+            if canon:
+                out[-1]["messages"] = merged_counts.get(canon, r["n"])
         print(json.dumps(out, indent=2, ensure_ascii=False))
         return
     for r in rows:
@@ -807,6 +830,54 @@ def _sniff_image(head: bytes) -> str:
     if len(head) >= 12 and head[4:8] == b"ftyp":
         return "heic"
     return ""
+
+
+def _group_cluster_map(con) -> dict:
+    """chat_identifier -> canonical chat_identifier, for group rows that are
+    the SAME Messages conversation split across several chat rows.
+
+    Messages re-keys a group (a re-invite, an iCloud re-sync, a service move)
+    by writing a NEW chat row: same name, same members, new chat_identifier
+    and new group_id. Messages.app shows one conversation; a client that
+    lists chat rows shows two ("2x Sportsball!"). Apple's own pinning plist
+    agrees they are one — the pin's `o` alias points at the other row's
+    original_group_id.
+
+    Cluster key is (display_name, sorted member handles): both must match, so
+    two different conversations with the same people never collapse. The
+    canonical row is the one with the newest message (ties: highest ROWID),
+    because that is the row Messages is writing to now.
+    """
+    rows = con.execute(
+        f"""
+        SELECT c.ROWID AS rid, c.chat_identifier AS cid,
+               COALESCE(c.display_name, '') AS nm,
+               (SELECT GROUP_CONCAT(h.id, ',')
+                  FROM (SELECT h.id FROM chat_handle_join j JOIN handle h ON h.ROWID = j.handle_id
+                         WHERE j.chat_id = c.ROWID ORDER BY h.id) h) AS parts,
+               (SELECT MAX(m.date) FROM chat_message_join j JOIN {MESSAGE_SRC} m ON m.ROWID = j.message_id
+                 WHERE j.chat_id = c.ROWID) AS last_date
+        FROM chat c WHERE c.style = 43"""
+    ).fetchall()
+    best: dict = {}
+    members: dict = {}
+    for r in rows:
+        key = (r["nm"], r["parts"] or "")
+        if not key[1]:
+            continue                     # no members resolved: never cluster
+        members.setdefault(key, []).append(r["cid"])
+        cur = best.get(key)
+        rank = (r["last_date"] or -1, r["rid"])
+        if cur is None or rank > cur[0]:
+            best[key] = (rank, r["cid"])
+    out: dict = {}
+    for key, ids in members.items():
+        if len(ids) < 2:
+            continue
+        canonical = best[key][1]
+        for cid in ids:
+            out[cid] = canonical
+    return out
 
 
 def _group_photo_path(con, chat_identifier: str) -> str:

@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **A re-keyed group is one conversation again.** Messages re-keys a group
+  (a re-invite, an iCloud re-sync, a service move) by writing a NEW chat row
+  with the same name and the same members — Messages.app shows one thread,
+  Blip listed one per row ("2x Sportsball!", twice again as a pinned tile).
+  The bridge now clusters group rows by (name, members), lists the row
+  Messages is writing to now, sums the message count, names the older rows as
+  `aliases`, and `thread --chat` loads every row so the history is whole. The
+  collector folds threads, unread counts and oldest-unread stamps onto the
+  live id, and caches the map in `state.json` so a shallow poll folds the same
+  way. Apple agrees: the pinning plist's alias for one Sportsball! row points
+  at the other row's original group id.
 - **Group photos, and no more borrowed faces.** A group row bound its
   picture to whoever spoke last, so it showed that member's cached contact
   photo one minute and initials the next. Groups now bind to their own chat
