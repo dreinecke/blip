@@ -180,37 +180,60 @@ def message_text(row: sqlite3.Row) -> str:
     return row["text"] or decode_attributed_body(row["attributedBody"]) or ""
 
 
-def pinned_chat_identifiers() -> list[str]:
-    """Read the ordered chat identifiers from Messages' pinning preferences.
+def pinned_chat_identifiers() -> list[set[str]]:
+    """Ordered pins from Messages' pinning preferences, one alias set each.
 
-    The plist is an undocumented, version-dependent preference, so keep this
-    deliberately tolerant: recursively collect strings and let
-    ``pin_order_for`` decide which ones identify a chat. A missing or
-    unreadable plist simply means that no chats are pinned.
+    Observed layout (macOS 15/26, undocumented): ``pD.pP`` is the ORDERED list
+    of pin ids — a handle for a DM, a dashed UUID for a group — and ``pD.pZ``
+    maps a group's pin id to ``{"o": <original group id>, "h": <hash>}``. A
+    pinned group can be stored under either id, so each entry carries both.
+    Flattening every string in the file (the first cut) ranked a group by
+    the position of its ``pZ`` alias, ahead of every DM. When ``pD.pP`` is
+    missing the flatten is the fallback, so an unknown layout still yields
+    something rather than nothing.
     """
-    out: list[str] = []
-    seen: set[str] = set()
+    def alias_set(value) -> set[str]:
+        return {value.strip()} if isinstance(value, str) and value.strip() else set()
 
-    def visit(item) -> None:
+    def flatten(item, out: list[set[str]], seen: set[str]) -> None:
         if isinstance(item, str):
             item = item.strip()
             if item and item not in seen:
                 seen.add(item)
-                out.append(item)
+                out.append({item})
         elif isinstance(item, dict):
             for child in item.values():
-                visit(child)
+                flatten(child, out, seen)
         elif isinstance(item, (list, tuple)):
             for child in item:
-                visit(child)
+                flatten(child, out, seen)
 
     for path in PINNING_PLIST_PATHS:
         try:
             with open(path, "rb") as f:
-                visit(plistlib.load(f))
+                data = plistlib.load(f)
         except (OSError, plistlib.InvalidFileException, ValueError, TypeError):
             continue
-    return out
+        pd = data.get("pD") if isinstance(data, dict) else None
+        ordered = pd.get("pP") if isinstance(pd, dict) else None
+        if isinstance(ordered, (list, tuple)):
+            aliases = pd.get("pZ") if isinstance(pd.get("pZ"), dict) else {}
+            out: list[set[str]] = []
+            for pin_id in ordered:
+                ids = alias_set(pin_id)
+                if not ids:
+                    continue
+                extra = aliases.get(pin_id)
+                if isinstance(extra, dict):
+                    ids |= alias_set(extra.get("o"))
+                out.append(ids)
+            if out:
+                return out
+        flat: list[set[str]] = []
+        flatten(data, flat, set())
+        if flat:
+            return flat
+    return []
 
 
 def _pin_id(value: str) -> str:
@@ -233,11 +256,20 @@ def _same_chat_id(left: str, right: str) -> bool:
     return False
 
 
-def pin_order_for(pin_ids: list[str], chat_identifier: str, guid: str | None) -> int | None:
-    """Return the Messages pin position for one chat, or None."""
-    for index, pin_id in enumerate(pin_ids):
-        if _same_chat_id(pin_id, chat_identifier) or (guid and _same_chat_id(pin_id, guid)):
-            return index
+def pin_order_for(pins: list[set[str]], chat_identifier: str, guid: str | None,
+                  group_id: str | None = None, original_group_id: str | None = None) -> int | None:
+    """Return the Messages pin position for one chat, or None.
+
+    DMs are pinned by handle (chat_identifier / guid). GROUPS are pinned by
+    the chat row's `group_id` (or `original_group_id`) — dashed UUIDs that
+    never equal the chat_identifier (chat<digits>) or the guid
+    (any;+;chat<digits>), so a pinned group was invisible without them.
+    """
+    candidates = [c for c in (chat_identifier, guid, group_id, original_group_id) if c]
+    for index, ids in enumerate(pins):
+        for pin_id in ids:
+            if any(_same_chat_id(pin_id, c) for c in candidates):
+                return index
     return None
 
 
@@ -636,9 +668,13 @@ def cmd_chats(con, args):
     # should build its sidebar from (deriving it from a window of recent
     # messages loses every quiet conversation). JSON rows carry a preview of
     # the latest visible message so the list needs no second query.
+    # original_group_id is absent on older chat.db schemas; probe once.
+    chat_cols = {row[1] for row in con.execute("PRAGMA table_info(chat)")}
+    orig_col = "c.original_group_id" if "original_group_id" in chat_cols else "NULL"
     rows = con.execute(
         f"""
-        SELECT c.ROWID AS cid, c.chat_identifier, c.guid, c.display_name, c.room_name,
+        SELECT c.ROWID AS cid, c.chat_identifier, c.guid, c.group_id,
+               {orig_col} AS original_group_id, c.display_name, c.room_name,
                c.service_name, MAX(m.date) AS last_date,
                COUNT(m.ROWID) AS n
         FROM chat c
@@ -654,7 +690,8 @@ def cmd_chats(con, args):
         pin_ids = pinned_chat_identifiers()
         out = []
         for r in rows:
-            pin_order = pin_order_for(pin_ids, r["chat_identifier"], r["guid"])
+            pin_order = pin_order_for(pin_ids, r["chat_identifier"], r["guid"],
+                                      r["group_id"], r["original_group_id"])
             last = con.execute(
                 f"""SELECT m.text, m.attributedBody, m.is_from_me, h.id AS handle
                     FROM chat_message_join cmj

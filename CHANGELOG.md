@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+- **Pinned conversations, mirrored from Messages.** The Mac's ordered pin
+  list (`com.apple.messages.pinning.plist`, `pD.pP`) rides along on the
+  `chats` call and Blip renders those conversations as avatar tiles above the
+  list, in Messages' order. Read-only: Blip has no pin control and writes
+  nothing back. (Erik Zachrisen, #11) Follow-ups on main: groups are pinned
+  by their chat.db `group_id` / `original_group_id`, not the chat identifier,
+  so pinned groups resolve too; the reader uses the ordered list (with the
+  `pZ` alias map) instead of every string in the file, which had ranked a
+  group ahead of every DM; and j/k highlight a pinned tile — the cursor walks
+  pinned threads first and had no visible position on them.
+
 ## 2.2.3 — 2026-09-02
 
 - **Received bubbles showed a lighter square in the tail corner.** The

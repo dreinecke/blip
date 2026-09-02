@@ -1179,7 +1179,9 @@ FocusScope {
                   Layout.preferredWidth: Math.max(1, (pinnedGrid.width - pinnedGrid.columnSpacing * 2) / 3)
                   implicitHeight: pinnedColumn.implicitHeight + Style.space(4)
                   radius: Style.cornerRadius
-                  color: pinnedHover.hovered
+                  // j/k walk root.threads, and pinned threads sort FIRST in it —
+                  // without this the cursor was invisible for those presses.
+                  color: pinnedHover.hovered || root.cursor === root.threadIndex(modelData)
                     ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
                     : "transparent"
 
