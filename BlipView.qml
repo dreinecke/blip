@@ -552,8 +552,15 @@ FocusScope {
     newNote = ""
     // Flipping several visibilities in one handler can miss the layout
     // pass — the panel collapsed to its hero until results forced a
-    // rearrange (Fred's screenshot). Force it.
-    Qt.callLater(function() { content.forceLayout(); newField.forceActiveFocus(); newField.selectAll() })
+    // rearrange (Fred's screenshot). Force it. listContent owns newField;
+    // `content` is the conversation column.
+    Qt.callLater(function() {
+      listContent.forceLayout()
+      Qt.callLater(function() {
+        newField.forceActiveFocus()
+        newField.selectAll()
+      })
+    })
   }
 
   function exitNew() {
@@ -561,6 +568,7 @@ FocusScope {
     newResults = []
     newNote = ""
     newField.text = ""
+    newField.focus = false
     Qt.callLater(function() { content.forceLayout(); root.navigationFocusRequested() })
   }
 
@@ -609,7 +617,8 @@ FocusScope {
     searchResults = []
     searchNote = ""
     searchField.text = ""
-    Qt.callLater(function() { root.navigationFocusRequested() })
+    searchField.focus = false
+    if (!newMode) root.navigationFocusRequested()
   }
 
   // Monotonic id so a stale completion can never label itself with a newer
@@ -1006,24 +1015,34 @@ FocusScope {
     if (!inThread && cursor >= 0) openThread(threads[cursor])
   }
   function handleTextKey(text) {
-    if (inThread) return
-    if (text === "/") startSearch()
-    else if (text === "n" || text === "N") startNew()
-    else if (searching || newMode) return
-    else if (text === "r" || text === "R") { if (hostWidget) hostWidget.refresh(true, false) }
+    if (text === "/") { startSearch(); return }
+    if (text === "n" || text === "N") { startNew(); return }
+    if ((inThread && !splitView) || searching || newMode) return
+    if (text === "r" || text === "R") { if (hostWidget) hostWidget.refresh(true, false) }
     else if (text === "a" || text === "A") markAllRead()
     else if (text >= "1" && text <= "9") {
       var i = Number(text) - 1
       if (i < threads.length) openThread(threads[i])
     }
   }
+  function catchNavText(text) {
+    if (text !== "/" && text !== "n" && text !== "N") return false
+    if (searchField.activeFocus || newField.activeFocus || bubbleFocused) return false
+    if (composeField.activeFocus && composeField.text.length > 0) return false
+    handleTextKey(text)
+    return true
+  }
+  function catchEscape() {
+    if (newField.activeFocus || newMode) { exitNew(); return true }
+    if (searchField.activeFocus || searching) { exitSearch(); return true }
+    return false
+  }
   /** Esc semantics for a host without a PanelKeyCatcher (the window): true if
    *  something was unwound, false if the host should close. */
   function unwind() {
     if (shareUrl !== "") { closeShare(); return true }
+    if (catchEscape()) return true
     if (inThread) { back(); return true }
-    if (newMode) { exitNew(); return true }
-    if (searching) { exitSearch(); return true }
     return false
   }
   function focusDefault() {
@@ -1209,6 +1228,10 @@ FocusScope {
               font.pixelSize: Style.font.bodySmall
               onAccepted: root.runContactSearch()
               Keys.onEscapePressed: root.exitNew()
+              onVisibleChanged: if (visible) {
+                forceActiveFocus()
+                selectAll()
+              }
             }
 
             Text {

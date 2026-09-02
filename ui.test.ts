@@ -4,6 +4,13 @@ import { readFileSync } from "node:fs";
 // The renderer moved from Panel.qml into BlipView.qml in 1.8.0 (shared with the app window).
 const panel = readFileSync(new URL("./BlipView.qml", import.meta.url), "utf8");
 const widget = readFileSync(new URL("./BarWidget.qml", import.meta.url), "utf8");
+const window = readFileSync(new URL("./BlipWindow.qml", import.meta.url), "utf8");
+
+function handleTextKeySource() {
+  const start = panel.indexOf("function handleTextKey");
+  const end = panel.indexOf("function unwind");
+  return panel.slice(start, end);
+}
 
 describe("QML safety invariants", () => {
   test("group sends use the cached AppleScript GUID", () => {
@@ -88,5 +95,17 @@ describe("QML safety invariants", () => {
     const mark = panel.indexOf("markThreadRead(root.threadRunningChat)");
     expect(success).toBeGreaterThan(-1);
     expect(mark).toBeGreaterThan(success);
+  });
+
+  test("app window routes n, slash, and Esc through catch helpers", () => {
+    expect(window).toContain("view.catchNavText(");
+    expect(window).toContain("view.catchEscape()");
+    expect(window).toContain("navCatcher.forceActiveFocus()");
+  });
+
+  test("handleTextKey runs slash and n before the inThread return", () => {
+    const fn = handleTextKeySource();
+    expect(fn.indexOf('text === "/"')).toBeLessThan(fn.indexOf("inThread"));
+    expect(fn.indexOf('text === "n"')).toBeLessThan(fn.indexOf("inThread"));
   });
 });
