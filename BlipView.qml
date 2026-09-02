@@ -88,6 +88,8 @@ FocusScope {
   property bool searching: false
   property var searchResults: []
   property string searchNote: ""
+  property int searchCursor: 0
+  property string searchQueryRan: ""
   // Results replace the thread list only once a search has actually produced
   // something to show — focusing the box alone must not blank the list.
   readonly property bool searchShowing:
@@ -650,6 +652,9 @@ FocusScope {
     searching = true
     searchResults = []
     searchNote = ""
+    searchCursor = 0
+    searchQueryRan = ""
+    searchWatch.lastQ = ""
     Qt.callLater(function() { searchField.forceActiveFocus(); searchField.selectAll() })
   }
 
@@ -657,9 +662,92 @@ FocusScope {
     searching = false
     searchResults = []
     searchNote = ""
+    searchCursor = 0
+    searchQueryRan = ""
     searchField.text = ""
     searchField.focus = false
     if (!newMode) root.navigationFocusRequested()
+  }
+
+  // Keep in sync with contact-search.ts fuzzyScore. QML cannot import that
+  // file, and the thread list is already in memory so this must not go
+  // through argv (last_text is message content).
+  function fuzzyScore(query, text) {
+    var q = String(query || "").trim().toLowerCase()
+    var t = String(text || "").toLowerCase()
+    if (q === "" || t === "") return 0
+    if (t.indexOf(q) >= 0) return 1000 + (t.indexOf(q) === 0 ? 100 : 0) - Math.min(t.length, 100)
+    var ti = 0, score = 0, consec = 0
+    for (var qi = 0; qi < q.length; qi++) {
+      var idx = t.indexOf(q.charAt(qi), ti)
+      if (idx < 0) return 0
+      if (idx === ti) { consec += 1; score += 10 + consec }
+      else { consec = 0; score += 1 }
+      if (idx === 0 || /\s/.test(t.charAt(idx - 1))) score += 20
+      ti = idx + 1
+    }
+    return score
+  }
+  function searchFieldQuery() {
+    var d = String(searchField.displayText || "")
+    var t = String(searchField.text || "")
+    return (d !== "" ? d : t).trim()
+  }
+  function conversationHits(q) {
+    var scored = []
+    for (var i = 0; i < threads.length; i++) {
+      var th = threads[i]
+      var hay = [th.name, th.handle, th.chat].filter(function(x) { return x }).join(" ")
+      var s = fuzzyScore(q, hay)
+      if (s <= 0) continue
+      scored.push({ s: s, t: th })
+    }
+    scored.sort(function(a, b) { return b.s - a.s })
+    var out = []
+    var n = Math.min(scored.length, 8)
+    for (var j = 0; j < n; j++) {
+      var t = scored[j].t
+      out.push({
+        kind: "conversation",
+        chat: String(t.chat || ""),
+        name: String(t.name || t.handle || t.chat || ""),
+        handle: String(t.handle || ""),
+        service: String(t.service || ""),
+        ts: String(t.last_ts || ""),
+        from_me: t.last_from_me === true,
+        text: String(t.last_text || ""),
+        group: isGroupId(String(t.chat || ""))
+      })
+    }
+    return out
+  }
+  function scheduleSearch() {
+    var q = searchFieldQuery()
+    if (q === "") {
+      searchTimer.stop()
+      searchResults = []
+      searchNote = ""
+      searchQueryRan = ""
+      searchCursor = 0
+      return
+    }
+    searching = true
+    searchResults = conversationHits(q)
+    searchCursor = 0
+    searchNote = searchResults.length === 0 ? "searching…" : ""
+    searchTimer.restart()
+  }
+  function moveSearchCursor(dy) {
+    if (searchResults.length === 0 || dy === 0) return
+    searchCursor = (searchCursor + dy + searchResults.length) % searchResults.length
+  }
+  function acceptSearchField() {
+    if (searchResults.length > 0) {
+      var i = Math.max(0, Math.min(searchCursor, searchResults.length - 1))
+      openSearchHit(searchResults[i])
+      return
+    }
+    runSearch()
   }
 
   // Monotonic id so a stale completion can never label itself with a newer
@@ -668,12 +756,12 @@ FocusScope {
   property int searchSeq: 0
   property string searchPending: ""
   function runSearch() {
-    var q = searchField.text.trim()
+    var q = searchFieldQuery()
     if (q === "") return
-    if (searchProc.running) { searchSeq++; searchResults = []; searchNote = "searching…"; searchPending = q; return }
+    if (searchProc.running) { searchSeq++; searchPending = q; return }
     searchSeq++
-    searchNote = "searching…"
-    searchResults = []
+    searchQueryRan = q
+    if (searchResults.length === 0) searchNote = "searching…"
     searchProc.command = ["bun", root.searchScript, q, "40"]
     searchProc.running = true
   }
@@ -1021,8 +1109,12 @@ FocusScope {
         try {
           var d = JSON.parse(text.trim())
           if (d.ok === true) {
-            root.searchResults = Array.isArray(d.results) ? d.results : []
+            var people = root.conversationHits(root.searchFieldQuery())
+            var msgs = Array.isArray(d.results) ? d.results : []
+            root.searchResults = people.concat(msgs)
             root.searchNote = root.searchResults.length === 0 ? "no matches" : ""
+            if (root.searchCursor >= root.searchResults.length)
+              root.searchCursor = Math.max(0, root.searchResults.length - 1)
           } else {
             root.searchNote = String(d.error || "search failed")
           }
@@ -1069,6 +1161,29 @@ FocusScope {
         return
       }
       root.runContactSearch()
+    }
+  }
+  Timer {
+    id: searchWatch
+    interval: 50
+    repeat: true
+    running: searchField.activeFocus || root.searching
+    property string lastQ: ""
+    onRunningChanged: lastQ = ""
+    onTriggered: {
+      var q = root.searchFieldQuery()
+      if (q === lastQ) return
+      lastQ = q
+      root.scheduleSearch()
+    }
+  }
+  Timer {
+    id: searchTimer
+    interval: 150
+    repeat: false
+    onTriggered: {
+      if (root.searchFieldQuery() === "") return
+      root.runSearch()
     }
   }
   Timer {
@@ -1369,14 +1484,18 @@ FocusScope {
               id: searchField
               Layout.fillWidth: true
               visible: root.online && root.listShowing && !root.newMode
-              placeholderText: "🔍 search all messages"
+              placeholderText: "name or message"
               foreground: root.foreground
               accent: root.accent
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
-              onAccepted: root.runSearch()
+              onAccepted: root.acceptSearchField()
               onActiveFocusChanged: if (activeFocus && !root.searching) root.searching = true
               Keys.onEscapePressed: root.exitSearch()
+              Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_Down) { root.moveSearchCursor(1); event.accepted = true }
+                else if (event.key === Qt.Key_Up) { root.moveSearchCursor(-1); event.accepted = true }
+              }
             }
 
             // Read-only mirror of Messages' pinned section. These tiles have
@@ -1497,10 +1616,11 @@ FocusScope {
               model: root.online && root.listShowing && root.searchShowing ? root.searchResults : []
               delegate: Rectangle {
                 required property var modelData
+                required property int index
                 Layout.fillWidth: true
                 implicitHeight: hitCol.implicitHeight + Style.space(12)
                 radius: Style.cornerRadius
-                color: hitHover.hovered
+                color: hitHover.hovered || root.searchCursor === index
                   ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
                   : "transparent"
                 HoverHandler { id: hitHover }
@@ -1519,7 +1639,8 @@ FocusScope {
                     Text {
                       Layout.fillWidth: true
                       text: String(modelData.name || modelData.chat)
-                            + (modelData.group ? "  ·  group" : "")
+                            + (modelData.kind === "conversation" ? "  ·  conversation"
+                              : modelData.group ? "  ·  group" : "")
                       textFormat: Text.PlainText
                       elide: Text.ElideRight
                       color: root.foreground
@@ -1537,7 +1658,9 @@ FocusScope {
                   }
                   Text {
                     Layout.fillWidth: true
-                    text: (modelData.from_me ? "you: " : "") + String(modelData.text || "")
+                    text: modelData.kind === "conversation"
+                      ? String(modelData.text || modelData.handle || "")
+                      : ((modelData.from_me ? "you: " : "") + String(modelData.text || ""))
                     textFormat: Text.PlainText
                     elide: Text.ElideRight
                     maximumLineCount: 2

@@ -110,6 +110,14 @@ describe("QML safety invariants", () => {
     expect(fn.indexOf('text === "n"')).toBeLessThan(fn.indexOf("inThread"));
   });
 
+  test("conversation search is scheduled from the field text, people first", () => {
+    expect(panel).toContain("function scheduleSearch");
+    expect(panel).toContain("function conversationHits");
+    expect(panel).toContain("id: searchWatch");
+    expect(panel).toContain("people.concat(msgs)");
+    expect(panel).toContain("onAccepted: root.acceptSearchField()");
+  });
+
   test("new-message contact search is scheduled from the field text, not only Enter", () => {
     expect(panel).toContain("function scheduleContactSearch");
     expect(panel).toContain("function newFieldQuery");

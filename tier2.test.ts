@@ -259,6 +259,44 @@ describe("search shaping", () => {
     expect(out.length).toBe(3);
     expect(out[0]!.group).toBe(true);
   });
+
+  test("matchConversations finds people by name, not by last message", () => {
+    const { matchConversations } = require("./search") as typeof import("./search");
+    const threads = [
+      { chat: "+15550001111", name: "Alice", handle: "+15550001111", last_text: "see you in the car" },
+      { chat: "+15550002222", name: "Carol", handle: "+15550002222", last_text: "hi" },
+      { chat: "+15550003333", name: "Bob", handle: "+15550003333", last_text: "carol said no" },
+    ];
+    const hits = matchConversations(threads, "car");
+    expect(hits.map((h) => h.name)).toEqual(["Carol"]);
+    expect(hits[0]!.kind).toBe("conversation");
+  });
+
+  test("matchConversations fuzzy-matches a subsequence on the handle", () => {
+    const { matchConversations } = require("./search") as typeof import("./search");
+    const hits = matchConversations(
+      [{ chat: "+15551234567", name: "Dad", handle: "+15551234567" }],
+      "dad",
+    );
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.chat).toBe("+15551234567");
+  });
+
+  test("mergeSearchResults puts conversations above messages", () => {
+    const { mergeSearchResults } = require("./search") as typeof import("./search");
+    const people = [{
+      chat: "+1", name: "Ann", handle: "+1", service: "iMessage",
+      ts: "", from_me: false, text: "hey", group: false, kind: "conversation" as const,
+    }];
+    const msgs = [{
+      chat: "+2", name: "Bob", handle: "+2", service: "iMessage",
+      ts: "2026-09-02 10:00:00", from_me: true, text: "ann called", group: false,
+    }];
+    const out = mergeSearchResults(people, msgs);
+    expect(out.map((h) => h.name)).toEqual(["Ann", "Bob"]);
+    expect(out[0]!.kind).toBe("conversation");
+    expect(out[1]!.kind).toBe("message");
+  });
 });
 
 describe("contact search shaping", () => {
