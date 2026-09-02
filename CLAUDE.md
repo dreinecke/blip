@@ -154,7 +154,10 @@ bun test                                   # 90+ tests, ~40 ms
 bun collector.ts --deep | jq .unread       # live against the Mac
 bun thread.ts <chat-id> 40 | jq .bubbles   # one conversation
 cp *.qml *.ts manifest.json ~/.config/omarchy/plugins/nixfred.blip/
-omarchy-restart-shell                      # new QML files need a restart; edits hot-reload
+omarchy-restart-shell                      # ALWAYS restart (hot-reload leaves IPC on a zombie)
+# MANDATORY after every deploy — a QML syntax error kills BOTH surfaces silently (2.1.4 shipped one):
+qs log /run/user/1000/quickshell/by-id/$(basename $(readlink /run/user/1000/quickshell/by-pid/$(pgrep -x quickshell)))/log.qslog -t 400 | grep -iE 'nixfred.blip.*(error|warn|unavailable|token)'
+qs -p /usr/share/omarchy/shell ipc call nixfred.blip open   # and LOOK at it (grim)
 qs -p /usr/share/omarchy/shell ipc call nixfred.blip status
 qs -p /usr/share/omarchy/shell ipc call nixfred.blip goto 15550100001   # bare digits: qs rejects a leading "+"
 ```
