@@ -1,6 +1,6 @@
 # Blip roadmap — toward iMessage parity
 
-Verified against fnix chat.db 2026-08-31: 27,118 tapbacks, 45,979 read receipts
+Verified against the gateway Mac's chat.db 2026-08-31: 27,118 tapbacks, 45,979 read receipts
 on sent messages, 4,515 inline replies, 819 edits/unsends, 30 audio messages,
 and a readable Contacts DB (3,694 records). Everything below Tier 4 needs no
 changes to the Mac beyond claude-on-mac updates.
@@ -26,20 +26,20 @@ changes to the Mac beyond claude-on-mac updates.
 ## Tier 2 — attachments both directions (SHIPPED 0.9.0, 2026-08-31)
 
 - [x] **Inbound fetch + inline images** — `imsg attachment <id>` streams bytes
-  over the existing shim (binary-clean; the vic shims' ssh preflight needed
+  over the existing shim (binary-clean; the the Linux box shims' ssh preflight needed
   `-n` or it ate stdin); HEIC→JPEG via `sips --jpeg`. Images ≤5 MB in the open
   conversation auto-fetch and render inline; everything else is click-to-fetch
   → `xdg-open`. Cache: `~/.cache/blip/att`, 0700/0600, 500 MB LRU by mtime
-  (Fred's call: plain files — vic's disk is LUKS-encrypted at rest).
+  (Fred's call: plain files — the Linux box's disk is LUKS-encrypted at rest).
 - [x] **Outbound files** — `imsg-send --file-stdin --name X`: file crosses on
   STDIN (never a Mac path — no exfil surface), staged in
   `~/Pictures/.blip-outbox` (subfolder verified OK for the Sequoia quirk),
   deleted post-send (Messages copies into its own store first) + 1 h GC.
   Compose: Ctrl+V image paste (paste.ts snapshots the clipboard ONCE),
   `/attach <path>`, drag-and-drop; draft chip with ✕; caption rides along,
-  reported per-part. Verified delivered from vic end-to-end.
+  reported per-part. Verified delivered from the Linux box end-to-end.
 - [x] **Audio messages (inbound)** — verified 1.3.0: the 🎤 chip fetches and
-  xdg-opens into mpv (vic's audio/x-m4a handler). Nothing more needed.
+  xdg-opens into mpv (the Linux box's audio/x-m4a handler). Nothing more needed.
 
 ## Tier 3 — UX parity
 
@@ -95,7 +95,7 @@ a daemon only returns if the app ever has to run outside the shell).
 - [x] **Window persistence** — 1.8.1: `~/.local/state/blip/window.json`
   remembers open/closed + size; the window restores itself (and requests a
   deep list) when the shell comes back. Verified across a real restart.
-- [x] **Keybind** — `SUPER+M` on vic (Lua `o.bind` → IPC `window`, 1.8.1;
+- [x] **Keybind** — `SUPER+M` on the Linux box (Lua `o.bind` → IPC `window`, 1.8.1;
   documented in README for others). Esc closes (unwinds first). Size
   persisted. Still open: unread count in the window title; sidebar search.
 - [ ] ~~`blipd` daemon~~ — retired (see above).
@@ -105,7 +105,7 @@ a daemon only returns if the app ever has to run outside the shell).
 Gate: **Fred says "complete."** Nothing ships to the marketplace before that.
 
 **A. One source (blocker).** Blip currently depends on claude-on-mac ≥1.11.0
-on the Mac plus hand-made vic shims with `fnix` hardcoded.
+on the Mac plus hand-made the Linux box shims with `the gateway Mac` hardcoded.
 - [x] Vendor the Mac tools into `bridge/mac/` — 1.7.0: pinned in
   `bridge/BRIDGE-VERSION` (claude-on-mac f3612e8 / v1.11.0),
   `scripts/sync-bridge.sh <rev>` refreshes; upstream stays the toolkit.
@@ -115,7 +115,7 @@ on the Mac plus hand-made vic shims with `fnix` hardcoded.
 - [x] `scripts/blip-setup` — 1.7.0: config, ControlMaster block, shims
   (backs up existing), Mac install over ssh (`bridge/mac/install.sh` →
   `~/.blip/bin`), TCC grant walkthrough + `tcc-check`, smoke test. Dogfooded
-  on vic. 1.9.0: `bridge/mac/blip-check` (chat.db / Messages automation /
+  on the Linux box. 1.9.0: `bridge/mac/blip-check` (chat.db / Messages automation /
   Contacts, checked over ssh — the automation check itself pops the Allow
   prompt) with a grant-then-recheck loop in the wizard.
 - [ ] Self-handles: auto-detected from chat.db already (`imsg-send
@@ -133,7 +133,7 @@ on the Mac plus hand-made vic shims with `fnix` hardcoded.
   Automation, blip-setup, missing Mac tools, ssh keys); the panel shows it in
   urgent red, the bar tooltip carries it. Verified by breaking the bridge on
   purpose. Still open: Linux-side dependency checks (`bun`/`jq`/`wl-copy`).
-- [x] (2.0.0 sweep: HOME fallbacks → os.homedir, wizard example de-vic'd; hyprctl is inherent to Omarchy) Remove vic assumptions: paths, mpv/xdg handlers, Hyprland-only bits;
+- [x] (2.0.0 sweep: HOME fallbacks → os.homedir, wizard example de-vic'd; hyprctl is inherent to Omarchy) Remove the Linux box assumptions: paths, mpv/xdg handlers, Hyprland-only bits;
   degrade gracefully (older macOS without `date_edited`, no sips, no HEIC).
 - [x] First-run and offline UX: clear "Mac unreachable / grant missing"
   states with the fix spelled out.
@@ -207,7 +207,7 @@ real and still open, roughly by value:
 ## Prior art
 
 - **[BlueFerry](https://github.com/erikwb/blueferry)** — iMessage on Linux over
-  Bluetooth MAP straight to the iPhone (no Mac). Decision 2026-08-31: fnix
+  Bluetooth MAP straight to the iPhone (no Mac). Decision 2026-08-31: the gateway Mac
   stays Blip's source (BT gets no attachments, no tapbacks, no history, shaky
   groups), but BlueFerry does two things Blip can't: **mark messages read on
   the phone** and push-latency delivery. Its Quickshell client is worth
@@ -218,7 +218,7 @@ real and still open, roughly by value:
 
 - **Outbound tapbacks / edits / typing indicators** — no public API; requires
   BlueBubbles-style code injection into Messages.app, which requires disabling
-  SIP (System Integrity Protection) on the Mac. Rejected for fnix: daily
+  SIP (System Integrity Protection) on the Mac. Rejected for the gateway Mac: daily
   driver, not worth the security downgrade.
 - **Sending read receipts** — `open imessage://` does not flip `is_read`.
 - **Group add/rename** — AppleScript cannot.

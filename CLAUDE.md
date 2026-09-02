@@ -82,11 +82,11 @@ what it is handed. Keep it that way.
   timestamps, counts, opaque SHA-256 toast keys, self-chat ids, and group
   metadata. It is atomic and `0600`; no message bodies are allowed. EXCEPTION
   (Fred, 2026-08-31): fetched MEDIA caches as plain files in
-  `~/.cache/blip/att` (0700/0600, 500 MB LRU) — vic's disk is LUKS-encrypted
+  `~/.cache/blip/att` (0700/0600, 500 MB LRU) — the Linux box's disk is LUKS-encrypted
   at rest. Message text still never lands on disk.
-- **The vic shims' ssh preflight must use `ssh -n`.** A bare
-  `ssh fnix true` connectivity probe EATS STDIN, which silently empties
-  `imsg-send --file-stdin` payloads. Fixed 2026-08-31 in ~/.claude/bin shims.
+- **The Linux shims' ssh preflight must use `ssh -n`.** A bare
+  `ssh <mac> true` connectivity probe EATS STDIN, which silently empties
+  `imsg-send --file-stdin` payloads. Fixed 2026-08-31.
 - **`bridge.conf` is data, never `source`d.** The shim parses four keys and
   validates them; keep it that way (audit #7). `automation=on` is what lets
   `qs ipc … goto/compose/bubbles` work — off, they return a refusal string.

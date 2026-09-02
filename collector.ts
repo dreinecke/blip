@@ -661,7 +661,7 @@ export const CHAT_LIST_LIMIT = 300;
 /**
  * The COMPLETE conversation list (imsg ≥1.11.0 `chats` with previews). The
  * message window only ever covers the busiest few days — deriving the list
- * from it lost every quiet conversation ("where is the group LMT?").
+ * from it lost every quiet conversation ("where is my quiet group?").
  * Fetched on deep runs only; the shallow poll keeps the last list in the
  * widget's memory. Previews are never persisted (no content on disk).
  */

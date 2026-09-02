@@ -727,20 +727,20 @@ describe("complete conversation list (mergeChats)", () => {
   const chats = [
     { id: "+15551234567", name: null, service: "iMessage", last: "2026-08-31 20:00:00",
       last_text: "hi", last_from_me: false, last_handle: "+15551234567", last_name: "Pat" },
-    { id: "ce5a593a78af408282d61461ade89135", name: "LMT", service: "iMessage", last: "2026-08-31 19:00:00",
+    { id: "ce5a593a78af408282d61461ade89135", name: "Lunch Crew", service: "iMessage", last: "2026-08-31 19:00:00",
       last_text: "Nice", last_from_me: false, last_handle: "+15550001111", last_name: "Sam" },
     { id: "+15559990000", name: null, service: "SMS", last: "2026-08-20 09:00:00",
       last_text: "old news", last_from_me: true, last_handle: "+15559990000", last_name: "Quiet Q" },
   ];
 
   test("quiet conversations outside the window appear, newest first", () => {
-    const out = mergeChats([windowThread], chats, { ce5a593a78af408282d61461ade89135: { name: "LMT", guid: "any;+;ce5a", participants: [] } }, { ce5a593a78af408282d61461ade89135: 2 });
+    const out = mergeChats([windowThread], chats, { ce5a593a78af408282d61461ade89135: { name: "Lunch Crew", guid: "any;+;ce5a", participants: [] } }, { ce5a593a78af408282d61461ade89135: 2 });
     expect(out.map((t) => t.chat)).toEqual(["+15551234567", "ce5a593a78af408282d61461ade89135", "+15559990000"]);
-    const lmt = out[1]!;
-    expect(lmt.name).toBe("LMT");
-    expect(lmt.guid).toBe("any;+;ce5a");   // still sendable
-    expect(lmt.unread).toBe(2);            // from the ledger
-    expect(lmt.last_text).toBe("Nice");
+    const grp = out[1]!;
+    expect(grp.name).toBe("Lunch Crew");
+    expect(grp.guid).toBe("any;+;ce5a");   // still sendable
+    expect(grp.unread).toBe(2);            // from the ledger
+    expect(grp.last_text).toBe("Nice");
   });
 
   test("a chat already covered by the window keeps the window's richer row", () => {
@@ -751,7 +751,7 @@ describe("complete conversation list (mergeChats)", () => {
   test("DM rows are named from the contact, groups from the group cache", () => {
     const out = mergeChats([], chats, {}, {});
     expect(out.find((t) => t.chat === "+15559990000")!.name).toBe("Quiet Q");
-    expect(out.find((t) => t.chat === "ce5a593a78af408282d61461ade89135")!.name).toBe("LMT");
+    expect(out.find((t) => t.chat === "ce5a593a78af408282d61461ade89135")!.name).toBe("Lunch Crew");
   });
 });
 

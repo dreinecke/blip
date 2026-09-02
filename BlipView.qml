@@ -1813,6 +1813,16 @@ FocusScope {
                       HoverHandler {
                         cursorShape: bubbleText.hoveredLink !== "" ? Qt.PointingHandCursor : Qt.IBeamCursor
                       }
+                      // Explicit: TextEdit's own linkActivated is unreliable once
+                      // selectByMouse owns the press. A tap (no drag) on a link
+                      // opens it; a drag still selects text.
+                      TapHandler {
+                        acceptedButtons: Qt.LeftButton
+                        onTapped: function(eventPoint) {
+                          var l = bubbleText.linkAt(eventPoint.position.x, eventPoint.position.y)
+                          if (l && l !== "") root.openLink(String(l))
+                        }
+                      }
                     }
 
                     // right-click = copy the whole message
