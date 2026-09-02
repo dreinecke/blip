@@ -37,7 +37,9 @@ what it is handed. Keep it that way.
 
 - **Never send to a handle for a group.** A group thread's `handle` is whichever
   member spoke last. `isSendable()` tests the *chat* id; groups send
-  `--chat-id <full guid>` (`any;+;<32hex>`), DMs send `--to <chat>`.
+  `--chat-id <full guid>` (`any;+;<32hex>`, or `<Service>;+;chat<digits>` on
+  Macs that keep one chat row per service — `imsg groups` returns ONE row per
+  identifier, the newest, so an empty shell never wins; #8), DMs send `--to <chat>`.
 - **Two read marks.** `watermark` = what the collector has seen (drives toasts).
   `readMark` / `readMarks[chat]` = what the user has looked at (drives the badge
   and the blue dots). Collapsing them makes the badge flash and reset.

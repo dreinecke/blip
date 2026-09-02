@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.2.2 — 2026-09-02
+
+- **Group sends failed with -1728 on Macs that keep one chat row per
+  service.** A group that moved between iMessage, SMS and RCS leaves several
+  `chat` rows sharing one identifier; only one holds messages. `imsg groups`
+  returned all of them, the empty shell sorted last and overwrote the live
+  guid in Blip's group cache, and AppleScript could not resolve it. The bridge
+  now keeps one row per identifier, newest first. Mac side: re-run the install
+  one-liner so `~/.blip/bin/imsg` picks it up. (tolewis, #8)
+
 ## 2.2.1 — 2026-09-02
 
 - **Short-code SMS threads opened empty.** Georgia Power (99123), 878478 and
