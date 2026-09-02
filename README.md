@@ -77,7 +77,7 @@ Linux side. If the Mac is asleep, the widget dims and says so.
 - left-click panel · **double-click opens the app window** · middle-click refresh · right-click mark all read
 
 **Thread list**
-- contact photo (from the Mac's Contacts) or initials, name, preview, time
+- contact photo (from the Mac's Contacts), a group's own photo from Messages when it has one, or initials · name, preview, time
 - **pinned conversations mirrored from Messages on the Mac**, kept in the same order at the top (read-only)
 - **blue dot** that stays until you open *that* conversation — iMessage semantics, not "I glanced at the list"
 - groups titled the way Messages.app titles them: the group's name, else its members

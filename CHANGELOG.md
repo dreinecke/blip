@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **Group photos, and no more borrowed faces.** A group row bound its
+  picture to whoever spoke last, so it showed that member's cached contact
+  photo one minute and initials the next. Groups now bind to their own chat
+  id and the bridge streams the group's own photo — Messages keeps it as a
+  `GroupPhotoImage` attachment on a `group_action_type = 1` message, found
+  across every chat row the group has (`imsg avatar --chat <id>`, PNG/JPEG
+  as-is, anything else through sips). Groups without one show initials.
 - **Share sheet for links.** Right-click a link in a bubble, or a link card,
   and Blip opens a sheet: open in browser, copy, a QR code your phone can
   scan, and "send to a device" through LocalSend — Omarchy's own share sheet,

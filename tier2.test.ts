@@ -4,7 +4,7 @@ import { CACHE_DIR, bakeOrientation, cacheFileName, exifOrientation, fetchAttach
 import { extFor, pickImageType } from "./paste";
 import { resolveTarget, sendFile } from "./send-file";
 import { linkHost, linkify, normalizeLink, selectThread } from "./thread";
-import { AVATAR_DIR, avatarKey, fetchAvatar } from "./avatar";
+import { AVATAR_DIR, avatarArgs, avatarKey, fetchAvatar } from "./avatar";
 import { readFileSync, writeFileSync, unlinkSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
@@ -340,6 +340,19 @@ describe("contact photos", () => {
     const h = `ref-${Date.now()}@example.com`;
     expect(fetchAvatar(h, runner).ok).toBe(false);
     unlinkSync(`${AVATAR_DIR}/${avatarKey(h)}.none`);
+  });
+
+  test("a group id asks for the GROUP's photo (--chat), a person for Contacts (--)", () => {
+    expect(avatarArgs("ce5a593a78af408282d61461ade89135")).toEqual(["avatar", "--chat", "ce5a593a78af408282d61461ade89135"]);
+    expect(avatarArgs("chat123456789")).toEqual(["avatar", "--chat", "chat123456789"]);
+    expect(avatarArgs("+15551234567")).toEqual(["avatar", "--", "+15551234567"]);
+    expect(avatarArgs("them@example.com")).toEqual(["avatar", "--", "them@example.com"]);
+    let seen: string[] = [];
+    const runner = ((_c: string, args: string[]) => { seen = args; return { status: 0, stdout: Buffer.from([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]), stderr: "" }; }) as never;
+    const g = "chat" + String(Date.now());
+    expect(fetchAvatar(g, runner).ok).toBe(true);
+    expect(seen).toEqual(["avatar", "--chat", g]);
+    unlinkSync(`${AVATAR_DIR}/${avatarKey(g)}.jpg`);
   });
 
   test("handles never reach imsg as flags", () => {

@@ -33,6 +33,13 @@ describe("QML safety invariants", () => {
     expect(panel).not.toContain('["--yes", "--", text]');
   });
 
+  test("group rows and tiles show the GROUP's photo, never the last speaker's", () => {
+    const bind = 'root.isGroupId(String(modelData.chat || "")) ? String(modelData.chat) : String(modelData.handle || modelData.chat || "")';
+    expect(panel.split(bind).length - 1).toBe(2);   // list row + pinned tile
+    expect(panel).not.toContain('if (!root.isGroupId(String(modelData.chat || ""))) root.requestAvatar(avatarHandle)');
+    expect(panel).not.toContain('if (handle === "" || isGroupId(handle)) return');
+  });
+
   test("share sheet: right-click a link, URL on stdin, never argv", () => {
     expect(panel).toContain("function openShare(u)");
     expect(panel).toContain("qrProc.write(u)");

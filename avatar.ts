@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 /**
- * Blip contact photo fetcher — `imsg avatar <handle>` on the Mac streams the
- * Contacts thumbnail (JPEG); this caches it under ~/.cache/blip/avatars keyed
+ * Blip photo fetcher — `imsg avatar <handle>` on the Mac streams the Contacts
+ * thumbnail (JPEG), `imsg avatar --chat <group id>` the group's own photo; this caches it under ~/.cache/blip/avatars keyed
  * by a hash of the handle, with a negative marker so contacts without a
  * photo are not re-asked every poll. Seven-day TTL either way.
  *
@@ -13,6 +13,7 @@ import { createHash } from "node:crypto";
 import { closeSync, fsyncSync, lstatSync, mkdirSync, openSync, renameSync, utimesSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
+import { isGroupChat } from "./collector";
 
 const HOME = process.env.HOME ?? homedir();
 export const AVATAR_DIR = join(process.env.XDG_CACHE_HOME ?? join(HOME, ".cache"), "blip", "avatars");
@@ -32,6 +33,13 @@ function fresh(path: string): boolean {
   } catch { return false; }
 }
 
+/** A person: `imsg avatar -- <handle>` (Contacts). A group id (32-hex or
+ *  chat<digits>): `imsg avatar --chat <id>`, the group's own photo from
+ *  Messages (the GroupPhotoImage attachment) — never a member's face. */
+export function avatarArgs(id: string): string[] {
+  return isGroupChat(id) ? ["avatar", "--chat", id] : ["avatar", "--", id];
+}
+
 export function fetchAvatar(handle: string, runner = spawnSync): AvatarResult {
   const h = handle.trim();
   if (h === "" || h.length > 320 || /[\s\x00-\x1f]/.test(h)) return { ok: false, url: "", error: "bad handle" };
@@ -42,7 +50,7 @@ export function fetchAvatar(handle: string, runner = spawnSync): AvatarResult {
   if (fresh(file)) return { ok: true, url: pathToFileURL(file).href, error: "" };
   if (fresh(none)) return { ok: false, url: "", error: "no photo" };
 
-  const res = runner(`${HOME}/bin/imsg`, ["avatar", "--", h], { timeout: 20000, maxBuffer: AVATAR_MAX_BYTES + (1 << 20) });
+  const res = runner(`${HOME}/bin/imsg`, avatarArgs(h), { timeout: 20000, maxBuffer: AVATAR_MAX_BYTES + (1 << 20) });
   if (res.status === 69 || res.status === 255) return { ok: false, url: "", error: "Mac unreachable" };
   const bytes = res.stdout as Buffer;
   // Only a real JPEG/PNG is cached; anything else (an error string, a

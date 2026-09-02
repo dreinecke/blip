@@ -372,7 +372,7 @@ FocusScope {
   property var avatarQueue: []
   function requestAvatar(handle) {
     handle = String(handle || "")
-    if (handle === "" || isGroupId(handle)) return
+    if (handle === "") return          // groups are welcome: avatar.ts asks for the group's own photo
     if (avatarFiles[handle] !== undefined || avatarQueue.indexOf(handle) >= 0) return
     avatarQueue.push(handle)
     pumpAvatar()
@@ -1255,8 +1255,8 @@ FocusScope {
                       height: width
                       radius: width / 2
                       color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.18)
-                      readonly property string avatarHandle: String(modelData.handle || modelData.chat || "")
-                      Component.onCompleted: if (!root.isGroupId(String(modelData.chat || ""))) root.requestAvatar(avatarHandle)
+                      readonly property string avatarHandle: root.isGroupId(String(modelData.chat || "")) ? String(modelData.chat) : String(modelData.handle || modelData.chat || "")
+                      Component.onCompleted: root.requestAvatar(avatarHandle)
 
                       Image {
                         id: pinnedAvatarImg
@@ -1265,6 +1265,7 @@ FocusScope {
                         source: root.avatarFiles[pinnedAvatar.avatarHandle] || ""
                         asynchronous: true
                         fillMode: Image.PreserveAspectCrop
+                        autoTransform: true
                         sourceSize.width: 192
                         sourceSize.height: 192
                         onStatusChanged: if (status === Image.Error && pinnedAvatar.avatarHandle !== "") {
@@ -1426,8 +1427,11 @@ FocusScope {
                     id: avatarCircle
                     width: Style.space(30); height: width; radius: width / 2
                     color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.18)
-                    readonly property string avatarHandle: String(modelData.handle || modelData.chat || "")
-                    Component.onCompleted: if (!root.isGroupId(String(modelData.chat || ""))) root.requestAvatar(avatarHandle)
+                    // A group binds to ITS OWN chat id (its Messages group photo); a DM to
+                    // the person. Binding a group to `handle` showed whoever spoke last —
+                    // their cached contact photo one minute, initials the next.
+                    readonly property string avatarHandle: root.isGroupId(String(modelData.chat || "")) ? String(modelData.chat) : String(modelData.handle || modelData.chat || "")
+                    Component.onCompleted: root.requestAvatar(avatarHandle)
                     Image {
                       id: avatarImg
                       anchors.fill: parent

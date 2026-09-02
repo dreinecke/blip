@@ -799,6 +799,90 @@ SENT_ROOT = os.path.expanduser("~/.blip/sent")
 ATTACH_MAX_BYTES = 100 * 1024 * 1024  # hard ceiling, deliberately no flag
 
 
+def _sniff_image(head: bytes) -> str:
+    if head[:2] == b"\xff\xd8":
+        return "jpeg"
+    if head[:8] == b"\x89PNG\r\n\x1a\n":
+        return "png"
+    if len(head) >= 12 and head[4:8] == b"ftyp":
+        return "heic"
+    return ""
+
+
+def _group_photo_path(con, chat_identifier: str) -> str:
+    """Newest group photo for a group chat, or "". Messages stores a group's
+    photo as an attachment named GroupPhotoImage on a message with
+    group_action_type = 1 (there is no column on the chat row). A group that
+    moved between services has one chat row per service, so the lookup spans
+    every row sharing the group_id."""
+    row = con.execute(
+        f"""SELECT a.filename
+            FROM chat c
+            JOIN chat_message_join cmj ON cmj.chat_id = c.ROWID
+            JOIN {MESSAGE_SRC} m ON m.ROWID = cmj.message_id
+            JOIN message_attachment_join maj ON maj.message_id = m.ROWID
+            JOIN attachment a ON a.ROWID = maj.attachment_id
+            WHERE m.group_action_type = 1 AND a.filename IS NOT NULL
+              AND (c.chat_identifier = ?
+                   OR (c.group_id IS NOT NULL AND c.group_id =
+                       (SELECT group_id FROM chat WHERE chat_identifier = ? LIMIT 1)))
+            ORDER BY m.date DESC LIMIT 1""",
+        (chat_identifier, chat_identifier),
+    ).fetchone()
+    return os.path.expanduser(row["filename"]) if row and row["filename"] else ""
+
+
+def _stream_group_photo(con, chat_identifier: str) -> None:
+    """`imsg avatar --chat <id>`: the group's own photo as JPEG/PNG bytes.
+    Same hardening as `attachment`: id shape checked, path confined to the
+    Messages store (commonpath), regular file, size ceiling; HEIC or anything
+    unrecognised goes through sips to JPEG. Exit 1 when the group has none."""
+    import stat as stat_mod
+    if not re.fullmatch(r"[0-9a-fA-F]{32}|chat[0-9]{1,20}", chat_identifier):
+        sys.exit("error: bad group id")
+    raw = _group_photo_path(con, chat_identifier)
+    if not raw:
+        sys.exit(1)
+    path = os.path.realpath(raw)
+    root = os.path.realpath(ATTACHMENTS_ROOT)
+    if os.path.commonpath([path, root]) != root:
+        sys.exit("error: group photo path escapes the Messages store")
+    try:
+        st = os.lstat(path)
+    except OSError:
+        sys.exit(1)
+    if not stat_mod.S_ISREG(st.st_mode) or st.st_size > ATTACH_MAX_BYTES:
+        sys.exit(1)
+    with open(path, "rb") as f:
+        kind = _sniff_image(f.read(16))
+    src, tmp = path, None
+    if kind not in ("jpeg", "png"):
+        import subprocess
+        import tempfile
+        fd_t, tmp = tempfile.mkstemp(suffix=".jpg")
+        os.close(fd_t)
+        try:
+            r = subprocess.run(["sips", "-s", "format", "jpeg", path, "--out", tmp],
+                               capture_output=True, timeout=60)
+        except subprocess.TimeoutExpired:
+            os.unlink(tmp)
+            sys.exit("error: sips conversion timed out")
+        if r.returncode != 0:
+            os.unlink(tmp)
+            sys.exit(1)
+        src = tmp
+    try:
+        with open(src, "rb") as f:
+            data = f.read(ATTACH_MAX_BYTES + 1)
+    finally:
+        if tmp:
+            os.unlink(tmp)
+    if not data or len(data) > ATTACH_MAX_BYTES:
+        sys.exit(1)
+    sys.stdout.buffer.write(data)
+    sys.stdout.buffer.flush()
+
+
 def _avatar_bytes(db_path: str, pk: int) -> bytes:
     """Photo bytes for one AddressBook record, or b"". Tries the thumbnail,
     then the full image. Either column may hold the bytes inline OR a Core
@@ -841,6 +925,9 @@ def cmd_avatar(con, args):
     My Mac) — those are candidates, not ambiguity; the first with a photo
     wins. Two DIFFERENT records within one source sharing the key is
     ambiguous → no photo (mirrors name_for). Exit 1 when nothing found."""
+    if getattr(args, "chat", ""):
+        _stream_group_photo(con, args.chat.strip())
+        return
     handle = (args.handle or "").strip()
     if not handle or len(handle) > 320:
         sys.exit("error: bad handle")
@@ -1184,8 +1271,10 @@ def main() -> None:
     s.add_argument("--jpeg", action="store_true",
                    help="convert image/* (HEIC) to JPEG via sips before streaming")
     s.set_defaults(func=cmd_attachment)
-    s = sub.add_parser("avatar", parents=[common], help="stream a contact photo (JPEG) for a handle")
-    s.add_argument("handle"); s.set_defaults(func=cmd_avatar)
+    s = sub.add_parser("avatar", parents=[common], help="stream a contact photo (JPEG) for a handle, or a group's own photo with --chat")
+    s.add_argument("handle", nargs="?", default="")
+    s.add_argument("--chat", default="", help="group chat_identifier (32-hex / chat<digits>): stream its GroupPhotoImage")
+    s.set_defaults(func=cmd_avatar)
     s = sub.add_parser("watch", parents=[common],
                        help="emit a line whenever chat.db changes (push channel)")
     s.set_defaults(func=cmd_watch)
