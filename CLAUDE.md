@@ -97,6 +97,10 @@ what it is handed. Keep it that way.
   "not a phone/email" — never a positive regex on one shape.
 - **Deleted messages stay in chat.db for 30 days** (`chat_recoverable_message_join`).
   claude-on-mac's `imsg` hides them (1.4.0+); Blip assumes that.
+- **The conversation Flickable is `interactive: false`.** An interactive
+  Flickable grabs every drag, and drag IS text selection in a bubble; a
+  slightly-moving click on a link became a flick. Wheel scrolling never
+  needed it (next invariant). Ctrl+C in a bubble goes through `wl-copy`.
 - **Wheel scrolling = `MouseArea.onWheel`, direct 1:1, and INSTRUMENT before
   tuning.** A `WheelHandler` on the Flickable received ZERO events on this
   stack (proved by logging after four "fixes" that were placebos — the

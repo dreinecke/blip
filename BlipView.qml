@@ -1390,7 +1390,11 @@ FocusScope {
           contentHeight: content.implicitHeight
           clip: true
           boundsBehavior: Flickable.StopAtBounds
-          interactive: contentHeight > height
+          // NOT interactive: wheel scrolling is MouseArea.onWheel (see CLAUDE.md),
+          // and an interactive Flickable grabs every drag — which is exactly what
+          // selecting text in a bubble is; a slightly-moving click on a link
+          // became a flick instead of an activation.
+          interactive: false
           ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
           // stick-to-bottom (BlueFerry's pattern): once pinned, KEEP the
           // view at the bottom through late content growth — async images
@@ -1798,6 +1802,17 @@ FocusScope {
                       font.pixelSize: Style.font.bodySmall
                       onActiveFocusChanged: root.bubbleFocused = activeFocus
                       Keys.onEscapePressed: { deselect(); composeField.forceActiveFocus() }
+                      // Ctrl+C through wl-copy: Qt's own clipboard does not reliably
+                      // reach Wayland from a layer-shell popout.
+                      Keys.onPressed: function(e) {
+                        if ((e.modifiers & Qt.ControlModifier) && (e.key === Qt.Key_C || e.key === Qt.Key_Insert)) {
+                          if (selectedText !== "") root.copyText(selectedText)
+                          e.accepted = true
+                        }
+                      }
+                      HoverHandler {
+                        cursorShape: bubbleText.hoveredLink !== "" ? Qt.PointingHandCursor : Qt.IBeamCursor
+                      }
                     }
 
                     // right-click = copy the whole message

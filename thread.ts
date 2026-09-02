@@ -330,7 +330,9 @@ export function loadThread(
 }
 
 if (import.meta.main) {
-  const chat = process.argv[2] ?? "";
+  // Bare digits → E.164 like the IPC does (qs rejects a leading "+" on the CLI).
+  const rawChat = process.argv[2] ?? "";
+  const chat = /^[0-9]{5,}$/.test(rawChat) ? "+" + rawChat : rawChat;
   const limit = Number(process.argv[3] ?? 80) || 80;
   const today = localToday();
   try {
