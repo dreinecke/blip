@@ -48,6 +48,9 @@ export function fetchAvatar(handle: string, runner = spawnSync): AvatarResult {
   // Only a real JPEG/PNG is cached; anything else (an error string, a
   // Core Data reference) becomes a negative marker instead of a broken file.
   const isImage = !!bytes && bytes.length > 4 && ((bytes[0] === 0xff && bytes[1] === 0xd8) || (bytes[0] === 0x89 && bytes[1] === 0x50));
+  if (res.error || res.status === null || res.status === 69 || res.status === 255) {
+    return { ok: false, url: "", error: "Mac unreachable" };   // transient: no negative marker
+  }
   if (res.status !== 0 || !isImage || bytes.length > AVATAR_MAX_BYTES) {
     const fd = openSync(none, "w", 0o600); closeSync(fd);
     const now = new Date(); utimesSync(none, now, now);

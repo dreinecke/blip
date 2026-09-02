@@ -48,14 +48,14 @@ FloatingWindow {
     blockLoading: true
     printErrors: false
   }
-  Process { id: winStateWriter }
   function saveWinState() {
     if (restoring) return
     var j = JSON.stringify({ visible: visible, width: Math.round(width), height: Math.round(height) })
-    winStateWriter.command = ["sh", "-c",
-      "umask 077 && mkdir -p \"$1\" && printf '%s' \"$2\" > \"$1/window.json.tmp\" && mv \"$1/window.json.tmp\" \"$1/window.json\"",
-      "blip", stateDir, j]
-    winStateWriter.running = true
+    // detached: a Process object drops writes while a previous one is alive,
+    // and hideWindow() destroying this window mid-write lost the "hidden" state
+    Quickshell.execDetached(["sh", "-c",
+      "umask 077 && mkdir -p \"$1\" && printf '%s' \"$2\" > \"$1/window.json.tmp.$$\" && mv \"$1/window.json.tmp.$$\" \"$1/window.json\"",
+      "blip", stateDir, j])
   }
   Component.onCompleted: {
     try {

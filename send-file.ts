@@ -13,6 +13,7 @@
  * filesystem paths, so a remote caller can never exfiltrate Mac files.
  */
 
+import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { openSync, readSync, closeSync, statSync } from "node:fs";
@@ -85,6 +86,8 @@ export function sendFile(
     "--file-stdin",
     "--name", basename(path),
     "--yes",
+    "--file-bytes", String(buf.length),      // the Mac refuses a short stream (cut ssh) instead of sending a truncated file
+    "--keep-dashes",                          // users' punctuation is theirs
     ...(cap.length > 0 ? ["--text-stdin-bytes", String(cap.length)] : []),
   ];
   const res = runner(`${HOME}/bin/imsg-send`, args, { input: cap.length > 0 ? Buffer.concat([cap, buf]) : buf, timeout: 180000 });
@@ -99,7 +102,10 @@ export function sendFile(
 if (import.meta.main) {
   const chat = process.argv[2] ?? "";
   const path = process.argv[3] ?? "";
-  const caption = process.argv.slice(4).join(" ");
+  // Caption arrives on stdin (--caption-stdin) so it never sits in this process's argv.
+  const caption = process.argv[4] === "--caption-stdin"
+    ? readFileSync(0, "utf8")
+    : process.argv.slice(4).join(" ");
   try {
     console.log(JSON.stringify(sendFile(chat, path, caption)));
   } catch (e) {

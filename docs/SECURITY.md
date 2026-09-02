@@ -17,7 +17,7 @@ message bodies, names), a corrupted or stale local state file, a bad
 |---|---|---|---|
 | 1 | critical | A hostile Mac is unsatisfiable as a threat | **Documented** above — by design |
 | 2 | critical | Any ssh login to the Mac account inherits Full Disk Access + Automation | **Fixed** 1.10.0 — `blip-setup` enrols `~/.ssh/blip_ed25519` on the Mac as `restrict,command="$HOME/.blip/bin/blip-dispatch"`; that key can run only the five bridge tools (no shell, no forwarding, no pty), with its own ssh mux so it never rides the general key's master |
-| 3 | critical | `qs ipc … compose --yes` / `goto` / `bubbles` let any local process send or read | **Fixed** 1.10.0 — `goto`/`compose`/`bubbles`/`threads`/`find`/`newchat`/`windowgoto`/`read` require `automation=on` in `bridge.conf` (default off; live-reloaded). `status`/`open`/`close`/`toggle`/`window`/`app` expose nothing and stay open |
+| 3 | critical | `qs ipc … compose --yes` / `goto` / `bubbles` let any local process send or read | **Mitigated** 1.10.0 — `goto`/`compose`/`bubbles`/`threads`/`find`/`newchat`/`windowgoto`/`read` require `automation=on` in `bridge.conf` (default off; live-reloaded). Honest scope: this closes the *shell-IPC* deputy only. Any process running as you can still call `~/bin/imsg-send` directly, exactly as it could run `ssh` — that boundary is your user account, not Blip. `status`/`open`/`close`/`toggle`/`window`/`app` expose nothing and stay open |
 | 4 | high | Bodies travel in argv (Linux `/proc`, Mac `osascript -e`) and `imsg-send` echoed 120 chars of body to stderr | **Fixed** 1.9.4 (stderr) + 1.11.0: bodies ride stdin end to end — `--text-stdin` / `--text-stdin-bytes N` (caption ahead of file bytes), and `osascript` reads its script from stdin. Only `notify-send` toasts still carry a preview in argv, by the daemon's design |
 | 5 | high | Stale contact/search result shown as clickable rows under a newer query | **Fixed** 1.9.4 — generation bumps when a query is queued, results cleared |
 | 6 | high | Group GUIDs are trusted from state/bridge | Accepted — same trust as #1; the Mac resolves them anyway |
@@ -34,7 +34,20 @@ Your everyday ssh key to the Mac still carries Full Disk Access (that grant is p
 Privacy-inventory items from the same audit are folded into
 [PRIVACY.md](PRIVACY.md).
 
+## War room, 2026-09-01 (ten expert lenses, 114 findings, 2.1.0)
+
+Fixed in 2.1.0: attachment-cache eviction had silently stopped (missing
+import); a DM thread admitted that person's group messages; file-send
+captions rode argv; a cut ssh stream could deliver a truncated file (now an
+exact byte count is enforced on the Mac); the cache file extension now
+follows the gated MIME type, not the sender's filename; link cards refuse
+userinfo host-spoofing; `tcc-check` is no longer reachable through the
+confined key; `blip-setup` no longer sources `bridge.conf`, no longer echoes
+a message body, and diagnoses a missing Xcode CLT; transient bridge
+failures no longer poison the avatar negative cache; the consent banner no
+longer logs recipients into journald; a real phone number was removed from
+a test fixture. Deferred items are listed in ROADMAP.md.
+
 Still open and honest about it: drafts in `$XDG_RUNTIME_DIR/blip` are swept
-hourly rather than deleted on cancel; cache file names include the Mac
-attachment ROWID; `blip-setup` prints your latest message to the terminal
-as its smoke test.
+lazily rather than deleted on cancel; cache file names include the Mac
+attachment ROWID.

@@ -3,7 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { cacheFileName, fetchAttachment, lruEvictions, sanitizeName, wantsJpeg } from "./fetch";
 import { extFor, pickImageType } from "./paste";
 import { resolveTarget, sendFile } from "./send-file";
-import { linkHost, normalizeLink } from "./thread";
+import { linkHost, linkify, normalizeLink, selectThread } from "./thread";
 import { AVATAR_DIR, avatarKey, fetchAvatar } from "./avatar";
 import { writeFileSync, unlinkSync } from "node:fs";
 
@@ -19,7 +19,7 @@ describe("fetch cache", () => {
     const orig = cacheFileName("42", "IMG_1.png", "image/png");
     const conv = cacheFileName("42", "IMG_1.heic", "image/heic");
     expect(orig).toBe("42-orig-IMG_1.png");
-    expect(conv).toBe("42-jpg-IMG_1.heic.jpg");
+    expect(conv).toBe("42-jpg-IMG_1.jpg");   // extension follows the delivered format
     expect(orig).not.toBe(conv);
   });
 
@@ -151,16 +151,16 @@ describe("contact search shaping", () => {
     require("./contact-search") as typeof import("./contact-search");
 
   test("US numbers normalize to E.164 like chat.db handles", () => {
-    expect(normalizeHandle("(555) 010-0098")).toBe("+15550100098");
-    expect(normalizeHandle("865.803.2122")).toBe("+15550100098");
-    expect(normalizeHandle("1 865 803 2122")).toBe("+15550100098");
+    expect(normalizeHandle("(404) 555-0123")).toBe("+14045550123");
+    expect(normalizeHandle("404.555.0123")).toBe("+14045550123");
+    expect(normalizeHandle("1 404 555 0123")).toBe("+14045550123");
     expect(normalizeHandle("+44 20 7946 0958")).toBe("+442079460958");
     expect(normalizeHandle("Mom@iCloud.COM")).toBe("mom@icloud.com");
   });
 
   test("ambiguous numbers are DROPPED, never rewritten (wrong-recipient guard)", () => {
     expect(normalizeHandle("404-555-0100 ext 4")).toBe("");
-    expect(normalizeHandle("865 803 2122 x12")).toBe("");
+    expect(normalizeHandle("404 555 0123 x12")).toBe("");
     expect(normalizeHandle("555-0100")).toBe("");          // 7 digits: ambiguous
     expect(normalizeHandle("12345678901234567")).toBe(""); // absurd length
   });
@@ -174,12 +174,12 @@ describe("contact search shaping", () => {
 
   test("each phone and email becomes its own row; Apple labels unwrap", () => {
     const out = shapeContacts(
-      [{ name: "Mom", phones: [{ number: "(555) 010-0098", label: "_$!<Mobile>!$_" }],
+      [{ name: "Mom", phones: [{ number: "(404) 555-0123", label: "_$!<Mobile>!$_" }],
          emails: ["mom@example.com"] }],
       "mom",
     );
     expect(out).toEqual([
-      { name: "Mom", handle: "+15550100098", kind: "mobile" },
+      { name: "Mom", handle: "+14045550123", kind: "mobile" },
       { name: "Mom", handle: "mom@example.com", kind: "email" },
     ]);
   });
@@ -250,5 +250,47 @@ describe("contact photos", () => {
     expect(fetchAvatar("--evil", (() => ({ status: 0, stdout: Buffer.from([0x89, 0x50, 0x4e, 0x47, 1]), stderr: "" })) as never).ok).toBe(true); // '--' guards it
     unlinkSync(`${AVATAR_DIR}/${avatarKey("--evil")}.jpg`);
     expect(fetchAvatar("bad handle\n", (() => ({ status: 0, stdout: Buffer.from("x"), stderr: "" })) as never).ok).toBe(false);
+  });
+});
+
+describe("war-room hardening (2.1)", () => {
+  test("cache file extension follows the gated MIME, never the sender's name", () => {
+    expect(cacheFileName("7", "evil.desktop", "image/png")).toBe("7-orig-evil.png");
+    expect(cacheFileName("8", "report.pdf", "application/pdf")).toBe("8-orig-report.pdf");
+    expect(cacheFileName("9", "blob.bin", "application/octet-stream")).toBe("9-orig-blob.bin");
+  });
+  test("non-ASCII attachment names survive sanitizing", () => {
+    expect(sanitizeName("Fotos-Café.jpg")).toBe("Fotos-Café.jpg");
+    expect(sanitizeName("写真.png")).toBe("写真.png");
+  });
+  test("a DM thread never admits the same person's GROUP messages", () => {
+    const dm = { ts: "2026-08-30 12:00:00", from_me: false, handle: "+15551234567", name: "A", service: "iMessage", chat: "+15551234567", text: "dm" } as never;
+    const grp = { ts: "2026-08-30 12:01:00", from_me: false, handle: "+15551234567", name: "A", service: "iMessage", chat: "abcdef0123456789abcdef0123456789", text: "in group" } as never;
+    const out = selectThread([dm, grp], "+15551234567", false, 50);
+    expect(out.map((m: { text: string }) => m.text)).toEqual(["dm"]);
+  });
+  test("link cards refuse userinfo spoofing and keep Wikipedia parens", () => {
+    expect(normalizeLink({ url: "https://apple.com@evil.example/x", title: "t", summary: "", image_id: "" })).toBeNull();
+    expect(linkify("see https://en.wikipedia.org/wiki/Blip_(band) now")).toContain('href="https://en.wikipedia.org/wiki/Blip_(band)"');
+    expect(linkify("(https://x.com/a)")).toContain('href="https://x.com/a"');
+  });
+  test("an unreachable Mac does not poison the avatar negative cache", () => {
+    let calls = 0;
+    const runner = (() => { calls++; return { status: 255, stdout: Buffer.alloc(0), stderr: "" }; }) as never;
+    const h = `+1555${(Date.now() + 7) % 10000000}`;
+    expect(fetchAvatar(h, runner).error).toBe("Mac unreachable");
+    expect(fetchAvatar(h, runner).error).toBe("Mac unreachable");
+    expect(calls).toBe(2);
+  });
+  test("file sends declare their exact size and keep the user's dashes", () => {
+    let seen: string[] = [];
+    const runner = ((_c: string, args: string[]) => { seen = args; return { status: 0, stdout: "", stderr: "" }; }) as never;
+    const tmp = `${process.env.XDG_CACHE_HOME}/sz-${process.pid}.txt`;
+    writeFileSync(tmp, "12345");
+    try {
+      expect(sendFile("+15551234567", tmp, "", runner).ok).toBe(true);
+      expect(seen.slice(seen.indexOf("--file-bytes"), seen.indexOf("--file-bytes") + 2)).toEqual(["--file-bytes", "5"]);
+      expect(seen).toContain("--keep-dashes");
+    } finally { unlinkSync(tmp); }
   });
 });

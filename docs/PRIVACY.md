@@ -13,7 +13,7 @@ inventory of what lands on disk.
 | `~/.config/blip/allowlist.json` | handles allowed to raise desktop toasts | message text |
 | `~/.local/state/blip/state.json` (0600, atomic) | poll watermark, read marks, per-chat unread counts and oldest-unread timestamps, self-chat ids, group names/members, opaque SHA-256 toast keys | **message bodies — ever** |
 | `~/.local/state/blip/window.json` | whether the app window was open, its size | anything else |
-| `~/.cache/blip/att/` (0700, files 0600, 500 MB LRU, no expiry) | attachments you viewed (photos, PDFs…), fetched on demand; HEIC arrives converted to JPEG. File names carry the Mac's attachment row id and the sanitized original name | attachments you did not open |
+| `~/.cache/blip/att/` (0700, files 0600, 500 MB LRU, no expiry) | attachments you viewed, plus images ≤ 5 MB and link-preview thumbnails in any conversation you *open* (they render inline, so they are fetched when the thread is). HEIC arrives converted to JPEG. File names carry the Mac's attachment row id and a sanitized name whose extension follows the MIME type | attachments in conversations you never opened |
 | `~/.cache/blip/avatars/` (0700, files 0600, 7-day TTL) | contact photos for people in your thread list, named by a hash of the handle; an empty `.none` marker for contacts without one | names, numbers |
 | `$XDG_RUNTIME_DIR/blip/` (tmpfs, 0700) | images pasted into the compose box; swept after an hour (not on cancel) and gone at logout | — |
 | `~/bin/imsg`, `~/bin/imsg-send`, `~/bin/contacts` | the bridge shim (a bash script) | — |

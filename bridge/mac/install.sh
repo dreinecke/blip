@@ -26,8 +26,11 @@ for t in imsg imsg-send contacts tcc-check blip-check blip-dispatch; do
 done
 echo "✓ bridge tools installed to $dest"
 
-if ! command -v python3 >/dev/null 2>&1; then
-  echo "✗ python3 not found — install Xcode Command Line Tools: xcode-select --install" >&2
+# /usr/bin/python3 ALWAYS exists on macOS — as a Command Line Tools stub that
+# exits 1 until CLT is installed. Test capability, not presence, and fail loudly.
+if ! python3 -c 'import sqlite3, subprocess' >/dev/null 2>&1; then
+  echo "✗ python3 cannot run yet — install Xcode Command Line Tools:  xcode-select --install  — then re-run" >&2
+  exit 1
 fi
 
 if sudo -n true 2>/dev/null; then

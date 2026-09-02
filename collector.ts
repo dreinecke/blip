@@ -17,6 +17,7 @@
  *   bun collector.ts --read <chat>      # clear one thread's dot (opened it)
  */
 
+import { openSync, writeSync, fsyncSync, closeSync } from "node:fs";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -211,7 +212,10 @@ export function saveState(state: BlipState, path = STATE_PATH): boolean {
     chmodSync(dir, 0o700);
     // Temp + rename prevents a killed collector from leaving truncated JSON.
     // 0600 is defense in depth even when the home directory is already 0700.
-    writeFileSync(temp, JSON.stringify({ ...state, toasted: state.toasted.slice(-200) }), { mode: 0o600 });
+    // fsync before rename: a power cut must never leave an empty state.json
+    // that silently resets every read mark.
+    const fd = openSync(temp, "w", 0o600);
+    try { writeSync(fd, JSON.stringify({ ...state, toasted: state.toasted.slice(-200) })); fsyncSync(fd); } finally { closeSync(fd); }
     renameSync(temp, path);
     chmodSync(path, 0o600);
     return true;
@@ -519,16 +523,26 @@ export function explainBridgeError(status: number | null, stderr: string): strin
   if (s.includes("permission denied (publickey") || s.includes("host key verification failed")) {
     return "ssh to the Mac needs key auth: ssh-copy-id <your-mac>, then re-run blip-setup";
   }
-  const first = (stderr || "").trim().split("\n")[0];
-  return first || `imsg exit ${status}`;
+  const lines = (stderr || "").trim().split("\n").map((l) => l.trim()).filter(Boolean);
+  // Python puts the actual error LAST; "Traceback (most recent call last):" is never the reason.
+  const last = lines.length ? lines[lines.length - 1] : "";
+  return last || `imsg exit ${status}`;
 }
 
 export function fetchMessages(limit: number, runner = spawnSync): FetchResult {
   const res = runner(`${HOME}/bin/imsg`, ["--json", "recent", String(limit)], {
     encoding: "utf8",
-    timeout: 15000,
+    timeout: 15000, maxBuffer: 64 * 1024 * 1024,
   });
 
+  if (res.error) {
+    // spawn itself failed: ~/bin/imsg missing (run blip-setup) or not executable
+    return { ok: false, online: false, error: `cannot run ~/bin/imsg: ${(res.error as Error).message}`, msgs: [] };
+  }
+  if (res.status === null) {
+    // killed by our timeout — a Mac asleep behind a live ControlMaster looks exactly like this
+    return { ok: false, online: false, error: "imsg timed out (Mac asleep?)", msgs: [] };
+  }
   if (res.status === 69 || res.status === 255) {
     return { ok: false, online: false, error: "Mac unreachable", msgs: [] };
   }
@@ -654,7 +668,7 @@ export const CHAT_LIST_LIMIT = 300;
 export function fetchChats(runner = spawnSync): ChatInfo[] | null {
   const res = runner(`${HOME}/bin/imsg`, ["--json", "chats", String(CHAT_LIST_LIMIT)], {
     encoding: "utf8",
-    timeout: 20000,
+    timeout: 20000, maxBuffer: 64 * 1024 * 1024,
   });
   if (res.status !== 0) return null;
   try {
@@ -715,7 +729,7 @@ export function mergeChats(
 }
 
 export function fetchGroups(runner = spawnSync): Record<string, GroupInfo> | null {
-  const res = runner(`${HOME}/bin/imsg`, ["--json", "groups"], { encoding: "utf8", timeout: 15000 });
+  const res = runner(`${HOME}/bin/imsg`, ["--json", "groups"], { encoding: "utf8", timeout: 15000, maxBuffer: 64 * 1024 * 1024 });
   if (res.status !== 0) return null;
   try {
     const rows = JSON.parse(res.stdout as string);

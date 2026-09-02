@@ -498,11 +498,17 @@ describe("fetchMessages", () => {
     expect(r.error).toBe("Mac unreachable");
   });
 
-  test("a non-zero exit surfaces the first stderr line", () => {
-    const r = fetchMessages(10, fake({ status: 1, stderr: "boom\nsecond line" }));
+  test("a non-zero exit surfaces the LAST stderr line (Python puts the cause last)", () => {
+    const r = fetchMessages(10, fake({ status: 1, stderr: "Traceback (most recent call last):\n  File x\nValueError: bad row 7" }));
     expect(r.ok).toBe(false);
     expect(r.online).toBe(true);
-    expect(r.error).toBe("boom");
+    expect(r.error).toBe("ValueError: bad row 7");
+  });
+  test("a timeout (status null) reads as the Mac being asleep, not a bridge bug", () => {
+    const r = fetchMessages(10, fake({ status: null, stderr: "" }));
+    expect(r.ok).toBe(false);
+    expect(r.online).toBe(false);
+    expect(r.error).toMatch(/timed out/);
   });
 
   test("malformed stdout is reported, not thrown", () => {
@@ -764,8 +770,8 @@ describe("explainBridgeError — a dim icon is not a diagnosis", () => {
   test("missing Mac tools points at blip-setup", () => {
     expect(explainBridgeError(2, "python3: can't open file '/Users/x/.blip/bin/imsg': [Errno 2] No such file or directory")).toContain("blip-setup");
   });
-  test("unknown errors fall back to the first stderr line", () => {
-    expect(explainBridgeError(3, "something odd\nmore")).toBe("something odd");
+  test("unknown errors fall back to the last stderr line", () => {
+    expect(explainBridgeError(3, "something odd\nmore")).toBe("more");
     expect(explainBridgeError(3, "")).toBe("imsg exit 3");
   });
 });

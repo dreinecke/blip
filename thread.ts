@@ -31,6 +31,8 @@ export function normalizeLink(l: ImsgMessage["link"]): LinkCard | null {
   if (!l || typeof l !== "object") return null;
   const url = String(l.url ?? "").trim();
   if (!/^https?:\/\//i.test(url)) return null;
+  // "https://apple.com@evil.example/" — userinfo lets the card footer lie about the host.
+  if (/^https?:\/\/[^/?#]*@/i.test(url)) return null;
   const image_id = String(l.image_id ?? "");
   return {
     url,
@@ -236,7 +238,10 @@ export function linkify(text: string): string {
   for (let m = URL_RE.exec(t); m !== null; m = URL_RE.exec(t)) {
     out += escapeHtml(t.slice(pos, m.index));
     // Trailing punctuation reads as prose, not URL: "see https://x.com."
-    let url = m[0].replace(/[.,;:!?)\]]+$/, "");
+    let url = m[0].replace(/[.,;:!?\]]+$/, "");
+    // A ")" that closes a "(" inside the URL belongs to it (Wikipedia_(band)).
+    while (url.endsWith(")") && (url.split("(").length) < (url.split(")").length)) url = url.slice(0, -1);
+    url = url.replace(/[.,;:!?\]]+$/, "");
     const href = url.startsWith("www.") ? "https://" + url : url;
     out += `<a href="${escapeHtml(href)}">${escapeHtml(url)}</a>`;
     pos = m.index + url.length;
@@ -279,7 +284,9 @@ export function selectThread(
   // Exact-filter DMs too: `imsg thread` matches the handle by SUBSTRING, so
   // +15551234567 can pull rows from +995551234567 into the wrong conversation
   // (Codex finding #3).
-  let msgs = raw.filter((m) => chatKey(m) === chat || (!group && m.handle === chat));
+  // A DM is scoped by CHAT, not by sender: the same handle's messages in a
+  // group carry the group's chat id and must stay out of the 1:1 thread.
+  let msgs = raw.filter((m) => chatKey(m) === chat || (!group && m.handle === chat && !isGroupChat(chatKey(m))));
   msgs = [...msgs].sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
   msgs = dedupeSelfEcho(msgs, selfChats);
   return msgs.length > limit ? msgs.slice(msgs.length - limit) : msgs;
@@ -302,7 +309,7 @@ export function loadThread(
     : ["--json", "--rich", "thread", chat, String(limit)];
   const res = runner(`${HOME}/bin/imsg`, args, {
     encoding: "utf8",
-    timeout: 15000,
+    timeout: 15000, maxBuffer: 64 * 1024 * 1024,
   });
 
   if (res.status === 69 || res.status === 255) {

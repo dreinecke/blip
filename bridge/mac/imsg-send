@@ -175,7 +175,7 @@ def _checked_outbox() -> str:
     return OUTBOX
 
 
-def stage_stdin_file(name: str) -> str:
+def stage_stdin_file(name: str, expected: int = 0) -> str:
     """Read the attachment from stdin into a fresh per-send subdirectory of
     the Pictures outbox, KEEPING the caller's filename (it is what the
     recipient sees). Refuses > MAX_FILE_BYTES while streaming. A two-level
@@ -183,7 +183,10 @@ def stage_stdin_file(name: str) -> str:
     2026-08-31: state=5, sent=1)."""
     import uuid
 
-    base = SAFE_NAME_RE.sub("_", os.path.basename(name or "file"))[:120].strip(". ") or "file"
+    raw = os.path.basename(name or "file")
+    stem, ext = os.path.splitext(raw)
+    ext = SAFE_NAME_RE.sub("", ext)[:12]          # keep the extension the recipient sees
+    base = (SAFE_NAME_RE.sub("_", stem)[:120 - len(ext)].strip(". ") or "file") + ext
     outbox = _checked_outbox()
     gc_outbox()
     d = os.path.join(outbox, uuid.uuid4().hex[:12])
@@ -207,10 +210,24 @@ def stage_stdin_file(name: str) -> str:
     if total == 0:
         unstage(path)
         sys.exit("error: empty attachment on stdin")
+    if expected and total != expected:
+        # a cut ssh stream must never become a truncated photo in someone's Messages
+        unstage(path)
+        sys.exit(f"error: short file on stdin ({total} of {expected} bytes) — not sent")
     return path
 
 
-def wait_for_copy(staged: str, timeout: float = 20.0) -> tuple[bool, int]:
+def _max_attachment_rowid() -> int:
+    try:
+        con = sqlite3.connect(f"file:{CHAT_DB}?mode=ro", uri=True)
+        row = con.execute("SELECT COALESCE(MAX(ROWID), 0) FROM attachment").fetchone()
+        con.close()
+        return int(row[0] or 0)
+    except (sqlite3.DatabaseError, OSError):
+        return 0
+
+
+def wait_for_copy(staged: str, baseline: int = 0, timeout: float = 20.0) -> tuple[bool, int]:
     """After `send POSIX file`, Messages copies the staged file into its own
     Attachments store — but for a REMOTE recipient that copy (and the upload
     that reads it) can lag several seconds. Deleting the staged file the
@@ -235,9 +252,9 @@ def wait_for_copy(staged: str, timeout: float = 20.0) -> tuple[bool, int]:
                 """SELECT a.filename, m.error FROM attachment a
                    JOIN message_attachment_join maj ON maj.attachment_id = a.ROWID
                    JOIN message m ON m.ROWID = maj.message_id
-                   WHERE a.transfer_name = ? AND m.is_from_me = 1
+                   WHERE a.transfer_name = ? AND m.is_from_me = 1 AND a.ROWID > ?
                    ORDER BY a.ROWID DESC LIMIT 1""",
-                (base,),
+                (base, baseline),
             ).fetchone()
             con.close()
             if row:
@@ -316,10 +333,13 @@ def gc_outbox() -> None:
                 if entry.is_file(follow_symlinks=False):
                     os.unlink(entry.path)
                 elif entry.is_dir(follow_symlinks=False):
-                    for sub in os.scandir(entry.path):
-                        if sub.is_file(follow_symlinks=False):
-                            os.unlink(sub.path)
-                    os.rmdir(entry.path)
+                    # a send whose copy was never observed: keep it servable
+                    # (~/.blip/sent) instead of deleting the only copy
+                    files = [f for f in os.scandir(entry.path) if f.is_file(follow_symlinks=False)]
+                    if files:
+                        keep_sent(files[0].path)
+                    else:
+                        os.rmdir(entry.path)
             except OSError:
                 continue
     except OSError:
@@ -386,7 +406,11 @@ def run_applescript(script: str) -> tuple[int, str, str]:
 
 
 def consent_banner(recipient: str, text: str) -> None:
-    """Loud reminder printed immediately before any actual send."""
+    """Loud reminder printed immediately before any actual send — on a TTY.
+    Non-interactive callers (Blip over ssh) would otherwise log every
+    recipient of every send into the client's journald."""
+    if not sys.stderr.isatty():
+        return
     print("=" * 72, file=sys.stderr)
     print("  CONSENT-GATED SEND  (this is a real outbound message)", file=sys.stderr)
     print("=" * 72, file=sys.stderr)
@@ -420,6 +444,8 @@ def main() -> None:
                    help="Read ONE attachment from stdin and send it. Stages via "
                         "~/Pictures/.blip-outbox (Sequoia AppleScript quirk). "
                         "Any text becomes a SECOND message, reported per-part.")
+    p.add_argument("--file-bytes", type=int, default=0, metavar="N",
+                   help="With --file-stdin: exact byte count expected; a short stream is refused")
     p.add_argument("--name", default="file",
                    help="Filename for --file-stdin (shown to the recipient)")
     p.add_argument("--text-stdin", action="store_true",
@@ -518,8 +544,9 @@ def main() -> None:
     # retry never re-sends the half that already worked.
     parts_failed = []
     if args.file_stdin:
-        staged = stage_stdin_file(args.name)
+        staged = stage_stdin_file(args.name, args.file_bytes)
         consent_banner(recipient, f"[file: {os.path.basename(staged)}]")
+        baseline = _max_attachment_rowid()
         try:
             rc, out, err = run_applescript(build("file", staged))
         except subprocess.TimeoutExpired:
@@ -531,7 +558,7 @@ def main() -> None:
             # osascript returning 0 proves NOTHING for files — failures
             # surface later in chat.db. Wait for Messages' own copy before
             # touching the staged file, and surface a delivery error loudly.
-            copied, msg_err = wait_for_copy(staged)
+            copied, msg_err = wait_for_copy(staged, baseline)
             if msg_err:
                 unstage(staged)
                 parts_failed.append(f"file (Messages error {msg_err} — not delivered)")

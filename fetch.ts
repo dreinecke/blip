@@ -26,6 +26,7 @@ import {
   readdirSync,
   renameSync,
   lstatSync,
+  statSync,
   unlinkSync,
   utimesSync,
   writeSync,
@@ -44,15 +45,25 @@ export function wantsJpeg(mime: string): boolean {
 }
 
 export function sanitizeName(name: string): string {
-  const base = (name || "file").replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 100);
+  const base = (name || "file").replace(/[^\p{L}\p{N}._-]/gu, "_").slice(0, 100);
   return base.replace(/^[._]+/, "") || "file";
 }
 
+/** The extension xdg-open dispatches on comes from the MIME we gated on, never
+ *  from the sender's filename: "image/png" + "evil.desktop" caches as .png. */
+const MIME_EXT: Record<string, string> = {
+  "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp",
+  "image/heic": "jpg", "image/heif": "jpg", "image/tiff": "tiff", "image/bmp": "bmp",
+  "video/mp4": "mp4", "video/quicktime": "mov", "video/x-m4v": "m4v",
+  "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/x-m4a": "m4a", "audio/aac": "aac", "audio/amr": "amr",
+  "application/pdf": "pdf", "text/plain": "txt", "text/vcard": "vcf", "text/calendar": "ics",
+};
 export function cacheFileName(id: string, name: string, mime: string): string {
   const transform = wantsJpeg(mime) ? "jpg" : "orig";
-  let file = `${id}-${transform}-${sanitizeName(name)}`;
-  if (transform === "jpg" && !/\.jpe?g$/i.test(file)) file += ".jpg";
-  return file;
+  let base = sanitizeName(name);
+  const ext = MIME_EXT[String(mime || "").toLowerCase()];
+  if (ext) base = base.replace(/\.[^.]{1,8}$/, "") + "." + ext;
+  return `${id}-${transform}-${base}`;
 }
 
 /** Oldest-mtime files to delete so the cache fits the cap. Pure for tests. */
@@ -135,7 +146,8 @@ export function fetchAttachment(
 
   // tmp + fsync + rename: a killed fetch must never leave a cache hit that
   // looks complete.
-  const tmp = `${file}.tmp-${process.pid}`;
+  // pid alone collides after a crash + pid reuse (EEXIST forever); add entropy.
+  const tmp = `${file}.tmp-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
   const fd = openSync(tmp, "wx", 0o600);
   try {
     writeSync(fd, bytes);

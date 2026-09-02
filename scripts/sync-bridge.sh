@@ -16,6 +16,13 @@ for t in imsg imsg-send contacts tcc-check; do
   curl -fsSL "$repo/$t" -o "$tmp/$t"
   head -1 "$tmp/$t" | grep -q python3 || { echo "sync-bridge: $t from $rev does not look like a tool" >&2; exit 1; }
   python3 -c "import ast,sys; ast.parse(open('$tmp/$t').read())"
+  # Blip carries local fixes in these files (rich links, avatars, sent store…).
+  # Never overwrite silently: stage the upstream copy beside it for a diff.
+  if [[ -f "$dest/$t" ]] && ! cmp -s "$tmp/$t" "$dest/$t"; then
+    install -m 0644 "$tmp/$t" "$dest/$t.upstream"
+    echo "• $t differs from $rev — upstream copy left at bridge/mac/$t.upstream (diff, merge, delete)"
+    continue
+  fi
   install -m 0755 "$tmp/$t" "$dest/$t"
 done
 printf 'claude-on-mac %s (synced %s)\nvendored: imsg imsg-send contacts tcc-check\nsync: scripts/sync-bridge.sh <sha-or-tag>\n' \

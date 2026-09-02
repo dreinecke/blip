@@ -103,7 +103,7 @@ export function searchContacts(query: string, runner = spawnSync): ContactSearch
 
   const res = runner(`${HOME}/bin/contacts`, ["--json", "find", "--", q], {
     encoding: "utf8",
-    timeout: 15000,
+    timeout: 15000, maxBuffer: 64 * 1024 * 1024,
   });
   if (res.status === 69 || res.status === 255) return fail("Mac unreachable", false);
   if (res.status !== 0) {

@@ -68,8 +68,9 @@ else
   ssh=(ssh)
   probe="true"; remote="PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH $python $remote_bin/$tool ${*@Q}"
 fi
-if ! "${ssh[@]}" -n -o ConnectTimeout=5 -o BatchMode=yes -- "$host" "$probe" >/dev/null 2>&1; then
-  echo "$tool: $host unreachable — the iMessage bridge is offline." >&2
+if ! err="$("${ssh[@]}" -n -o ConnectTimeout=5 -o BatchMode=yes -- "$host" "$probe" 2>&1 >/dev/null)"; then
+  # keep the exit code (69 → Blip greys out) but say why: auth, host key, dispatch refusal…
+  echo "$tool: $host unreachable — the iMessage bridge is offline.${err:+ ($(printf '%s' "$err" | tail -n1))}" >&2
   exit 69   # EX_UNAVAILABLE (Blip greys out on this code)
 fi
 

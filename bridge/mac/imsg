@@ -116,6 +116,13 @@ def open_db() -> sqlite3.Connection:
         sys.exit(f"chat.db not found at {DB_PATH}")
     # mode=ro alone (without immutable=1) so we still see uncommitted WAL writes
     con = sqlite3.connect(f"file:{DB_PATH}?mode=ro", uri=True)
+    # macOS 12 and earlier have no Recently Deleted table: read the plain message
+    # table instead of dying with a traceback on every command.
+    global MESSAGE_SRC
+    if "chat_recoverable_message_join" in MESSAGE_SRC and not con.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='chat_recoverable_message_join'"
+    ).fetchone():
+        MESSAGE_SRC = "message"
     con.row_factory = sqlite3.Row
     return con
 
@@ -224,6 +231,8 @@ def _parse_rich_link(blob: bytes) -> dict | None:
         if depth > 6:
             return None
         if isinstance(v, plistlib.UID):
+            if v.data == 0:   # $null
+                return None
             return deref(objs[v.data], depth + 1) if v.data < len(objs) else None
         if isinstance(v, dict) and "NS.relative" in v:   # NSURL
             return deref(v["NS.relative"], depth + 1)
@@ -348,7 +357,7 @@ def enrich(con, rows, with_names: bool):
     if origins:
         for o in _chunked_in(
             con,
-            "SELECT guid, text, attributedBody, is_from_me FROM message WHERE guid IN ({marks})",
+            f"SELECT guid, text, attributedBody, is_from_me FROM {MESSAGE_SRC} m WHERE guid IN ({{marks}})",
             origins,
         ):
             osnip[o["guid"]] = {
@@ -786,10 +795,14 @@ def cmd_attachment(con, args):
 
         fd_t, tmp = tempfile.mkstemp(suffix=".jpg")
         os.close(fd_t)
-        r = subprocess.run(
-            ["sips", "-s", "format", "jpeg", path, "--out", tmp],
-            capture_output=True, timeout=60,
-        )
+        try:
+            r = subprocess.run(
+                ["sips", "-s", "format", "jpeg", path, "--out", tmp],
+                capture_output=True, timeout=60,
+            )
+        except subprocess.TimeoutExpired:
+            os.unlink(tmp)   # never leave a converted copy in $TMPDIR
+            sys.exit("error: sips conversion timed out")
         if r.returncode != 0:
             os.unlink(tmp)
             sys.exit(f"error: sips conversion failed: {r.stderr.decode()[:200]}")

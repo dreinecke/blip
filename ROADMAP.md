@@ -159,6 +159,39 @@ on the Mac plus hand-made vic shims with `fnix` hardcoded.
   2026-08-31: "not interested in trying another machine yet"); revisit only
   when he raises it.
 
+## War room 2026-09-01 — deferred findings (verified real, not yet fixed)
+
+Ten expert reviewers, 114 findings; 2.1.0 fixed the clear ones. These are
+real and still open, roughly by value:
+
+- [ ] **One BarWidget per monitor** → N pollers, N ssh watchers, N windows,
+  a state.json write race on multi-monitor setups. Needs a leader election
+  (first screen with a bar polls; others render its state).
+- [ ] **SMS/RCS threads send as iMessage** — pass the thread's `service` to
+  `imsg-send --service`; green-bubble threads currently go out on the wrong
+  service.
+- [ ] **Timestamps are Mac-local wall-clock strings** compared against the
+  Linux clock (DST fall-back hour, a UTC Mac). Move the bridge to epoch/UTC
+  and convert on display. Cross-cutting; do it as its own release.
+- [ ] **One never-opened unread pins the catch-up loop** — every poll walks
+  150→8192 rows across sequential ssh calls. Cache the reconciliation
+  boundary per chat.
+- [ ] The app window marks a thread read while it is unfocused / on another
+  workspace; use Hyprland focus as the read signal.
+- [ ] Toasts fire for the conversation being read (bar popout case).
+- [ ] `detectSelfChats` can promote a DM on one same-second same-text
+  coincidence and persists it; require two occurrences or an `is_from_me`
+  twin with identical guid prefix.
+- [ ] Failure toasts re-fire across runs (dedupe ring hashing).
+- [ ] Non-NANP bare numbers assume +1 in `normalizeHandle`; needs a
+  `default_region` in bridge.conf.
+- [ ] `searching` sticks on after a click into the field; `bubbleFocused`
+  can stick after a reload; link colour inside the accent bubble.
+- [ ] Send-target resolution exists twice (QML text path, TS file path) —
+  unify on TS.
+- [ ] `--read` clears a chat's ledger count but only marks through
+  `--seen`; make them agree.
+
 ## Futures — requested, not scheduled
 
 - [ ] **In-flight encryption** (community request, 2026-09-01) — **answered,

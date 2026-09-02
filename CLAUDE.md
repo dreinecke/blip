@@ -68,7 +68,16 @@ what it is handed. Keep it that way.
   `buildThreads()` and before `decorate()`.
 - **`PanelKeyCatcher` eats keys before focused children.** Any editor that
   should receive typing must be covered by its `blocked:` binding.
-- **Pass `--` before message text** to both `imsg-send` and `notify-send`.
+- **Message text never rides argv, on either machine.** Text: `--text-stdin`.
+  Caption + file: `--text-stdin-bytes N` ahead of the bytes, and BlipView
+  hands send-file.ts the caption via `--caption-stdin`. `--file-bytes N`
+  makes the Mac refuse a short stream. `--keep-dashes` always (imsg-send's
+  dash scrubbing is a claude-on-mac house rule, not Blip's).
+- **`tcc-check` is not reachable through the confined key** (it drives four
+  other apps' Automation prompts); `blip-check` is what the wizard runs.
+- **Cache file extensions follow the gated MIME**, never the sender's name —
+  `xdg-open` dispatches on extension (war room #49).
+- **Pass `--` before message text** to `notify-send`.
 - **No message content in state.json.** `~/.local/state/blip/state.json` holds
   timestamps, counts, opaque SHA-256 toast keys, self-chat ids, and group
   metadata. It is atomic and `0600`; no message bodies are allowed. EXCEPTION

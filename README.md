@@ -184,9 +184,15 @@ pinned in `bridge/BRIDGE-VERSION`), and `blip-setup` wires everything.
 
 **Requirements**
 
-- A Mac signed into Messages with your Apple ID (a Mac mini in a closet is
-  perfect), reachable from the Linux box over SSH with key auth — Tailscale
-  recommended. *Messages in iCloud* on, so its `chat.db` mirrors your phone.
+- A Mac on **macOS 13 Ventura or newer** (the Recently-Deleted table Blip
+  filters on arrived there; Sequoia is what it is developed on), signed into
+  Messages with your Apple ID, reachable from the Linux box over SSH with
+  key auth — Tailscale recommended. *Messages in iCloud* on, so its `chat.db`
+  mirrors your phone. Xcode Command Line Tools installed (`xcode-select
+  --install`) — `python3` on a fresh Mac is a stub until then.
+- A "Mac mini in a closet" works **after** the one-time grants: the two
+  permission prompts and the first Automation approval need a screen (or
+  Screen Sharing) once. Headless from then on.
 - Linux: [Omarchy](https://omarchy.org) (Hyprland + the Omarchy shell), and on
   the box: `bun`, `jq`, `openssh`, `libnotify`, `wl-clipboard`, `xdg-utils`.
   `blip-setup` checks for each and prints the `pacman` line for what's missing.

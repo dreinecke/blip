@@ -45,7 +45,8 @@ Panel {
   function openThread(t) { view.openThread(t) }
   function markAllRead() { view.markAllRead() }
   function pushReload() { view.pushReload() }
-  function composeAndSend(text) { return view.composeAndSend(text) }
+  // A closed popout still remembers its last thread; never let IPC send into it blind.
+  function composeAndSend(text) { if (!opened) return "panel closed — open the conversation first"; return view.composeAndSend(text) }
   function bubbleModel() { return view.bubbleModel() }
   function searchFor(query) { if (!opened) open(); return view.searchFor(query) }
   function newChatFor(query) { if (!opened) open(); return view.newChatFor(query) }

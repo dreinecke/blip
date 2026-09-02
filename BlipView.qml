@@ -278,8 +278,9 @@ FocusScope {
   function openLink(u) {
     u = String(u || "")
     if (!/^https?:\/\//i.test(u)) return
-    openProc.command = ["xdg-open", u]
-    openProc.running = true
+    // execDetached, not a shared Process: a handler that stays in the
+    // foreground would make every later click a silent no-op.
+    Quickshell.execDetached(["xdg-open", u])
   }
 
   // ---------------------------------------------------- contact photos
@@ -586,9 +587,12 @@ FocusScope {
     if (draftPath !== "") {
       // send-file.ts owns target resolution (group guid or DM handle).
       sendDraftPath = draftPath
-      fileSendProc.command = ["bun", root.sendFileScript, sendChat, draftPath]
-        .concat(trimmed !== "" ? [text] : [])
+      // caption on stdin — never in this process's argv (audit #4, war room #1/#13)
+      fileSendProc.command = ["bun", root.sendFileScript, sendChat, draftPath, "--caption-stdin"]
+      fileSendProc.stdinEnabled = true
       fileSendProc.running = true
+      fileSendProc.write(trimmed !== "" ? text : "")
+      fileSendProc.stdinEnabled = false
       return
     }
 
@@ -597,7 +601,7 @@ FocusScope {
     var target = root.activeIsGroup
       ? ["--chat-id", String(root.active.guid)]
       : ["--to", sendChat]
-    sendProc.command = [root.home + "/bin/imsg-send"].concat(target).concat(["--yes", "--text-stdin"])
+    sendProc.command = [root.home + "/bin/imsg-send"].concat(target).concat(["--yes", "--text-stdin", "--keep-dashes"])
     sendProc.stdinEnabled = true
     sendProc.running = true
     sendProc.write(text)
@@ -714,8 +718,7 @@ FocusScope {
           root.attFiles = m
           if (d.ok === true && root.fetchJobOpen) {
             if (root.openableMime(root.fetchJobMime)) {
-              openProc.command = ["xdg-open", String(d.url || "")]
-              openProc.running = true
+              Quickshell.execDetached(["xdg-open", String(d.url || "")])
             } else {
               root.note = "saved, not opened (" + (root.fetchJobMime || "unknown type") + "): " + String(d.path || "")
             }
@@ -785,7 +788,6 @@ FocusScope {
     }
   }
 
-  Process { id: openProc }
 
   Process {
     id: contactProc
@@ -1267,7 +1269,8 @@ FocusScope {
                       text: {
                         var n = String(modelData.name || "")
                         if (/^[+0-9]/.test(n) || n === "") return "#"
-                        var parts = n.trim().split(/\s+/)
+                        var parts = n.trim().split(/\s+/).filter(function(p) { return p.length > 0 })
+                        if (parts.length === 0) return "#"
                         return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase()
                       }
                       color: root.foreground
@@ -1782,8 +1785,7 @@ FocusScope {
                       text: hasLink ? String(modelData.html) : String(modelData.text || "")
                       textFormat: hasLink ? TextEdit.RichText : TextEdit.PlainText
                       onLinkActivated: function(link) {
-                        openProc.command = ["xdg-open", link]
-                        openProc.running = true
+                        root.openLink(link)
                       }
                       wrapMode: TextEdit.Wrap
                       readOnly: true
