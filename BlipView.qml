@@ -554,16 +554,9 @@ FocusScope {
     newNote = ""
     newCursor = 0
     newQueryRan = ""
-    // Flipping several visibilities in one handler can miss the layout
-    // pass — the panel collapsed to its hero until results forced a
-    // rearrange (Fred's screenshot). Force it. listContent owns newField;
-    // `content` is the conversation column.
     Qt.callLater(function() {
-      listContent.forceLayout()
-      Qt.callLater(function() {
-        newField.forceActiveFocus()
-        newField.selectAll()
-      })
+      newField.forceActiveFocus()
+      newField.selectAll()
     })
   }
 
@@ -575,7 +568,7 @@ FocusScope {
     newQueryRan = ""
     newField.text = ""
     newField.focus = false
-    Qt.callLater(function() { content.forceLayout(); root.navigationFocusRequested() })
+    root.navigationFocusRequested()
   }
 
   // Same identity discipline as message search: a stale completion must
@@ -593,19 +586,38 @@ FocusScope {
     }
     return JSON.stringify(rec)
   }
+  function newFieldQuery() {
+    var d = String(newField.displayText || "")
+    var t = String(newField.text || "")
+    return (d !== "" ? d : t).trim()
+  }
+  function scheduleContactSearch() {
+    if (!newMode) return
+    if (newFieldQuery() === "") {
+      newSearchTimer.stop()
+      newResults = []
+      newNote = ""
+      newQueryRan = ""
+      newCursor = 0
+      return
+    }
+    newNote = "searching…"
+    newSearchTimer.restart()
+  }
   function runContactSearch() {
-    var q = newField.text.trim()
+    var q = newFieldQuery()
     if (q === "") return
     // Bump the generation NOW so the in-flight (older) result is rejected,
     // never shown as clickable rows under the newer query (Codex audit #5).
     if (contactProc.running) { contactSeq++; contactPending = q; return }
     contactSeq++
     newQueryRan = q
+    newNote = "searching…"
     contactProc.command = ["bun", root.contactScript, q, threadRecencyJson()]
     contactProc.running = true
   }
   function acceptNewField() {
-    var q = newField.text.trim()
+    var q = newFieldQuery()
     if (q !== "" && q === newQueryRan && newResults.length > 0) {
       var i = Math.max(0, Math.min(newCursor, newResults.length - 1))
       openContact(newResults[i])
@@ -1027,6 +1039,38 @@ FocusScope {
     }
   }
 
+  // TextField textChanged never reached this window. Poll the field
+  // while composing; Enter is not part of the search path.
+  Timer {
+    id: newSearchWatch
+    interval: 50
+    repeat: true
+    running: root.newMode
+    property string lastQ: ""
+    onRunningChanged: lastQ = ""
+    onTriggered: {
+      var q = root.newFieldQuery()
+      if (q === lastQ) return
+      lastQ = q
+      root.scheduleContactSearch()
+    }
+  }
+  Timer {
+    id: newSearchTimer
+    interval: 150
+    repeat: false
+    onTriggered: {
+      if (!root.newMode) return
+      if (root.newFieldQuery() === "") {
+        root.newResults = []
+        root.newNote = ""
+        root.newQueryRan = ""
+        root.newCursor = 0
+        return
+      }
+      root.runContactSearch()
+    }
+  }
   Timer {
     id: reloadTimer
     interval: 1500
@@ -1251,7 +1295,7 @@ FocusScope {
               id: newField
               Layout.fillWidth: true
               visible: root.online && root.listShowing && root.newMode
-              placeholderText: "name, number, or email — Enter searches contacts"
+              placeholderText: "name, number, or email"
               foreground: root.foreground
               accent: root.accent
               font.family: root.fontFamily

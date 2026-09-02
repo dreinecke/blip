@@ -262,7 +262,7 @@ describe("search shaping", () => {
 });
 
 describe("contact search shaping", () => {
-  const { directHandle, normalizeHandle, shapeContacts, rankByRecency } =
+  const { directHandle, normalizeHandle, shapeContacts, rankByRecency, fuzzyScore, filterFuzzy } =
     require("./contact-search") as typeof import("./contact-search");
 
   test("US numbers normalize to E.164 like chat.db handles", () => {
@@ -316,6 +316,22 @@ describe("contact search shaping", () => {
     ];
     const ranked = rankByRecency(hits, { "+10002": "2026-09-02T21:00:00Z", "old@x.com": "2024-01-01T00:00:00Z" });
     expect(ranked.map((h) => h.handle)).toEqual(["+10002", "old@x.com", "+10001"]);
+  });
+
+  test("fuzzyScore matches subsequences and rejects missing letters", () => {
+    expect(fuzzyScore("car", "Carisa Thorén")).toBeGreaterThan(0);
+    expect(fuzzyScore("crs", "Carisa")).toBeGreaterThan(0);
+    expect(fuzzyScore("xyz", "Carisa")).toBe(0);
+    expect(fuzzyScore("carisa", "Carisa Thorén")).toBeGreaterThan(fuzzyScore("crs", "Carisa Thorén"));
+  });
+
+  test("filterFuzzy keeps contacts whose name matches as a subsequence", () => {
+    const raw = [
+      { name: "Carisa Thorén", phones: [{ number: "+46730000000" }] },
+      { name: "Frank Thorén", phones: [{ number: "+46730000001" }] },
+    ];
+    const hits = filterFuzzy(raw, "crs");
+    expect(hits.map((c) => c.name)).toEqual(["Carisa Thorén"]);
   });
 
   test("rankByRecency keeps a direct-entry row first", () => {

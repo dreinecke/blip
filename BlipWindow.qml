@@ -41,6 +41,11 @@ FloatingWindow {
   function openThread(t) { view.openThread(t) }
   function shareLink(url) { return view.shareLink(url) }
   function pushReload() { view.pushReload() }
+  function navText(event) {
+    if (event.key === Qt.Key_Slash) return "/"
+    if (event.key === Qt.Key_N) return "n"
+    return event.text
+  }
 
   // ---- persistence: the window lives inside the shell process, so every
   // omarchy-restart-shell (every plugin deploy/update) would kill it. Remember
@@ -86,13 +91,7 @@ FloatingWindow {
         event.accepted = true
         return
       }
-      if (view.catchNavText(navText(event))) event.accepted = true
-    }
-
-    function navText(event) {
-      if (event.key === Qt.Key_Slash) return "/"
-      if (event.key === Qt.Key_N) return "n"
-      return event.text
+      if (view.catchNavText(win.navText(event))) event.accepted = true
     }
 
     Item {
@@ -105,7 +104,7 @@ FloatingWindow {
           event.accepted = true
           return
         }
-        if (view.catchNavText(navText(event))) event.accepted = true
+        if (view.catchNavText(win.navText(event))) event.accepted = true
       }
 
       BlipView {

@@ -101,11 +101,22 @@ describe("QML safety invariants", () => {
     expect(window).toContain("view.catchNavText(");
     expect(window).toContain("view.catchEscape()");
     expect(window).toContain("navCatcher.forceActiveFocus()");
+    expect(window).toContain("win.navText(");
   });
 
   test("handleTextKey runs slash and n before the inThread return", () => {
     const fn = handleTextKeySource();
     expect(fn.indexOf('text === "/"')).toBeLessThan(fn.indexOf("inThread"));
     expect(fn.indexOf('text === "n"')).toBeLessThan(fn.indexOf("inThread"));
+  });
+
+  test("new-message contact search is scheduled from the field text, not only Enter", () => {
+    expect(panel).toContain("function scheduleContactSearch");
+    expect(panel).toContain("function newFieldQuery");
+    expect(panel).toContain("id: newSearchWatch");
+    expect(panel).toContain("running: root.newMode");
+    expect(panel).toContain("newSearchTimer.restart()");
+    expect(panel).not.toContain("forceLayout");
+    expect(panel.indexOf("onAccepted: root.acceptNewField()")).toBeGreaterThan(-1);
   });
 });
