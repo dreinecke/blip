@@ -881,11 +881,26 @@ def _group_cluster_map(con) -> dict:
 
 
 def _group_photo_path(con, chat_identifier: str) -> str:
-    """Newest group photo for a group chat, or "". Messages stores a group's
-    photo as an attachment named GroupPhotoImage on a message with
-    group_action_type = 1 (there is no column on the chat row). A group that
-    moved between services has one chat row per service, so the lookup spans
-    every row sharing the group_id."""
+    """Newest group photo for a group chat, or "".
+
+    Messages stores a group's photo as an attachment whose filename ends in
+    `GroupPhotoImage` — there is no column on the chat row. Two traps, both
+    hit on a real Mac:
+
+    * The carrier message's `group_action_type` is NOT a constant. Photos set
+      up to 2025-04-16 carry 3, ones from 2025-04-18 on carry 1 (an OS-version
+      change, not a semantic one — no group here has any group-action event
+      AFTER its photo, so neither value means "removed"). Matching on the
+      filename instead of the action type is what makes both work.
+    * The photo can live on a SIBLING chat row. A re-keyed group has several
+      rows with different chat_identifiers AND different group_ids; Fred's
+      "Sportsball!" keeps its photo on the row Messages retired in Feb 2026.
+      So the search spans the whole cluster, not the row it was asked about.
+    """
+    clusters = _group_cluster_map(con)
+    canon = clusters.get(chat_identifier, chat_identifier)
+    ids = sorted({c for c, k in clusters.items() if k == canon} | {chat_identifier, canon})
+    placeholders = ",".join("?" for _ in ids)
     row = con.execute(
         f"""SELECT a.filename
             FROM chat c
@@ -893,12 +908,10 @@ def _group_photo_path(con, chat_identifier: str) -> str:
             JOIN {MESSAGE_SRC} m ON m.ROWID = cmj.message_id
             JOIN message_attachment_join maj ON maj.message_id = m.ROWID
             JOIN attachment a ON a.ROWID = maj.attachment_id
-            WHERE m.group_action_type = 1 AND a.filename IS NOT NULL
-              AND (c.chat_identifier = ?
-                   OR (c.group_id IS NOT NULL AND c.group_id =
-                       (SELECT group_id FROM chat WHERE chat_identifier = ? LIMIT 1)))
+            WHERE a.filename LIKE '%GroupPhotoImage'
+              AND c.chat_identifier IN ({placeholders})
             ORDER BY m.date DESC LIMIT 1""",
-        (chat_identifier, chat_identifier),
+        tuple(ids),
     ).fetchone()
     return os.path.expanduser(row["filename"]) if row and row["filename"] else ""
 

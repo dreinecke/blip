@@ -18,6 +18,13 @@ import { isGroupChat } from "./collector";
 const HOME = process.env.HOME ?? homedir();
 export const AVATAR_DIR = join(process.env.XDG_CACHE_HOME ?? join(HOME, ".cache"), "blip", "avatars");
 export const AVATAR_TTL_MS = 7 * 24 * 3600 * 1000;
+/** "No photo" is remembered for a DAY, not a week. A photo can appear at any
+ *  time — someone sets a group picture, adds a Contacts card, or a bridge fix
+ *  starts finding one that was always there (a stale `.none` from a buggy
+ *  build kept Sportsball! blank even after the bridge learned to find it).
+ *  Short enough to self-heal, long enough that a photoless contact is not
+ *  re-asked on every poll. */
+export const AVATAR_NONE_TTL_MS = 24 * 3600 * 1000;
 export const AVATAR_MAX_BYTES = 2 * 1024 * 1024;
 
 export interface AvatarResult { ok: boolean; url: string; error: string }
@@ -26,10 +33,10 @@ export function avatarKey(handle: string): string {
   return createHash("sha256").update(handle.trim().toLowerCase()).digest("hex").slice(0, 32);
 }
 
-function fresh(path: string): boolean {
+function fresh(path: string, ttl = AVATAR_TTL_MS): boolean {
   try {
     const st = lstatSync(path);
-    return st.isFile() && Date.now() - st.mtimeMs < AVATAR_TTL_MS;
+    return st.isFile() && Date.now() - st.mtimeMs < ttl;
   } catch { return false; }
 }
 
@@ -48,7 +55,7 @@ export function fetchAvatar(handle: string, runner = spawnSync): AvatarResult {
   const file = `${base}.jpg`;
   const none = `${base}.none`;
   if (fresh(file)) return { ok: true, url: pathToFileURL(file).href, error: "" };
-  if (fresh(none)) return { ok: false, url: "", error: "no photo" };
+  if (fresh(none, AVATAR_NONE_TTL_MS)) return { ok: false, url: "", error: "no photo" };
 
   const res = runner(`${HOME}/bin/imsg`, avatarArgs(h), { timeout: 20000, maxBuffer: AVATAR_MAX_BYTES + (1 << 20) });
   if (res.status === 69 || res.status === 255) return { ok: false, url: "", error: "Mac unreachable" };

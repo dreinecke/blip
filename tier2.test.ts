@@ -4,8 +4,8 @@ import { CACHE_DIR, bakeOrientation, cacheFileName, exifOrientation, fetchAttach
 import { extFor, pickImageType } from "./paste";
 import { resolveTarget, sendFile } from "./send-file";
 import { linkHost, linkify, normalizeLink, selectThread } from "./thread";
-import { AVATAR_DIR, avatarArgs, avatarKey, fetchAvatar } from "./avatar";
-import { readFileSync, writeFileSync, unlinkSync } from "node:fs";
+import { AVATAR_DIR, AVATAR_NONE_TTL_MS, AVATAR_TTL_MS, avatarArgs, avatarKey, fetchAvatar } from "./avatar";
+import { readFileSync, writeFileSync, unlinkSync, utimesSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { join } from "node:path";
 
@@ -359,6 +359,21 @@ describe("contact photos", () => {
     const h = `ref-${Date.now()}@example.com`;
     expect(fetchAvatar(h, runner).ok).toBe(false);
     unlinkSync(`${AVATAR_DIR}/${avatarKey(h)}.none`);
+  });
+
+  test("a no-photo marker expires in a day, so a new photo is found", () => {
+    let calls = 0;
+    const runner = (() => { calls++; return { status: 1, stdout: Buffer.alloc(0), stderr: "" }; }) as never;
+    const h = `+1555${Date.now() % 10000000}`;
+    expect(fetchAvatar(h, runner).ok).toBe(false);
+    const marker = `${AVATAR_DIR}/${avatarKey(h)}.none`;
+    // age it past the negative TTL but well inside the positive one
+    const old = new Date(Date.now() - AVATAR_NONE_TTL_MS - 60_000);
+    utimesSync(marker, old, old);
+    expect(fetchAvatar(h, runner).ok).toBe(false);
+    expect(calls).toBe(2);                       // re-asked, not trusted for a week
+    expect(AVATAR_NONE_TTL_MS).toBeLessThan(AVATAR_TTL_MS);
+    unlinkSync(marker);
   });
 
   test("a group id asks for the GROUP's photo (--chat), a person for Contacts (--)", () => {

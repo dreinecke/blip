@@ -16,10 +16,17 @@
 - **Group photos, and no more borrowed faces.** A group row bound its
   picture to whoever spoke last, so it showed that member's cached contact
   photo one minute and initials the next. Groups now bind to their own chat
-  id and the bridge streams the group's own photo — Messages keeps it as a
-  `GroupPhotoImage` attachment on a `group_action_type = 1` message, found
-  across every chat row the group has (`imsg avatar --chat <id>`, PNG/JPEG
-  as-is, anything else through sips). Groups without one show initials.
+  id and the bridge streams the group's own photo (`imsg avatar --chat <id>`,
+  PNG/JPEG as-is, anything else through sips). Messages keeps that photo as
+  an attachment whose name ends in `GroupPhotoImage`; the carrier message's
+  `group_action_type` is 3 for photos set up to April 2025 and 1 after, so
+  the lookup matches the FILENAME, not the action type, and searches every
+  chat row of the conversation — a re-keyed group can keep its photo on the
+  row Messages retired. Groups without one show initials.
+- **"No photo" is remembered for a day, not a week.** A photo that appears
+  later — a new group picture, a Contacts card, or a bridge fix that starts
+  finding one — now shows up within a day instead of after the 7-day cache
+  expired.
 - **Share sheet for links.** Right-click a link in a bubble, or a link card,
   and Blip opens a sheet: open in browser, copy, a QR code your phone can
   scan, and "send to a device" through LocalSend — Omarchy's own share sheet,
