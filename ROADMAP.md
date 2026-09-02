@@ -168,6 +168,10 @@ panel (3 lenses × finding, against current main) confirmed 11 closed and
 - [x] One BarWidget per monitor → leader election (2.2.0; follower bars
   show the badge from state.json and forward clicks over IPC).
 - [x] SMS/RCS threads send on their own service (2.2.0).
+- [ ] **3–4 digit short codes classify as groups** — `isGroupChat()` treats a
+  digits-only id shorter than 5 as "not a phone", so a carrier-style sender
+  opens read-only with "group id unknown". Widen to `{3,15}` (E.164 max is
+  15) once tested against a real one. 5+ digit codes load correctly since 2.2.1.
 - [ ] **Timestamps are Mac-local wall-clock strings** compared against the
   Linux clock (DST fall-back hour, a UTC Mac). Move the bridge to epoch/UTC
   and convert on display. Cross-cutting; do it as its own release.
