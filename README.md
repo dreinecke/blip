@@ -342,4 +342,6 @@ evening, 2.0 the next — on
 [claude-on-mac](https://github.com/nixfred/claude-on-mac) — it predates Blip,
 and it's the reason this took an evening, not a week.
 
+**Contributors:** [@jethrojones](https://github.com/jethrojones) — `blip-check` across every Contacts source (#2).
+
 MIT.

@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.0.4 — 2026-09-01
+
+**Fixed**
+- `blip-check` probed a single, unordered Contacts source; a stale CardDAV
+  `.abcddb` sorting first produced a false "contacts ❌ — grant Full Disk
+  Access" during `blip-setup` even though contacts and avatars worked. It now
+  probes every source like the `contacts` tool does and fails only when none
+  opens. First outside contribution — **@jethrojones** (#2). Thank you.
+
+**Repo**
+- CI on every push and PR (bun test, Mac tools byte-compile, shellcheck),
+  CONTRIBUTING, issue/PR templates, security policy, GitHub Releases.
+
 ## 2.0.0 — 2026-08-31
 
 The "complete for Fred" release: everything on the roadmap that makes Blip
