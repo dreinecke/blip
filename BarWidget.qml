@@ -572,6 +572,7 @@ BarWidget {
     function close(): void { root.close() }
     function toggle(): void { root.toggle() }
     function goto(chat: string): string { if (!root.automationOn) return root.automationOff; root.show(chat); return "shown" }
+    function share(url: string): string { if (!root.automationOn) return root.automationOff; root.open(); return panelLoader.item ? panelLoader.item.shareLink(url) : "no panel" }
     function compose(text: string): string { if (!root.automationOn) return root.automationOff; return panelLoader.item ? panelLoader.item.composeAndSend(text) : "no panel" }
     function bubbles(): string { if (!root.automationOn) return root.automationOff; return panelLoader.item ? panelLoader.item.bubbleModel() : "[]" }
     function find(query: string): string { if (!root.automationOn) return root.automationOff; return panelLoader.item ? panelLoader.item.searchFor(query) : "no panel" }

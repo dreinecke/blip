@@ -109,6 +109,57 @@ FocusScope {
   readonly property bool online: hostWidget ? hostWidget.online : false
   readonly property int unread: hostWidget ? hostWidget.unread : 0
 
+  // ---- share sheet (right-click a link in a bubble, or a link card)
+  property string shareUrl: ""        // "" = closed
+  property string shareQr: ""         // file:// of the rendered QR, "" while rendering
+  readonly property string shareDir: Quickshell.env("XDG_RUNTIME_DIR") + "/blip"
+  /** Open the share sheet for one http(s) URL. Anything else is ignored. The
+   *  URL is message content: it reaches qrencode and the LocalSend temp file
+   *  on STDIN, never argv (CLAUDE.md: message text never rides argv). */
+  function openShare(u) {
+    u = String(u || "")
+    if (!/^https?:\/\//i.test(u)) return
+    shareUrl = u
+    shareQr = ""
+    var out = shareDir + "/qr-" + Date.now() + ".png"
+    qrProc.outFile = out
+    qrProc.command = ["sh", "-c", 'mkdir -p "$1" && chmod 700 "$1" && umask 077 && exec qrencode -o "$2" -s 6 -m 2 -l M', "blip", shareDir, out]
+    qrProc.stdinEnabled = true
+    qrProc.running = true
+    qrProc.write(u)
+    qrProc.stdinEnabled = false
+  }
+  function closeShare() { shareUrl = ""; shareQr = "" }
+  /** IPC `share <url>` (host gates it behind automation=on). */
+  function shareLink(u) {
+    u = String(u || "")
+    if (!/^https?:\/\//i.test(u)) return "not an http(s) url"
+    openShare(u)
+    return "share sheet"
+  }
+  function shareOpen() { var u = shareUrl; closeShare(); openLink(u) }
+  function shareCopy() { var u = shareUrl; closeShare(); copyText(u) }
+  /** Omarchy's share sheet. Same path as `omarchy-menu-share clipboard`: the
+   *  text lands in a temp .txt and LocalSend's device picker takes it from
+   *  there (the official headless CLI sends files, not text). */
+  function shareSend() {
+    var u = shareUrl; closeShare()
+    var f = shareDir + "/share-" + Date.now() + ".txt"
+    sendShareProc.command = ["sh", "-c", 'mkdir -p "$1" && chmod 700 "$1" && umask 077 && cat > "$2" && exec systemd-run --user --quiet --collect localsend --headless send "$2"', "blip", shareDir, f]
+    sendShareProc.stdinEnabled = true
+    sendShareProc.running = true
+    sendShareProc.write(u)
+    sendShareProc.stdinEnabled = false
+    note = "sent to LocalSend"
+    noteTimer.restart()
+  }
+  Process {
+    id: qrProc
+    property string outFile: ""
+    onExited: function(code) { if (code === 0 && root.shareUrl !== "") root.shareQr = "file://" + outFile }
+  }
+  Process { id: sendShareProc }
+
   // ---- view state
   property var active: null          // selected thread object, null = list view
   property var bubbles: []           // decorated messages for `active` (see thread.ts)
@@ -654,7 +705,7 @@ FocusScope {
     note = "copied"
     noteTimer.restart()
   }
-  Timer { id: noteTimer; interval: 1500; onTriggered: if (root.note === "copied") root.note = "" }
+  Timer { id: noteTimer; interval: 1500; onTriggered: if (root.note === "copied" || root.note === "sent to LocalSend") root.note = "" }
 
   function fmtTime(ts) {
     var s = String(ts || "")
@@ -913,6 +964,7 @@ FocusScope {
   /** Esc semantics for a host without a PanelKeyCatcher (the window): true if
    *  something was unwound, false if the host should close. */
   function unwind() {
+    if (shareUrl !== "") { closeShare(); return true }
     if (inThread) { back(); return true }
     if (newMode) { exitNew(); return true }
     if (searching) { exitSearch(); return true }
@@ -1881,6 +1933,7 @@ FocusScope {
                     }
                     HoverHandler { cursorShape: Qt.PointingHandCursor }
                     TapHandler { onTapped: root.openLink(String(linkCard.link.url || "")) }
+                    TapHandler { acceptedButtons: Qt.RightButton; onTapped: root.openShare(String(linkCard.link.url || "")) }
                   }
                   Item { Layout.fillWidth: true; visible: !bubbleRow.mine }
                 }
@@ -1964,10 +2017,15 @@ FocusScope {
                       }
                     }
 
-                    // right-click = copy the whole message
+                    // right-click on a LINK = share sheet; anywhere else = copy the whole message
                     TapHandler {
                       acceptedButtons: Qt.RightButton
-                      onTapped: root.copyText(String(modelData.text || ""))
+                      onTapped: function(eventPoint) {
+                        var p = bubbleText.mapFromItem(bubble, eventPoint.position.x, eventPoint.position.y)
+                        var l = bubbleText.hasLink ? bubbleText.linkAt(p.x, p.y) : ""
+                        if (l && l !== "") root.openShare(String(l))
+                        else root.copyText(String(modelData.text || ""))
+                      }
                     }
 
                     // tapback pill overlapping the corner opposite the tail
@@ -2172,4 +2230,113 @@ FocusScope {
         drop.accept()
       }
     }
+
+  // ---------------------------------------------------- share sheet
+  // Right-click a link (bubble text or link card): open · copy · QR for a
+  // phone · send to a device through LocalSend, which is Omarchy's own share
+  // sheet (omarchy-menu-share). Esc or a click outside closes it. Buttons are
+  // Rectangle+TapHandler like the thread rows — a MouseArea here would lose
+  // its clicks to the panel's dismiss layer.
+  Item {
+    id: shareSheet
+    anchors.fill: parent
+    visible: root.shareUrl !== ""
+    z: 500
+    Rectangle {
+      anchors.fill: parent
+      color: Qt.rgba(0, 0, 0, 0.45)
+      TapHandler { onTapped: root.closeShare() }
+    }
+    Rectangle {
+      id: shareCard
+      anchors.centerIn: parent
+      width: Math.min(parent.width - Style.space(32), Style.space(360))
+      height: shareCol.implicitHeight + Style.space(28)
+      radius: Style.cornerRadius
+      color: Color.background
+      border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.18)
+      border.width: 1
+      TapHandler { }   // swallow clicks on the card so they never reach the scrim
+      ColumnLayout {
+        id: shareCol
+        anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
+        anchors.margins: Style.space(14)
+        spacing: Style.space(8)
+        Text {
+          Layout.fillWidth: true
+          text: "SHARE LINK"
+          color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.6)
+          font.family: root.fontFamily; font.pixelSize: Style.font.caption; font.letterSpacing: 1
+        }
+        Text {
+          Layout.fillWidth: true
+          text: root.linkHost(root.shareUrl)
+          color: root.foreground
+          font.family: root.fontFamily; font.pixelSize: Style.font.body; font.bold: true
+          elide: Text.ElideRight
+        }
+        Text {
+          Layout.fillWidth: true
+          text: root.shareUrl
+          color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.7)
+          font.family: root.fontFamily; font.pixelSize: Style.font.caption
+          elide: Text.ElideMiddle
+          maximumLineCount: 1
+        }
+        // QR for a phone camera: white quiet zone so dark themes scan.
+        Rectangle {
+          Layout.alignment: Qt.AlignHCenter
+          Layout.topMargin: Style.space(4)
+          width: Style.space(176); height: width
+          radius: Style.cornerRadius
+          color: "white"
+          visible: root.shareQr !== ""
+          Image {
+            anchors.fill: parent; anchors.margins: Style.space(8)
+            source: root.shareQr
+            fillMode: Image.PreserveAspectFit
+            smooth: false
+            sourceSize.width: 400; sourceSize.height: 400
+          }
+        }
+        Repeater {
+          model: [
+            { label: "Open in browser", act: "open" },
+            { label: "Copy link", act: "copy" },
+            { label: "Send to a device  ·  LocalSend", act: "send" }
+          ]
+          delegate: Rectangle {
+            required property var modelData
+            Layout.fillWidth: true
+            height: Style.space(40)
+            radius: Style.cornerRadius
+            color: shareHover.hovered
+              ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+              : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.06)
+            Text {
+              anchors.centerIn: parent
+              text: modelData.label
+              color: root.foreground
+              font.family: root.fontFamily; font.pixelSize: Style.font.bodySmall
+            }
+            HoverHandler { id: shareHover; cursorShape: Qt.PointingHandCursor }
+            TapHandler {
+              onTapped: {
+                if (modelData.act === "open") root.shareOpen()
+                else if (modelData.act === "copy") root.shareCopy()
+                else root.shareSend()
+              }
+            }
+          }
+        }
+        Text {
+          Layout.fillWidth: true
+          horizontalAlignment: Text.AlignHCenter
+          text: "Esc closes"
+          color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.45)
+          font.family: root.fontFamily; font.pixelSize: Style.font.caption
+        }
+      }
+    }
+  }
 }

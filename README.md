@@ -92,10 +92,10 @@ Linux side. If the Mac is asleep, the widget dims and says so.
 - **tapbacks** — ❤️👍😂 pills on the bubble corner, custom emoji included
 - **"Read 4:42 PM"** under the last message of yours they've read (display only — Blip never sends receipts)
 - **inline replies** quoted above the bubble · **Edited** tags · "unsent a message" tombstones
-- **link cards** — URL messages show the preview image, title, and host, like Messages; click opens the link
+- **link cards** — URL messages show the preview image, title, and host, like Messages; click opens the link, **right-click opens the share sheet** (open · copy · QR for your phone · send to a device via LocalSend, Omarchy's share)
 - **photos render inline** — images ≤5MB auto-fetch over SSH (HEIC converted on the Mac); click opens full-size. PDFs/videos are chips — click fetches and opens them
 - **send files** — Ctrl+V an image into the compose box, type `/attach <path>`, or drag-and-drop; a caption rides along
-- select text and Ctrl+C · right-click a bubble to copy it whole
+- select text and Ctrl+C · right-click a bubble to copy it whole · right-click a **link** in a bubble for the share sheet
 - compose box at the bottom, Enter sends — **DMs and groups**
 
 **Toasts**
@@ -311,6 +311,7 @@ IPC, for scripts and other plugins:
 qs -p /usr/share/omarchy/shell ipc call nixfred.blip status
 qs -p /usr/share/omarchy/shell ipc call nixfred.blip goto 15551234567   # bare digits
 qs -p /usr/share/omarchy/shell ipc call nixfred.blip read               # mark all read
+qs -p /usr/share/omarchy/shell ipc call nixfred.blip share https://example.com   # share sheet for a URL
 ```
 
 Everything that sends or reads message content over IPC (`goto`, `compose`,

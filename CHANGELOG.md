@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Share sheet for links.** Right-click a link in a bubble, or a link card,
+  and Blip opens a sheet: open in browser, copy, a QR code your phone can
+  scan, and "send to a device" through LocalSend — Omarchy's own share sheet,
+  fed the way `omarchy-menu-share clipboard` feeds it. The URL travels on
+  stdin to qrencode and to the temp file; left-click still opens the link.
 - **Pinned conversations, mirrored from Messages.** The Mac's ordered pin
   list (`com.apple.messages.pinning.plist`, `pD.pP`) rides along on the
   `chats` call and Blip renders those conversations as avatar tiles above the

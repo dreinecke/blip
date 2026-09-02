@@ -33,6 +33,19 @@ describe("QML safety invariants", () => {
     expect(panel).not.toContain('["--yes", "--", text]');
   });
 
+  test("share sheet: right-click a link, URL on stdin, never argv", () => {
+    expect(panel).toContain("function openShare(u)");
+    expect(panel).toContain("qrProc.write(u)");
+    expect(panel).toContain("sendShareProc.write(u)");
+    expect(panel).toContain('localsend --headless send "$2"');
+    expect(panel).toContain('onTapped: root.openShare(String(linkCard.link.url || ""))');
+    expect(panel).toContain('if (shareUrl !== "") { closeShare(); return true }');
+    expect(widget).toContain('function share(url: string): string { if (!root.automationOn) return root.automationOff;');
+    // never the URL as an argv element of qrencode / localsend
+    expect(panel).not.toContain('qrencode", ');
+    expect(panel).not.toContain("localsend --headless send \"$2\" \"$3\"");
+  });
+
   test("IPC goto only E.164-ifies a full number, never a short code", () => {
     expect(widget).toContain('/^[0-9]{10,}$/.test(want)');
     expect(widget).not.toContain('/^[0-9]+$/.test(want)');

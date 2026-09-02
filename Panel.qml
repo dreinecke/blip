@@ -50,6 +50,7 @@ Panel {
   function bubbleModel() { return view.bubbleModel() }
   function searchFor(query) { if (!opened) open(); return view.searchFor(query) }
   function newChatFor(query) { if (!opened) open(); return view.newChatFor(query) }
+  function shareLink(url) { if (!opened) open(); return view.shareLink(url) }
 
   // ------------------------------------------------------------ panel
   KeyboardPanel {
