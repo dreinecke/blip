@@ -142,6 +142,21 @@ describe("EXIF orientation is baked into cached JPEGs", () => {
     expect(readFileSync(join(CACHE_DIR, cacheFileName("123456789012347", "IMG_1.heic", "image/heic"))).equals(rotated)).toBe(true);
   });
 
+  test("an old jpegtran that rejects -copy icc gets a -copy none retry", () => {
+    const seen: string[][] = [];
+    const runner = ((_c: string, args: string[]) => {
+      seen.push(args);
+      if (args.includes("icc")) return { status: 1, stdout: Buffer.alloc(0), stderr: "Invalid argument" };
+      return { status: 0, stdout: Buffer.from([0xff, 0xd8, 0xff, 0xdb, 9, 9]), stderr: "" };
+    }) as never;
+    const out = bakeOrientation(withExif(TINY_JPEG, 6), runner);
+    expect(seen.length).toBe(2);
+    expect(seen[0]).toContain("icc");
+    expect(seen[1]).toContain("none");
+    expect(out[0]).toBe(0xff);
+    expect(out.length).toBe(6);
+  });
+
   test("when jpegtran is missing or fails, the original bytes are cached", () => {
     const tagged = withExif(TINY_JPEG, 6);
     const runner = ((cmd: string) =>
@@ -151,7 +166,11 @@ describe("EXIF orientation is baked into cached JPEGs", () => {
     expect(readFileSync(r.path).equals(tagged)).toBe(true);
   });
 
-  const haveJpegtran = spawnSync("jpegtran", ["-help"]).status !== null;
+  // Capability probe, not presence: the GitHub runner's jpegtran exists but
+  // cannot transform this fixture (it left the bytes untouched and CI went red
+  // for every push after #9). Skip when the local jpegtran can't do the job.
+  const probe = spawnSync("jpegtran", ["-rotate", "90", "-trim", "-copy", "none"], { input: withExif(TINY_JPEG, 6) });
+  const haveJpegtran = probe.status === 0 && !!probe.stdout && (probe.stdout as Buffer).length > 4;
   test.skipIf(!haveJpegtran)("real jpegtran turns a tagged 16×8 into an upright 8×16", () => {
     const out = bakeOrientation(withExif(TINY_JPEG, 6));
     expect(sofSize(withExif(TINY_JPEG, 6))).toEqual([16, 8]);

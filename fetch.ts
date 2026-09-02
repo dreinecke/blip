@@ -172,19 +172,26 @@ export function jpegtranArgs(orientation: number): string[] | null {
 export function bakeOrientation(bytes: Buffer, runner = spawnSync): Buffer {
   const op = jpegtranArgs(exifOrientation(bytes));
   if (!op) return bytes;
-  let res: { status: number | null; stdout: Buffer | string };
-  try {
-    res = runner("jpegtran", [...op, "-trim", "-copy", "icc"], {
-      input: bytes,
-      timeout: 30000,
-      maxBuffer: FETCH_MAX_BYTES + (1 << 20),
-    });
-  } catch {
-    return bytes;
+  // `-copy icc` keeps the colour profile (libjpeg-turbo ≥ 2.1, every Omarchy
+  // box). An older jpegtran rejects the option and exits non-zero — retry
+  // with `-copy none` so the photo is at least upright; only if that fails
+  // too do the original bytes go into the cache (Qt's autoTransform still
+  // shows them upright).
+  for (const copy of ["icc", "none"]) {
+    let res: { status: number | null; stdout: Buffer | string };
+    try {
+      res = runner("jpegtran", [...op, "-trim", "-copy", copy], {
+        input: bytes,
+        timeout: 30000,
+        maxBuffer: FETCH_MAX_BYTES + (1 << 20),
+      });
+    } catch {
+      return bytes;
+    }
+    const out = res.stdout as Buffer;
+    if (res.status === 0 && out && out.length >= 4 && out[0] === 0xff && out[1] === 0xd8) return out;
   }
-  const out = res.stdout as Buffer;
-  if (res.status !== 0 || !out || out.length < 4 || out[0] !== 0xff || out[1] !== 0xd8) return bytes;
-  return out;
+  return bytes;
 }
 
 export interface FetchResult {
