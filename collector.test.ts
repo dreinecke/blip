@@ -775,3 +775,20 @@ describe("explainBridgeError — a dim icon is not a diagnosis", () => {
     expect(explainBridgeError(3, "")).toBe("imsg exit 3");
   });
 });
+
+describe("toast identity is stable across polls (2.1.6)", () => {
+  test("the same message with its text decoded on the second poll toasts once", () => {
+    const first = { ts: "2026-09-01 20:00:05", from_me: false, handle: "+15550001111", name: "T", service: "iMessage", chat: "+15550001111", text: "" } as ImsgMessage;
+    const second = { ...first, text: "Ok, I will be there" };
+    const allow = ["+15550001111"];
+    const t1 = selectToasts([first], "2026-09-01 20:00:00", allow, []);
+    expect(t1).toHaveLength(1);
+    const t2 = selectToasts([second], "2026-09-01 20:00:00", allow, [t1[0]!.key]);
+    expect(t2).toHaveLength(0);
+  });
+  test("a bridge ROWID wins over the ts/chat/handle fallback", () => {
+    const a = { id: 42, ts: "2026-09-01 20:00:05", from_me: false, handle: "h", name: null, service: "iMessage", chat: "h", text: "x" } as ImsgMessage;
+    const b = { ...a, ts: "2026-09-01 20:00:09", text: "y" };
+    expect(toastKey(a)).toBe(toastKey(b));
+  });
+});

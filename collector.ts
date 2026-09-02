@@ -406,8 +406,10 @@ function normalizeToastKey(value: string): string {
 
 /** Stable opaque key for one message, used to suppress repeat toasts. */
 export function toastKey(m: ImsgMessage): string {
+  // No text in the fallback identity: Messages can land the row before the
+  // decoded body, so the same message polled twice must hash the same.
   const identity = m.id === undefined || m.id === null
-    ? `${m.ts}|${chatKey(m)}|${m.handle}|${m.text}`
+    ? `${m.ts}|${chatKey(m)}|${m.handle}`
     : `chat.db:${m.id}`;
   return digest(identity);
 }

@@ -396,6 +396,10 @@ def render(rows, as_json: bool, with_names: bool = True, con=None, rich: bool = 
         out = []
         for r in rows:
             row = {
+                # Stable identity for clients (toast dedupe, read ledgers): a
+                # message's text can change between polls (body decoded after
+                # the row lands) and its ts can sit ahead of the client's clock.
+                "id": r["ROWID"],
                 "ts": fmt_ts(r["date"]),
                 "from_me": bool(r["is_from_me"]),
                 "handle": r["handle"],

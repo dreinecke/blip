@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.6 — 2026-09-01
+
+- **Duplicate toasts fixed.** The bridge now emits each message's ROWID and
+  the toast key no longer includes the text: Messages can land a row before
+  its decoded body, and a timestamp slightly ahead of the Linux clock kept
+  the message above the watermark, so the same message toasted twice.
+
 ## 2.1.1 – 2.1.4 — 2026-09-01
 
 - **Links open and come to the front.** Clicks were reaching `xdg-open`
