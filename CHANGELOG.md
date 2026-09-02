@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.1.1 – 2.1.4 — 2026-09-01
+
+- **Links open and come to the front.** Clicks were reaching `xdg-open`
+  all along; Omarchy's `focus_on_activate=false` left the tab on the
+  browser's workspace. Blip now focuses the browser after opening. (2.1.4)
+- **Text selection + Ctrl+C in bubbles** — the conversation Flickable was
+  grabbing every drag. (2.1.1)
+- **Contact names regression** — one person across several Contacts
+  sources ("Rob" / "Robert") is not a collision. (2.1.2)
+- Repo scrubbed of maintainer machine names, a real group name, absolute
+  paths. (2.1.3)
+- README Install rewritten around `omarchy plugin add … --enable`, with
+  notes for humans and for AI agents; `AGENTS.md` added. (2.1.4)
+
 ## 2.1.0 — 2026-09-01 — war room
 
 Ten expert-lens reviewers swept the repo after the DHH retweet; 114
