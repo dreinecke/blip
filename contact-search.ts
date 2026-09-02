@@ -109,6 +109,20 @@ export function shapeContacts(raw: RawContact[], query: string, limit = 30): Con
   return out.slice(0, limit);
 }
 
+/** Newer last_ts first. Direct-entry rows stay at the top. */
+export function rankByRecency(hits: ContactHit[], recency: Record<string, string>): ContactHit[] {
+  const ts = (h: ContactHit) => recency[h.handle] || "";
+  const direct = hits.filter((h) => h.kind === "direct entry");
+  const rest = hits.filter((h) => h.kind !== "direct entry");
+  rest.sort((a, b) => {
+    const ta = ts(a);
+    const tb = ts(b);
+    if (ta === tb) return 0;
+    return ta < tb ? 1 : -1;
+  });
+  return direct.concat(rest);
+}
+
 export interface ContactSearchOutput {
   ok: boolean;
   online: boolean;
@@ -116,7 +130,11 @@ export interface ContactSearchOutput {
   results: ContactHit[];
 }
 
-export function searchContacts(query: string, runner = spawnSync): ContactSearchOutput {
+export function searchContacts(
+  query: string,
+  runner = spawnSync,
+  recency: Record<string, string> = {},
+): ContactSearchOutput {
   const fail = (error: string, online = true): ContactSearchOutput =>
     ({ ok: false, online, error, results: [] });
   const q = String(query || "").trim();
@@ -130,14 +148,14 @@ export function searchContacts(query: string, runner = spawnSync): ContactSearch
   if (res.status !== 0) {
     // No contact match is not an error when the query is itself a handle.
     const direct = directHandle(q);
-    if (direct !== "") return { ok: true, online: true, error: "", results: shapeContacts([], q) };
+    if (direct !== "") return { ok: true, online: true, error: "", results: rankByRecency(shapeContacts([], q), recency) };
     const err = (res.stderr || "").toString().trim().split("\n")[0] || `contacts exit ${res.status}`;
     return fail(err);
   }
   try {
     const parsed = JSON.parse(res.stdout as string);
     if (!Array.isArray(parsed)) throw new Error("not an array");
-    return { ok: true, online: true, error: "", results: shapeContacts(parsed, q) };
+    return { ok: true, online: true, error: "", results: rankByRecency(shapeContacts(parsed, q), recency) };
   } catch (e) {
     return fail(`bad JSON from contacts: ${e}`);
   }
@@ -145,7 +163,12 @@ export function searchContacts(query: string, runner = spawnSync): ContactSearch
 
 if (import.meta.main) {
   try {
-    console.log(JSON.stringify(searchContacts(process.argv[2] ?? "")));
+    let recency: Record<string, string> = {};
+    if (process.argv[3]) {
+      const parsed = JSON.parse(process.argv[3]);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) recency = parsed as Record<string, string>;
+    }
+    console.log(JSON.stringify(searchContacts(process.argv[2] ?? "", spawnSync, recency)));
   } catch (e) {
     console.log(JSON.stringify({ ok: false, online: true, error: String(e), results: [] }));
   }

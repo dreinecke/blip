@@ -262,7 +262,7 @@ describe("search shaping", () => {
 });
 
 describe("contact search shaping", () => {
-  const { directHandle, normalizeHandle, shapeContacts } =
+  const { directHandle, normalizeHandle, shapeContacts, rankByRecency } =
     require("./contact-search") as typeof import("./contact-search");
 
   test("US numbers normalize to E.164 like chat.db handles", () => {
@@ -306,6 +306,26 @@ describe("contact search shaping", () => {
       "x",
     );
     expect(out.length).toBe(1);
+  });
+
+  test("rankByRecency puts the most recently messaged handle first", () => {
+    const hits = [
+      { name: "C", handle: "+10001", kind: "phone" },
+      { name: "C", handle: "old@x.com", kind: "email" },
+      { name: "C", handle: "+10002", kind: "mobile" },
+    ];
+    const ranked = rankByRecency(hits, { "+10002": "2026-09-02T21:00:00Z", "old@x.com": "2024-01-01T00:00:00Z" });
+    expect(ranked.map((h) => h.handle)).toEqual(["+10002", "old@x.com", "+10001"]);
+  });
+
+  test("rankByRecency keeps a direct-entry row first", () => {
+    const hits = [
+      { name: "+10001", handle: "+10001", kind: "direct entry" },
+      { name: "C", handle: "+10002", kind: "mobile" },
+    ];
+    const ranked = rankByRecency(hits, { "+10002": "2026-09-02T21:00:00Z" });
+    expect(ranked[0]!.kind).toBe("direct entry");
+    expect(ranked[1]!.handle).toBe("+10002");
   });
 });
 

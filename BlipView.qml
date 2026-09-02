@@ -81,6 +81,8 @@ FocusScope {
   property bool newMode: false
   property var newResults: []
   property string newNote: ""
+  property int newCursor: 0
+  property string newQueryRan: ""
 
   // ---- search state (list view only; `/` opens, Esc closes)
   property bool searching: false
@@ -550,6 +552,8 @@ FocusScope {
     newMode = true
     newResults = []
     newNote = ""
+    newCursor = 0
+    newQueryRan = ""
     // Flipping several visibilities in one handler can miss the layout
     // pass — the panel collapsed to its hero until results forced a
     // rearrange (Fred's screenshot). Force it. listContent owns newField;
@@ -567,6 +571,8 @@ FocusScope {
     newMode = false
     newResults = []
     newNote = ""
+    newCursor = 0
+    newQueryRan = ""
     newField.text = ""
     newField.focus = false
     Qt.callLater(function() { content.forceLayout(); root.navigationFocusRequested() })
@@ -576,17 +582,40 @@ FocusScope {
   // never surface Alice's results under Bob's query (Codex HIGH, 1.2.0).
   property int contactSeq: 0
   property string contactPending: ""
+  function threadRecencyJson() {
+    var rec = {}
+    for (var i = 0; i < threads.length; i++) {
+      var t = threads[i]
+      var ts = String(t.last_ts || "")
+      if (ts === "") continue
+      if (t.handle) rec[String(t.handle)] = ts
+      if (t.chat) rec[String(t.chat)] = ts
+    }
+    return JSON.stringify(rec)
+  }
   function runContactSearch() {
     var q = newField.text.trim()
     if (q === "") return
     // Bump the generation NOW so the in-flight (older) result is rejected,
     // never shown as clickable rows under the newer query (Codex audit #5).
-    if (contactProc.running) { contactSeq++; newResults = []; newNote = "searching contacts…"; contactPending = q; return }
+    if (contactProc.running) { contactSeq++; contactPending = q; return }
     contactSeq++
-    newNote = "searching contacts…"
-    newResults = []
-    contactProc.command = ["bun", root.contactScript, q]
+    newQueryRan = q
+    contactProc.command = ["bun", root.contactScript, q, threadRecencyJson()]
     contactProc.running = true
+  }
+  function acceptNewField() {
+    var q = newField.text.trim()
+    if (q !== "" && q === newQueryRan && newResults.length > 0) {
+      var i = Math.max(0, Math.min(newCursor, newResults.length - 1))
+      openContact(newResults[i])
+      return
+    }
+    runContactSearch()
+  }
+  function moveNewCursor(dy) {
+    if (newResults.length === 0 || dy === 0) return
+    newCursor = (newCursor + dy + newResults.length) % newResults.length
   }
 
   /** Start (or resume) a DM with a picked handle. An existing thread is
@@ -954,6 +983,7 @@ FocusScope {
           var d = JSON.parse(text.trim())
           if (d.ok === true) {
             root.newResults = Array.isArray(d.results) ? d.results : []
+            root.newCursor = 0
             root.newNote = root.newResults.length === 0 ? "no matches — try a number or email" : ""
           } else {
             root.newNote = String(d.error || "contact search failed")
@@ -1226,8 +1256,12 @@ FocusScope {
               accent: root.accent
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
-              onAccepted: root.runContactSearch()
+              onAccepted: root.acceptNewField()
               Keys.onEscapePressed: root.exitNew()
+              Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_Down) { root.moveNewCursor(1); event.accepted = true }
+                else if (event.key === Qt.Key_Up) { root.moveNewCursor(-1); event.accepted = true }
+              }
               onVisibleChanged: if (visible) {
                 forceActiveFocus()
                 selectAll()
@@ -1248,10 +1282,11 @@ FocusScope {
               model: root.online && root.listShowing && root.newMode ? root.newResults : []
               delegate: Rectangle {
                 required property var modelData
+                required property int index
                 Layout.fillWidth: true
                 implicitHeight: contactRow.implicitHeight + Style.space(12)
                 radius: Style.cornerRadius
-                color: contactHover.hovered
+                color: contactHover.hovered || root.newCursor === index
                   ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
                   : "transparent"
                 HoverHandler { id: contactHover }
