@@ -260,6 +260,35 @@ describe("search shaping", () => {
     expect(out[0]!.group).toBe(true);
   });
 
+  test("whole-word hits outrank substring hits, ignoring case", () => {
+    const { messageMatchScore, shapeResults: shape } = require("./search") as typeof import("./search");
+    expect(messageMatchScore("cat", "The cat sat down.")).toBeGreaterThan(
+      messageMatchScore("cat", "A scatter of leaves."),
+    );
+    const rows = [
+      { ts: "2026-08-28 17:29:00", from_me: false, handle: "+15550001111", name: "Alice",
+        service: "iMessage", chat: "group-a", text: "A scatter of leaves." },
+      { ts: "2026-05-18 16:34:00", from_me: true, handle: "+15550002222", name: "Bob",
+        service: "iMessage", chat: "+15550002222", text: "The cat sat down." },
+    ] as never[];
+    const out = shape(rows, "cat", 10);
+    expect(out[0]!.text).toContain("cat sat");
+    expect(out[1]!.text).toContain("scatter");
+  });
+
+  test("same match quality ties break on message time, not thread order", () => {
+    const { shapeResults: shape } = require("./search") as typeof import("./search");
+    const rows = [
+      { ts: "2025-07-15 17:24:00", from_me: false, handle: "+15550001111", name: "Alice",
+        service: "iMessage", chat: "quiet-old-thread", text: "Thanks everyone." },
+      { ts: "2026-05-25 22:20:00", from_me: false, handle: "+15550002222", name: "Bob",
+        service: "iMessage", chat: "busy-new-thread", text: "Alice thanks Bob." },
+    ] as never[];
+    const out = shape(rows, "thanks", 10);
+    expect(out[0]!.name).toBe("Bob");
+    expect(out[1]!.name).toBe("Alice");
+  });
+
   test("matchConversations finds people by name, not by last message", () => {
     const { matchConversations } = require("./search") as typeof import("./search");
     const threads = [
