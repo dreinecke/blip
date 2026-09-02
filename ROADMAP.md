@@ -133,7 +133,7 @@ on the Mac plus hand-made the Linux box shims with `the gateway Mac` hardcoded.
   Automation, blip-setup, missing Mac tools, ssh keys); the panel shows it in
   urgent red, the bar tooltip carries it. Verified by breaking the bridge on
   purpose. Still open: Linux-side dependency checks (`bun`/`jq`/`wl-copy`).
-- [x] (2.0.0 sweep: HOME fallbacks → os.homedir, wizard example de-vic'd; hyprctl is inherent to Omarchy) Remove the Linux box assumptions: paths, mpv/xdg handlers, Hyprland-only bits;
+- [x] (2.0.0 sweep: HOME fallbacks → os.homedir, wizard example made generic; hyprctl is inherent to Omarchy) Remove machine-specific assumptions: paths, mpv/xdg handlers, Hyprland-only bits;
   degrade gracefully (older macOS without `date_edited`, no sips, no HEIC).
 - [x] First-run and offline UX: clear "Mac unreachable / grant missing"
   states with the fix spelled out.
