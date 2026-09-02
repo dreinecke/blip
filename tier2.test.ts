@@ -276,6 +276,20 @@ describe("search shaping", () => {
     expect(out[1]!.text).toContain("scatter");
   });
 
+  test("query case does not change whole-word recency order", () => {
+    const { shapeResults: shape } = require("./search") as typeof import("./search");
+    const rows = [
+      { ts: "2026-05-25 22:20:00", from_me: false, handle: "+15550001111", name: "Alice",
+        service: "iMessage", chat: "group-a", text: "Alice thanks Bob." },
+      { ts: "2026-08-25 20:45:00", from_me: false, handle: "+15550002222", name: "Bob",
+        service: "iMessage", chat: "+15550002222", text: "Thanks" },
+    ] as never[];
+    const lower = shape(rows, "thanks", 10).map((h) => h.ts);
+    const titled = shape(rows, "Thanks", 10).map((h) => h.ts);
+    expect(lower).toEqual(titled);
+    expect(lower[0]).toBe("2026-08-25 20:45:00");
+  });
+
   test("same match quality ties break on message time, not thread order", () => {
     const { shapeResults: shape } = require("./search") as typeof import("./search");
     const rows = [
