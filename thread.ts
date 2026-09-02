@@ -330,10 +330,20 @@ export function loadThread(
   }
 }
 
+/**
+ * CLI convenience: `qs ipc call … goto 15550100001` cannot carry a leading
+ * "+", so a bare FULL number (10+ digits) is E.164-ified here. Short codes
+ * are 3–8 digits and are their own chat_identifier in chat.db ("99123");
+ * "+"-prefixing those made every short-code SMS thread load EMPTY (2.2.1).
+ * BlipView passes the exact chat id, which must always go through verbatim.
+ */
+export function cliChatArg(raw: string): string {
+  const s = String(raw ?? "").trim();
+  return /^[0-9]{10,}$/.test(s) ? "+" + s : s;
+}
+
 if (import.meta.main) {
-  // Bare digits → E.164 like the IPC does (qs rejects a leading "+" on the CLI).
-  const rawChat = process.argv[2] ?? "";
-  const chat = /^[0-9]{5,}$/.test(rawChat) ? "+" + rawChat : rawChat;
+  const chat = cliChatArg(process.argv[2] ?? "");
   const limit = Number(process.argv[3] ?? 80) || 80;
   const today = localToday();
   try {

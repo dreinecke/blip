@@ -1,7 +1,13 @@
 # Changelog
 
-## Unreleased
+## 2.2.1 — 2026-09-02
 
+- **Short-code SMS threads opened empty.** Georgia Power (99123), 878478 and
+  every other 5–8 digit sender showed in the list but loaded zero bubbles:
+  the thread loader's CLI convenience turned any bare digits into an E.164
+  number ("+99123"), and 2.2.0's exact chat-id query correctly found nothing.
+  Only a full number (10+ digits) is "+"-prefixed now, in `thread.ts` and in
+  the IPC `goto` alias. Short codes go through verbatim. Tests for both.
 - **App window fills like other Omarchy windows.** The 0.70 backdrop alpha
   assumed Hyprland blur, which stock Omarchy 4.x ships off — the wallpaper
   showed through the Super+M window. Now `color: Color.background`, like the

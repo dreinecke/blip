@@ -79,7 +79,8 @@ BarWidget {
     if (!t) for (var j = 0; j < threads.length; j++) {
       if (String(threads[j].chat) === "+" + want) { t = threads[j]; break }
     }
-    if (!t && /^[0-9]+$/.test(want)) want = "+" + want
+    // Only a FULL number gets a "+": short codes (99123) are their own chat id.
+    if (!t && /^[0-9]{10,}$/.test(want)) want = "+" + want
     // Unknown to the current window: still open it, with the id as the name.
     panelLoader.item.openThread(t || { chat: want, handle: want, name: want })
   }

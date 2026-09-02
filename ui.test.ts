@@ -33,6 +33,11 @@ describe("QML safety invariants", () => {
     expect(panel).not.toContain('["--yes", "--", text]');
   });
 
+  test("IPC goto only E.164-ifies a full number, never a short code", () => {
+    expect(widget).toContain('/^[0-9]{10,}$/.test(want)');
+    expect(widget).not.toContain('/^[0-9]+$/.test(want)');
+  });
+
   test("read marks are queued and only applied after a successful load", () => {
     expect(widget).toContain("property var refreshQueue: []");
     expect(widget).not.toContain("property var queued: null");

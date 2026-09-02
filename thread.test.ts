@@ -12,6 +12,7 @@ import {
   receiptLabel,
   selectThread,
 } from "./thread";
+import { cliChatArg } from "./thread";
 
 function msg(over: Partial<ImsgMessage> = {}): ImsgMessage {
   return {
@@ -465,5 +466,23 @@ describe("rich decoration", () => {
     expect(out[0]!.replyText).toBe("");
     expect(out[0]!.edited).toBe(false);
     expect(out[0]!.retracted).toBe(false);
+  });
+});
+
+describe("cliChatArg (CLI / IPC bare-digit convenience)", () => {
+  test("a short code stays verbatim — it IS the chat_identifier", () => {
+    expect(cliChatArg("99123")).toBe("99123");
+    expect(cliChatArg("878478")).toBe("878478");
+    expect(cliChatArg("29923")).toBe("29923");
+  });
+  test("a bare full number becomes E.164 (qs rejects a leading +)", () => {
+    expect(cliChatArg("15550100001")).toBe("+15550100001");
+    expect(cliChatArg("4402079460958")).toBe("+4402079460958");
+  });
+  test("already-E.164, emails and group ids pass through", () => {
+    expect(cliChatArg("+15550100001")).toBe("+15550100001");
+    expect(cliChatArg("someone@example.com")).toBe("someone@example.com");
+    expect(cliChatArg("ce5a593a78af408282d61461ade89135")).toBe("ce5a593a78af408282d61461ade89135");
+    expect(cliChatArg("chat123456")).toBe("chat123456");
   });
 });
