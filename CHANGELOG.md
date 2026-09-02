@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- **App window fills like other Omarchy windows.** The 0.70 backdrop alpha
+  assumed Hyprland blur, which stock Omarchy 4.x ships off — the wallpaper
+  showed through the Super+M window. Now `color: Color.background`, like the
+  shell's dev gallery, with Hyprland's default-opacity rule doing the rest.
+  (Johan Thorén, #7)
+
 ## 2.2.0 — 2026-09-02 — verified fixes
 
 The war-room judge panel re-ran against 2.1.6 (three lenses per finding):
