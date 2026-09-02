@@ -203,6 +203,175 @@ pinned in `bridge/BRIDGE-VERSION`), and `blip-setup` wires everything.
 > plugin files install like any other; the *bridge* is what `blip-setup`
 > exists for. Budget ten minutes and a trip to the Mac's System Settings.
 
+> **If you are a human:** budget ten minutes, keep the Mac's screen reachable
+> for two permission prompts, and use your *own* number for the first test
+> message. Nothing below sends anything until you press Enter in a
+> conversation.
+>
+> **If you are an AI agent installing this for someone:** run exactly the
+> commands below, in order, and stop at step 3 until the human confirms the
+> two grants on the Mac. Never send a test message to anyone but the user's
+> own number. Do not edit `~/.ssh/config` beyond what `blip-setup` writes.
+> Verify with `blip-check`, not by reading `chat.db` yourself. Before
+> changing code, read [`AGENTS.md`](AGENTS.md) and [`CLAUDE.md`](CLAUDE.md).
+
+**1. Install the plugin** (Omarchy's plugin manager clones it into
+`~/.config/omarchy/plugins/nixfred.blip` and adds the bar widget)
+
+```sh
+omarchy plugin add https://github.com/nixfred/blip.git --enable
+```
+
+(Manual alternative: `git clone https://github.com/nixfred/blip
+~/.config/omarchy/plugins/nixfred.blip`, then step 4.)
+
+**2. Run the wizard** (idempotent — re-run any time; it prints the
+`pacman` line for any missing Linux dependency and stops)
+
+```sh
+~/.config/omarchy/plugins/nixfred.blip/scripts/blip-setup you@your-mac
+```
+
+It writes `~/.config/blip/bridge.conf`, adds an ssh ControlMaster block
+(polling costs ~50 ms instead of a handshake), installs the bridge shim as
+`~/bin/imsg`, `~/bin/imsg-send`, `~/bin/contacts`, copies the Mac tools to
+`~/.blip/bin` on the Mac and runs `install.sh` there, generates a
+**dedicated ssh key** (`~/.ssh/blip_ed25519`) that the Mac confines to the
+four bridge tools and nothing else, then smoke-tests the bridge without
+printing any message content.
+
+**3. Two grants on the Mac** (macOS won't let a script do these — the
+wizard pauses here and re-checks when you press Enter)
+
+- *Full Disk Access* → System Settings → Privacy & Security → Full Disk
+  Access → add `/usr/libexec/sshd-keygen-wrapper` (⌘⇧G in the file picker).
+  That is what lets an ssh session read `chat.db`.
+- *Automation → Messages* → the first send from ssh pops an Allow prompt on
+  the Mac's screen; click it once.
+
+`ssh your-mac python3 ~/.blip/bin/blip-check` shows ✅/❌ per grant at any
+time, with the fix for each ❌.
+
+**4. Bar widget.** `omarchy plugin add --enable` already placed it. If you
+cloned by hand: `omarchy plugin enable nixfred.blip --section right`, or add
+`{ "id": "nixfred.blip" }` to `bar.layout.right` in
+`~/.config/omarchy/shell.json`. Then `omarchy-restart-shell` — the speech
+bubble is in your bar.
+
+**5. (Optional) `SUPER+M` for the app window** — the Lua snippet under
+"The app" above.
+
+**Updating:** `omarchy plugin update nixfred.blip`, then `omarchy-restart-shell`
+(a hot-reload alone leaves the plugin's IPC on a stale instance — see
+`CLAUDE.md`). Re-run `blip-setup` after updates that touch `bridge/`; it is
+safe to re-run.
+
+**Toasts**
+- desktop notification only for senders on your allowlist
+- everything else still counts and still shows; it just doesn't interrupt you
+
+**Toast actions**
+- click a toast and the panel opens ON that conversation with the compose
+  box focused (the Omarchy daemon renders no action buttons, so click IS
+  the reply path)
+
+**The app**
+- double-click the bar icon, press `SUPER+M`, or IPC `app` for a
+  Messages-style window (IPC `window` is a plain toggle). For the keybind, add
+  this to `~/.config/hypr/bindings.lua` — it asks **Hyprland** where the
+  window is (front → close, elsewhere → focus, none → create) instead of
+  the plugin, because after an Omarchy plugin update the plugin's IPC can
+  answer from a stale instance until the shell restarts:
+  ```lua
+  o.bind("SUPER + M", "Blip messages", [[sh -c '
+    blip() { hyprctl clients -j | jq -r ".[] | select(.title | startswith(\"Blip\")) | .address" | head -1; }
+    a=$(blip)
+    if [ -z "$a" ]; then
+      qs -p /usr/share/omarchy/shell ipc call nixfred.blip app >/dev/null
+      for i in 1 2 3 4 5 6 7 8 9 10 11 12; do a=$(blip); [ -n "$a" ] && break; sleep 0.15; done
+      [ -n "$a" ] && hyprctl dispatch "hl.dsp.focus({ window = \"address:$a\" })"
+    elif [ "$(hyprctl activewindow -j | jq -r .address)" = "$a" ]; then
+      hyprctl dispatch "hl.dsp.window.close({ window = \"address:$a\" })"
+    else
+      hyprctl dispatch "hl.dsp.focus({ window = \"address:$a\" })"
+    fi']])
+  ```
+  sidebar of every conversation + the open thread + compose, tiled by
+  Hyprland like any app, sharing the bar widget's live data; the title
+  carries the unread count (`Blip (3)`)
+
+**Real-time**
+- a push watcher on the Mac pings when chat.db changes — messages land in
+  ~2 s, the open conversation refreshes itself, and the poll drops to a
+  60 s safety net (`status` shows `push=true`)
+
+</td>
+</tr>
+</table>
+
+## Privacy
+
+No server, no telemetry, no accounts. **Everything between the two machines
+travels inside ssh** — message text, attachment bytes, the push ping — on a
+dedicated key the Mac confines to Blip's five tools; nothing is ever sent in
+the clear. The full inventory of what touches
+disk on both machines is in [docs/PRIVACY.md](docs/PRIVACY.md) — short
+version: message text never lands on disk; only attachments you open are
+cached. The threat model and the findings of the 2026-08-31 security audit
+are in [docs/SECURITY.md](docs/SECURITY.md).
+
+## How it works
+
+<p align="center">
+  <img src="docs/architecture.svg" alt="architecture" width="920">
+</p>
+
+```
+Linux                                         Mac
+─────                                         ───
+BarWidget.qml  ── push/poll ──▶ collector.ts ──▶ ssh ──▶ imsg --json recent 150+
+                                                          (sqlite, read-only)
+BlipView.qml   ── open thread ─▶ thread.ts   ──▶ ssh ──▶ imsg --json thread <id> 80
+BlipView.qml   ── Enter ─────(body on stdin)──▶ ssh ──▶ imsg-send --to <id> --yes --text-stdin
+                                                          imsg-send --chat-id "any;+;<guid>" …
+                                                          (AppleScript → Messages.app)
+```
+
+The trick that makes it possible: **`sshd` on macOS inherits both Full Disk
+Access and Automation consent.** `cron` gets neither. So a plain SSH session can
+read `chat.db` and tell Messages.app to send, where every scheduled approach
+dies at a TCC prompt nobody is there to click.
+
+With `ControlMaster` in `~/.ssh/config`, a round trip is ~47 ms warm. Fast
+enough to poll, fast enough that the panel feels local.
+
+## Install
+
+Blip is **one source**: the Mac-side tools ride along in `bridge/mac/`
+(vendored from [claude-on-mac](https://github.com/nixfred/claude-on-mac),
+pinned in `bridge/BRIDGE-VERSION`), and `blip-setup` wires everything.
+
+**Requirements**
+
+- A Mac on **macOS 13 Ventura or newer** (the Recently-Deleted table Blip
+  filters on arrived there; Sequoia is what it is developed on), signed into
+  Messages with your Apple ID, reachable from the Linux box over SSH with
+  key auth — Tailscale recommended. *Messages in iCloud* on, so its `chat.db`
+  mirrors your phone. Xcode Command Line Tools installed (`xcode-select
+  --install`) — `python3` on a fresh Mac is a stub until then.
+- A "Mac mini in a closet" works **after** the one-time grants: the two
+  permission prompts and the first Automation approval need a screen (or
+  Screen Sharing) once. Headless from then on.
+- Linux: [Omarchy](https://omarchy.org) (Hyprland + the Omarchy shell), and on
+  the box: `bun`, `jq`, `openssh`, `libnotify`, `wl-clipboard`, `xdg-utils`.
+  `blip-setup` checks for each and prints the `pacman` line for what's missing.
+
+> **Honest note on dependencies.** Blip is not a drop-in marketplace plugin
+> the way a clock widget is: it needs `bun` on the Linux side, a Mac you own
+> with two manual permission grants, and an ssh key between them. The
+> plugin files install like any other; the *bridge* is what `blip-setup`
+> exists for. Budget ten minutes and a trip to the Mac's System Settings.
+
 **1. Install the plugin**
 
 ```sh

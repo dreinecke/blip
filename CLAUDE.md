@@ -90,6 +90,11 @@ what it is handed. Keep it that way.
 - **`bridge.conf` is data, never `source`d.** The shim parses four keys and
   validates them; keep it that way (audit #7). `automation=on` is what lets
   `qs ipc … goto/compose/bubbles` work — off, they return a refusal string.
+- **Opening a link = `xdg-open` THEN focus the browser window.** Omarchy runs
+  `focus_on_activate=false`, so a new tab in a browser on another workspace
+  is invisible; `openLink()` finds the default handler's window by class and
+  `hl.dsp.focus`es it. Verified 2.1.4 with journald breadcrumbs: taps and
+  xdg-open were working the whole time — the tab was on workspace 3.
 - **Only media/pdf/text mimes reach `xdg-open`** (`openableMime`). Anything
   else is saved and named, never launched (audit #10).
 - **One person lives in several Contacts sources** (iCloud, Exchange, On My

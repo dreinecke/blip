@@ -278,10 +278,18 @@ FocusScope {
   function openLink(u) {
     u = String(u || "")
     if (!/^https?:\/\//i.test(u)) return
-    // execDetached, not a shared Process: a handler that stays in the
-    // foreground would make every later click a silent no-op.
-    Quickshell.execDetached(["xdg-open", u])
+    // Open, then FOCUS the default browser's window: Omarchy sets
+    // focus_on_activate=false (no focus stealing), so a new tab in an existing
+    // browser on another workspace is invisible — "clicking links does
+    // nothing" (Fred, 2.1.4). The class is derived from the default handler's
+    // .desktop name (brave-browser, firefox, chromium, google-chrome…).
+    Quickshell.execDetached(["sh", "-c",
+      'xdg-open "$1" >/dev/null 2>&1; b=$(xdg-settings get default-web-browser 2>/dev/null | sed "s/\\.desktop$//" | tr "[:upper:]" "[:lower:]"); [ -n "$b" ] || exit 0; ' +
+      'for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do a=$(hyprctl clients -j 2>/dev/null | jq -r --arg b "$b" '[.[] | select(((.class // "") | ascii_downcase | contains($b)) or ((.initialClass // "") | ascii_downcase | contains($b)))] | sort_by(.focusHistoryID) | .[0].address // empty'); ' +
+      '[ -n "$a" ] && { hyprctl dispatch "hl.dsp.focus({ window = \\"address:$a\\" })" >/dev/null 2>&1; exit 0; }; sleep 0.2; done',
+      "blip", u])
   }
+
 
   // ---------------------------------------------------- contact photos
   // Sidebar avatars: `imsg avatar <handle>` via avatar.ts (7-day cache, negative
@@ -1788,9 +1796,8 @@ FocusScope {
                       readonly property bool hasLink: String(modelData.html || "") !== ""
                       text: hasLink ? String(modelData.html) : String(modelData.text || "")
                       textFormat: hasLink ? TextEdit.RichText : TextEdit.PlainText
-                      onLinkActivated: function(link) {
-                        root.openLink(link)
-                      }
+                      // No onLinkActivated: the TapHandler below opens links (it
+                      // survives selectByMouse); having both opened every link twice.
                       wrapMode: TextEdit.Wrap
                       readOnly: true
                       selectByMouse: true
