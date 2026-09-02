@@ -1,5 +1,43 @@
 # Changelog
 
+## 2.2.0 — 2026-09-02 — verified fixes
+
+The war-room judge panel re-ran against 2.1.6 (three lenses per finding):
+11 earlier fixes confirmed closed, 17 findings confirmed open. This release
+fixes 13 of them; the rest stay listed in ROADMAP.md.
+
+**Multi-monitor.** Omarchy builds one bar — and one Blip widget — per
+screen. Only the widget on the first screen now polls, watches, toasts,
+owns the app window and answers IPC; the others show the badge from
+`state.json` and forward clicks to it. (Previously: N pollers, N ssh
+watchers, duplicate toasts and windows.)
+
+**Sends.** SMS/RCS conversations go out on their own service instead of
+silently as iMessage (text and files). A refused send now shows the Mac's
+reason ("message too long", "not authorized"…) instead of "exit 1".
+
+**Reads.** The app window marks a conversation read only while it is the
+focused window — visible on another workspace no longer clears dots.
+Mark-all-read / middle-click / IPC refresh keep the full list when a
+surface is open (a shallow run used to collapse it to the preview window).
+
+**Correctness.** A DM loads by exact chat id (`thread --chat`) so a
+contact's group posts no longer eat the history window. A DM is persisted
+as a "self chat" only after two independent same-second twins, not one
+coincidence. Failed-send toasts fired every poll for 15 minutes because the
+dedupe ring dropped their `fail:` prefix on load.
+
+**Robustness.** A `bun` that cannot start is reported as such (not "Mac
+unreachable"); the offline poll backs off to 30 s; the push watcher's
+liveness timer arms at start.
+
+**Config.** `country_code=` in `bridge.conf` for numbers typed without a
+country code outside North America.
+
+**Docs.** README no longer promises a headless Mac without a logged-in
+session; the last real-looking number left the code; a duplicated README
+block removed.
+
 ## 2.1.6 — 2026-09-01
 
 - **Duplicate toasts fixed.** The bridge now emits each message's ROWID and

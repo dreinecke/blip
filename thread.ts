@@ -303,10 +303,11 @@ export function loadThread(
   // Groups load by EXACT chat id (imsg ≥1.8.0 `thread --chat`). The old
   // recent-window scan cost ~20× the rows and missed anything older than
   // the window — which made historical search hits open empty threads.
+  // Both shapes load by EXACT chat id: `thread <handle>` matched the handle
+  // by SUBSTRING and included that person's group posts, which then ate the
+  // window (war room #14). A DM's chat_identifier IS the handle.
   const group = isGroupChat(chat);
-  const args = group
-    ? ["--json", "--rich", "thread", "--chat", chat, String(limit)]
-    : ["--json", "--rich", "thread", chat, String(limit)];
+  const args = ["--json", "--rich", "thread", "--chat", chat, String(limit)];
   const res = runner(`${HOME}/bin/imsg`, args, {
     encoding: "utf8",
     timeout: 15000, maxBuffer: 64 * 1024 * 1024,

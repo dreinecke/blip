@@ -294,3 +294,24 @@ describe("war-room hardening (2.1)", () => {
     } finally { unlinkSync(tmp); }
   });
 });
+
+describe("country code + service (2.2.0)", () => {
+  const { normalizeHandle } = require("./contact-search") as typeof import("./contact-search");
+  test("non-NANP bare numbers use the configured country code", () => {
+    expect(normalizeHandle("07700 900214", "44")).toBe("+447700900214");
+    expect(normalizeHandle("447700900214", "44")).toBe("+447700900214");
+    expect(normalizeHandle("(404) 555-0123", "1")).toBe("+14045550123");
+  });
+  test("SMS threads send files on the SMS service; groups never carry --service", () => {
+    let seen: string[] = [];
+    const runner = ((_c: string, args: string[]) => { seen = args; return { status: 0, stdout: "", stderr: "" }; }) as never;
+    const tmp = `${process.env.XDG_CACHE_HOME}/svc-${process.pid}.txt`;
+    writeFileSync(tmp, "x");
+    try {
+      sendFile("+15551234567", tmp, "", runner, "SMS");
+      expect(seen.slice(seen.indexOf("--service"), seen.indexOf("--service") + 2)).toEqual(["--service", "SMS"]);
+      sendFile("+15551234567", tmp, "", runner, "iMessage");
+      expect(seen).not.toContain("--service");
+    } finally { unlinkSync(tmp); }
+  });
+});

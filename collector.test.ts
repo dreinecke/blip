@@ -792,3 +792,31 @@ describe("toast identity is stable across polls (2.1.6)", () => {
     expect(toastKey(a)).toBe(toastKey(b));
   });
 });
+
+describe("self-chat promotion is not persisted on one coincidence (2.2.0)", () => {
+  const dm = (ts: string, from_me: boolean, text: string) =>
+    ({ ts, from_me, handle: "+15550002222", name: "B", service: "iMessage", chat: "+15550002222", text } as ImsgMessage);
+  test("a single same-second 'ok' pair dedupes for display but does not promote for persistence", () => {
+    const pair = [dm("2026-09-01 20:00:05", true, "ok"), dm("2026-09-01 20:00:05", false, "ok")];
+    expect(detectSelfChats(pair)).toEqual(["+15550002222"]);      // display-time dedupe still works
+    expect(detectSelfChats(pair, 2)).toEqual([]);                  // persistence needs a second twin
+  });
+  test("two twins at different seconds do promote", () => {
+    const rows = [dm("2026-09-01 20:00:05", true, "a"), dm("2026-09-01 20:00:05", false, "a"),
+                  dm("2026-09-01 20:00:09", true, "b"), dm("2026-09-01 20:00:09", false, "b")];
+    expect(detectSelfChats(rows, 2)).toEqual(["+15550002222"]);
+  });
+});
+
+describe("failure-toast keys survive the ring normalizer (2.2.0)", () => {
+  const { selectFailures } = require("./collector") as typeof import("./collector");
+  test("a fail: key is kept verbatim on load, so a failed send toasts once", () => {
+    const m = { id: 9, ts: "2026-09-01 20:00:05", from_me: true, handle: "h", name: "H", service: "iMessage", chat: "h", text: "x", error: 25 } as ImsgMessage;
+    const first = selectFailures([m], [], "2026-09-01 20:05:00");
+    expect(first).toHaveLength(1);
+    const tmp = `${process.env.XDG_CACHE_HOME}/state-${process.pid}.json`;
+    saveState({ ...loadState(tmp), toasted: [first[0]!.key] }, tmp);
+    const again = selectFailures([m], loadState(tmp).toasted, "2026-09-01 20:05:00");
+    expect(again).toHaveLength(0);
+  });
+});

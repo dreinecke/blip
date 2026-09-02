@@ -161,30 +161,24 @@ on the Mac plus hand-made the Linux box shims with `the gateway Mac` hardcoded.
 
 ## War room 2026-09-01 — deferred findings (verified real, not yet fixed)
 
-Ten expert reviewers, 114 findings; 2.1.0 fixed the clear ones. These are
-real and still open, roughly by value:
+Ten expert reviewers, 114 findings; 2.1.0 fixed the clear ones; the judge
+panel (3 lenses × finding, against current main) confirmed 11 closed and
+17 open, of which 2.2.0 fixed all but the ones still unticked below.
 
-- [ ] **One BarWidget per monitor** → N pollers, N ssh watchers, N windows,
-  a state.json write race on multi-monitor setups. Needs a leader election
-  (first screen with a bar polls; others render its state).
-- [ ] **SMS/RCS threads send as iMessage** — pass the thread's `service` to
-  `imsg-send --service`; green-bubble threads currently go out on the wrong
-  service.
+- [x] One BarWidget per monitor → leader election (2.2.0; follower bars
+  show the badge from state.json and forward clicks over IPC).
+- [x] SMS/RCS threads send on their own service (2.2.0).
 - [ ] **Timestamps are Mac-local wall-clock strings** compared against the
   Linux clock (DST fall-back hour, a UTC Mac). Move the bridge to epoch/UTC
   and convert on display. Cross-cutting; do it as its own release.
 - [ ] **One never-opened unread pins the catch-up loop** — every poll walks
   150→8192 rows across sequential ssh calls. Cache the reconciliation
   boundary per chat.
-- [ ] The app window marks a thread read while it is unfocused / on another
-  workspace; use Hyprland focus as the read signal.
+- [x] Window marks read only while focused (2.2.0, Hyprland active toplevel).
 - [ ] Toasts fire for the conversation being read (bar popout case).
-- [ ] `detectSelfChats` can promote a DM on one same-second same-text
-  coincidence and persists it; require two occurrences or an `is_from_me`
-  twin with identical guid prefix.
-- [ ] Failure toasts re-fire across runs (dedupe ring hashing).
-- [ ] Non-NANP bare numbers assume +1 in `normalizeHandle`; needs a
-  `default_region` in bridge.conf.
+- [x] Self-chat promotion needs two twins to persist (2.2.0).
+- [x] Failure toasts re-fired (ring normalizer dropped the `fail:` prefix) (2.2.0).
+- [x] `country_code=` in bridge.conf for non-NANP numbers (2.2.0).
 - [ ] `searching` sticks on after a click into the field; `bubbleFocused`
   can stick after a reload; link colour inside the accent bubble.
 - [ ] Send-target resolution exists twice (QML text path, TS file path) —

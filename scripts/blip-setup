@@ -32,10 +32,11 @@ conf_dir="$HOME/.config/blip"
 conf="$conf_dir/bridge.conf"
 
 # bridge.conf is DATA (audit #7): read the two keys we care about, never source it.
-prev_automation=""
+prev_automation=""; prev_country=""
 if [[ -r "$conf" ]]; then
   [[ -z "$host" ]] && host="$(sed -n 's/^host=//p' "$conf" | head -1 | tr -d '"\x27 ')"
   prev_automation="$(sed -n 's/^automation=//p' "$conf" | head -1 | tr -d '"\x27 ')"
+  prev_country="$(sed -n 's/^country_code=//p' "$conf" | head -1 | tr -d '"\x27 ')"
 fi
 if [[ -z "${host:-}" ]]; then
   read -r -p "Mac ssh target ([user@]host, Tailscale name works best): " host
@@ -56,6 +57,8 @@ mkdir -p "$conf_dir"
   echo "key=$HOME/.ssh/blip_ed25519"
   echo "# on = local scripts may send/read through 'qs ipc call nixfred.blip …'"
   echo "automation=${BLIP_AUTOMATION:-${prev_automation:-off}}"   # a re-run keeps a hand-set value
+  echo "# country calling code for numbers typed without one (1 = US/Canada, 44 = UK, 49 = DE…)"
+  echo "country_code=${prev_country:-1}"
 } > "$conf"
 chmod 0600 "$conf"
 echo "✓ $conf"

@@ -259,7 +259,10 @@ export function isGroupChat(chat: string): boolean {
  * counts as unread and re-lights the dot. Collapse the pair and attribute it
  * to me. Shared with thread.ts so the list and the bubbles agree.
  */
-export function detectSelfChats(msgs: ImsgMessage[]): string[] {
+/** minTwins=1 (default) is enough to dedupe a batch you are LOOKING at;
+ *  collect() persists a chat as self only with minTwins=2 — a permanent
+ *  promotion must not ride on one same-second coincidence (war room #6). */
+export function detectSelfChats(msgs: ImsgMessage[], minTwins = 1): string[] {
   const contextKey = (m: ImsgMessage) => `${chatKey(m)}\u0000${m.handle || ""}\u0000${m.ts}`;
   const emptySent = new Set(msgs.filter((m) => m.from_me && m.text === "").map(contextKey));
   const chats = new Set(msgs.filter((m) => m.self_chat === true).map(chatKey));
@@ -270,14 +273,20 @@ export function detectSelfChats(msgs: ImsgMessage[]): string[] {
   const outboundText = new Set(
     msgs.filter((m) => m.from_me && m.text !== "").map((m) => `${contextKey(m)}\u0000${m.text}`),
   );
+  // One same-second twin can be a coincidence (both sides typing "ok");
+  // promotion is permanent and silently breaks unread for that DM, so it
+  // takes two twins at DIFFERENT seconds — the self-thread produces one per
+  // message, a coincidence does not repeat (war room #6).
+  const hits = new Map<string, Set<string>>();
   for (const m of msgs) {
-    if (m.from_me) {
-      if (m.text === "") continue;
-      continue;
-    }
-    if (emptySent.has(contextKey(m))) chats.add(chatKey(m));
-    else if (m.text !== "" && outboundText.has(`${contextKey(m)}\u0000${m.text}`)) chats.add(chatKey(m));
+    if (m.from_me) continue;
+    const twin = emptySent.has(contextKey(m)) || (m.text !== "" && outboundText.has(`${contextKey(m)}\u0000${m.text}`));
+    if (!twin) continue;
+    const k = chatKey(m);
+    if (!hits.has(k)) hits.set(k, new Set());
+    hits.get(k)!.add(m.ts);
   }
+  for (const [k, seconds] of hits) if (seconds.size >= minTwins) chats.add(k);
   return [...chats].filter(Boolean);
 }
 
@@ -401,7 +410,8 @@ function digest(value: string): string {
 }
 
 function normalizeToastKey(value: string): string {
-  return /^sha256:[0-9a-f]{64}$/.test(value) ? value : digest(value);
+  // "fail:" is the failure-toast namespace (selectFailures) — keep it verbatim.
+  return /^(fail:)?sha256:[0-9a-f]{64}$/.test(value) ? value : digest(value);
 }
 
 /** Stable opaque key for one message, used to suppress repeat toasts. */
@@ -821,7 +831,8 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   // Group metadata is ~1000 rows; refresh it only on a deep (panel) fetch and
   // keep the last good copy if the lookup fails.
   const groups = (deep ? fetchGroups() : null) ?? state.groups;
-  const selfChats = [...new Set([...state.selfChats, ...detectSelfChats(fetched.msgs)])];
+  // persist only on two independent twins; one may be a coincidence (#6)
+  const selfChats = [...new Set([...state.selfChats, ...detectSelfChats(fetched.msgs, 2)])];
   const msgs = dedupeSelfEcho(fetched.msgs, selfChats);
   let exactCounts = unreadCounts(msgs, state.readMark, state.readMarks, selfChats);
   let exactOldest = unreadOldest(msgs, state.readMark, state.readMarks, selfChats);

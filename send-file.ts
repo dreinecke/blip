@@ -45,6 +45,7 @@ export function sendFile(
   path: string,
   caption: string,
   runner = spawnSync,
+  service = "",
 ): SendFileResult {
   const fail = (error: string, online = true): SendFileResult => ({ ok: false, online, error });
 
@@ -83,6 +84,8 @@ export function sendFile(
   const cap = Buffer.from(caption.trim(), "utf8");
   const args = [
     ...target.args,
+    // green-bubble threads go out on their own service, never silently as iMessage
+    ...(!target.args.includes("--chat-id") && /^(SMS|RCS)$/i.test(service) ? ["--service", service.toUpperCase()] : []),
     "--file-stdin",
     "--name", basename(path),
     "--yes",
@@ -102,12 +105,14 @@ export function sendFile(
 if (import.meta.main) {
   const chat = process.argv[2] ?? "";
   const path = process.argv[3] ?? "";
+  const svcIdx = process.argv.indexOf("--service");
+  const service = svcIdx > 0 ? String(process.argv[svcIdx + 1] ?? "") : "";
   // Caption arrives on stdin (--caption-stdin) so it never sits in this process's argv.
   const caption = process.argv[4] === "--caption-stdin"
     ? readFileSync(0, "utf8")
     : process.argv.slice(4).join(" ");
   try {
-    console.log(JSON.stringify(sendFile(chat, path, caption)));
+    console.log(JSON.stringify(sendFile(chat, path, caption, undefined, service)));
   } catch (e) {
     console.log(JSON.stringify({ ok: false, online: true, error: String(e) }));
   }

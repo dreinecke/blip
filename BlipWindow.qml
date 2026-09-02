@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import Quickshell.Hyprland
 import qs.Commons
 
 // Blip window — the "actual app": a Messages.app-style two-pane window.
@@ -28,6 +29,10 @@ FloatingWindow {
   implicitHeight: 720
   minimumSize: Qt.size(720, 480)
   visible: false
+  // Focused = Hyprland's active toplevel is this window (title prefix "Blip").
+  // A visible-but-unfocused window keeps refreshing but does not mark read.
+  readonly property bool focused: visible && Hyprland.activeToplevel !== null
+    && String(Hyprland.activeToplevel.title || "").indexOf("Blip") === 0
 
   // Proxies BarWidget relies on (same names as the popout host).
   readonly property bool inThread: view.inThread
@@ -91,6 +96,7 @@ FloatingWindow {
       hostWidget: win.hostWidget
       splitView: true
       surfaceOpen: win.visible
+      readActive: win.focused
       foreground: Color.foreground
       urgent: Color.urgent
       fontFamily: Style.font.family

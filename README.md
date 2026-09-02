@@ -147,8 +147,9 @@ travels inside ssh** — message text, attachment bytes, the push ping — on a
 dedicated key the Mac confines to Blip's five tools; nothing is ever sent in
 the clear. The full inventory of what touches
 disk on both machines is in [docs/PRIVACY.md](docs/PRIVACY.md) — short
-version: message text never lands on disk; only attachments you open are
-cached. The threat model and the findings of the 2026-08-31 security audit
+version: message text never lands on disk; only attachments in conversations
+you open are cached (inline images ≤ 5 MB and link previews fetch when the
+thread does). The threat model and the findings of the 2026-08-31 security audit
 are in [docs/SECURITY.md](docs/SECURITY.md).
 
 ## How it works
@@ -192,7 +193,11 @@ pinned in `bridge/BRIDGE-VERSION`), and `blip-setup` wires everything.
   --install`) — `python3` on a fresh Mac is a stub until then.
 - A "Mac mini in a closet" works **after** the one-time grants: the two
   permission prompts and the first Automation approval need a screen (or
-  Screen Sharing) once. Headless from then on.
+  Screen Sharing) once. After that it must stay in a **logged-in desktop
+  session with Messages able to run** — enable auto-login, keep FileVault
+  from prompting at boot (or accept a trip to the keyboard after every
+  macOS update), and disable sleep. A Mac parked at the login window can
+  read `chat.db` but cannot send.
 - Linux: [Omarchy](https://omarchy.org) (Hyprland + the Omarchy shell), and on
   the box: `bun`, `jq`, `openssh`, `libnotify`, `wl-clipboard`, `xdg-utils`.
   `blip-setup` checks for each and prints the `pacman` line for what's missing.
@@ -266,151 +271,22 @@ bubble is in your bar.
 `CLAUDE.md`). Re-run `blip-setup` after updates that touch `bridge/`; it is
 safe to re-run.
 
-**Toasts**
-- desktop notification only for senders on your allowlist
-- everything else still counts and still shows; it just doesn't interrupt you
-
-**Toast actions**
-- click a toast and the panel opens ON that conversation with the compose
-  box focused (the Omarchy daemon renders no action buttons, so click IS
-  the reply path)
-
-**The app**
-- double-click the bar icon, press `SUPER+M`, or IPC `app` for a
-  Messages-style window (IPC `window` is a plain toggle). For the keybind, add
-  this to `~/.config/hypr/bindings.lua` — it asks **Hyprland** where the
-  window is (front → close, elsewhere → focus, none → create) instead of
-  the plugin, because after an Omarchy plugin update the plugin's IPC can
-  answer from a stale instance until the shell restarts:
-  ```lua
-  o.bind("SUPER + M", "Blip messages", [[sh -c '
-    blip() { hyprctl clients -j | jq -r ".[] | select(.title | startswith(\"Blip\")) | .address" | head -1; }
-    a=$(blip)
-    if [ -z "$a" ]; then
-      qs -p /usr/share/omarchy/shell ipc call nixfred.blip app >/dev/null
-      for i in 1 2 3 4 5 6 7 8 9 10 11 12; do a=$(blip); [ -n "$a" ] && break; sleep 0.15; done
-      [ -n "$a" ] && hyprctl dispatch "hl.dsp.focus({ window = \"address:$a\" })"
-    elif [ "$(hyprctl activewindow -j | jq -r .address)" = "$a" ]; then
-      hyprctl dispatch "hl.dsp.window.close({ window = \"address:$a\" })"
-    else
-      hyprctl dispatch "hl.dsp.focus({ window = \"address:$a\" })"
-    fi']])
-  ```
-  sidebar of every conversation + the open thread + compose, tiled by
-  Hyprland like any app, sharing the bar widget's live data; the title
-  carries the unread count (`Blip (3)`)
-
-**Real-time**
-- a push watcher on the Mac pings when chat.db changes — messages land in
-  ~2 s, the open conversation refreshes itself, and the poll drops to a
-  60 s safety net (`status` shows `push=true`)
-
-</td>
-</tr>
-</table>
-
-## Privacy
-
-No server, no telemetry, no accounts. **Everything between the two machines
-travels inside ssh** — message text, attachment bytes, the push ping — on a
-dedicated key the Mac confines to Blip's five tools; nothing is ever sent in
-the clear. The full inventory of what touches
-disk on both machines is in [docs/PRIVACY.md](docs/PRIVACY.md) — short
-version: message text never lands on disk; only attachments you open are
-cached. The threat model and the findings of the 2026-08-31 security audit
-are in [docs/SECURITY.md](docs/SECURITY.md).
-
-## How it works
-
-<p align="center">
-  <img src="docs/architecture.svg" alt="architecture" width="920">
-</p>
-
-```
-Linux                                         Mac
-─────                                         ───
-BarWidget.qml  ── push/poll ──▶ collector.ts ──▶ ssh ──▶ imsg --json recent 150+
-                                                          (sqlite, read-only)
-BlipView.qml   ── open thread ─▶ thread.ts   ──▶ ssh ──▶ imsg --json thread <id> 80
-BlipView.qml   ── Enter ─────(body on stdin)──▶ ssh ──▶ imsg-send --to <id> --yes --text-stdin
-                                                          imsg-send --chat-id "any;+;<guid>" …
-                                                          (AppleScript → Messages.app)
-```
-
-The trick that makes it possible: **`sshd` on macOS inherits both Full Disk
-Access and Automation consent.** `cron` gets neither. So a plain SSH session can
-read `chat.db` and tell Messages.app to send, where every scheduled approach
-dies at a TCC prompt nobody is there to click.
-
-With `ControlMaster` in `~/.ssh/config`, a round trip is ~47 ms warm. Fast
-enough to poll, fast enough that the panel feels local.
-
-## Install
-
-Blip is **one source**: the Mac-side tools ride along in `bridge/mac/`
-(vendored from [claude-on-mac](https://github.com/nixfred/claude-on-mac),
-pinned in `bridge/BRIDGE-VERSION`), and `blip-setup` wires everything.
-
-**Requirements**
-
-- A Mac on **macOS 13 Ventura or newer** (the Recently-Deleted table Blip
-  filters on arrived there; Sequoia is what it is developed on), signed into
-  Messages with your Apple ID, reachable from the Linux box over SSH with
-  key auth — Tailscale recommended. *Messages in iCloud* on, so its `chat.db`
-  mirrors your phone. Xcode Command Line Tools installed (`xcode-select
-  --install`) — `python3` on a fresh Mac is a stub until then.
-- A "Mac mini in a closet" works **after** the one-time grants: the two
-  permission prompts and the first Automation approval need a screen (or
-  Screen Sharing) once. Headless from then on.
-- Linux: [Omarchy](https://omarchy.org) (Hyprland + the Omarchy shell), and on
-  the box: `bun`, `jq`, `openssh`, `libnotify`, `wl-clipboard`, `xdg-utils`.
-  `blip-setup` checks for each and prints the `pacman` line for what's missing.
-
-> **Honest note on dependencies.** Blip is not a drop-in marketplace plugin
-> the way a clock widget is: it needs `bun` on the Linux side, a Mac you own
-> with two manual permission grants, and an ssh key between them. The
-> plugin files install like any other; the *bridge* is what `blip-setup`
-> exists for. Budget ten minutes and a trip to the Mac's System Settings.
-
-**1. Install the plugin**
-
-```sh
-git clone https://github.com/nixfred/blip ~/.config/omarchy/plugins/nixfred.blip
-```
-
-**2. Run the wizard** (idempotent — re-run any time)
-
-```sh
-~/.config/omarchy/plugins/nixfred.blip/scripts/blip-setup you@your-mac
-```
-
-It writes `~/.config/blip/bridge.conf`, adds an ssh ControlMaster block
-(polling costs ~50 ms instead of a handshake), installs the bridge shim as
-`~/bin/imsg`, `~/bin/imsg-send`, `~/bin/contacts`, copies the Mac tools to
-`~/.blip/bin` on the Mac and runs `install.sh` there, generates a
-**dedicated ssh key** (`~/.ssh/blip_ed25519`) that the Mac confines to the
-five bridge tools and nothing else, then smoke-tests the bridge.
-
-**3. Two grants on the Mac** (macOS won't let a script do these)
-
-- *Full Disk Access* → add `/usr/libexec/sshd-keygen-wrapper` — that's what
-  lets an ssh session read `chat.db`.
-- *Automation → Messages* → the first send from ssh pops an Allow prompt on
-  the Mac's screen; click it once.
-
-`ssh your-mac python3 ~/.blip/bin/blip-check` tells you what's still missing
-(the wizard runs it for you and waits while you click).
-
-**4.** Add `{ "id": "nixfred.blip" }` to `bar.layout.right` in
-`~/.config/omarchy/shell.json`, `omarchy-restart-shell`, and the speech
-bubble is in your bar.
-
-**Toasts**
+**Toasts** — desktop notifications fire only for handles you list; everything
+else still counts and still shows.
 
 ```jsonc
 // ~/.config/blip/allowlist.json — re-read every poll, no restart
 { "allow": ["+15551234567", "them@icloud.com"] }
 ```
+
+**Outside North America:** set `country_code=44` (etc.) in
+`~/.config/blip/bridge.conf` so a number typed without a country code in
+"New message" resolves correctly. Green-bubble (SMS/RCS) conversations
+send on their own service automatically.
+
+**Two or more monitors:** one bar widget per screen is normal; only the one
+on the first screen polls and owns the app window, the others show the
+badge and forward clicks to it.
 
 ## Keyboard
 

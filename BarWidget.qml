@@ -35,6 +35,30 @@ BarWidget {
 
   readonly property bool hasUnread: unread > 0
 
+  // ---- one leader per session (war room #0): Omarchy builds one bar — and
+  // therefore one of these widgets — PER SCREEN. Only the widget on the first
+  // screen polls, watches, toasts, owns the app window and answers IPC; the
+  // others show the badge from state.json and hand clicks to the leader.
+  readonly property var ownScreen: QsWindow.window ? QsWindow.window.screen : null
+  readonly property bool leader: !ownScreen || Quickshell.screens.length === 0
+    || String(ownScreen.name) === String(Quickshell.screens[0].name)
+  FileView {
+    id: followerState
+    path: root.home + "/.local/state/blip/state.json"
+    watchChanges: !root.leader
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: if (!root.leader) {
+      try {
+        var st = JSON.parse(text())
+        var counts = st.unreadCounts || {}
+        var n = 0
+        for (var k in counts) n += Number(counts[k]) || 0
+        root.unread = n; root.online = true; root.healthy = true
+      } catch (e) {}
+    }
+  }
+
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
@@ -71,7 +95,7 @@ BarWidget {
 
   Loader {
     id: panelLoader
-    active: true
+    active: root.leader
     source: Qt.resolvedUrl("Panel.qml")
     visible: false
     onLoaded: {
@@ -89,7 +113,7 @@ BarWidget {
   // and restores size + "was open" on creation.
   Loader {
     id: windowLoader
-    active: true                       // created at start so it can self-restore
+    active: root.leader                // created at start so it can self-restore
     source: Qt.resolvedUrl("BlipWindow.qml")
     onLoaded: item.hostWidget = root
   }
@@ -139,6 +163,13 @@ BarWidget {
   // click within the double-click window = close the panel and open the APP.
   Timer { id: dblClick; interval: 320 }
   function leftClick() {
+    if (!root.leader) {
+      // a follower bar: ask the leader (only it answers IPC)
+      if (dblClick.running) { dblClick.stop(); Quickshell.execDetached(["qs", "-p", "/usr/share/omarchy/shell", "ipc", "call", root.moduleName, "app"]); return }
+      dblClick.restart()
+      Quickshell.execDetached(["qs", "-p", "/usr/share/omarchy/shell", "ipc", "call", root.moduleName, "toggle"])
+      return
+    }
     if (dblClick.running) {
       dblClick.stop()
       root.close()
@@ -252,7 +283,9 @@ BarWidget {
       return t.unread > 0 ? Object.assign({}, t, { unread: 0 }) : t
     })
     unread = 0
-    refresh(false, true)
+    // deep when a surface shows the full list: a shallow result would replace
+    // it with the 150-row window's chats (war room #17)
+    refresh(anySurfaceOpen(), true)
   }
 
   /** The open conversation's chat, "" when the panel is closed or listing —
@@ -266,7 +299,8 @@ BarWidget {
     var p = panelLoader.item
     if (p && p.opened === true && p.inThread === true) return p
     var w = windowLoader.item
-    if (w && w.visible === true && w.inThread === true) return w
+    // the window must be FOCUSED to count as being read (war room #25)
+    if (w && w.visible === true && w.focused === true && w.inThread === true) return w
     return null
   }
   function activeReadChat() {
@@ -282,6 +316,19 @@ BarWidget {
   Process {
     id: collector
     command: ["bun", root.collectorPath]
+    // A Process that FAILS TO START (bun not on the shell's PATH) emits only
+    // runningChanged — no exited, no stream end — and the icon would say
+    // "Mac unreachable" forever (war room #18). Detect the missing exit.
+    property bool sawExit: false
+    onRunningChanged: {
+      if (running) { sawExit = false; return }
+      Qt.callLater(function() {
+        if (!collector.sawExit && !collector.running) {
+          root.online = false; root.healthy = false
+          root.lastError = "cannot start `bun` — install it (pacman -S bun) and restart the shell"
+        }
+      })
+    }
     stdout: StdioCollector {
       onStreamFinished: {
         // A garbled run keeps the last good thread list rather than flashing
@@ -323,6 +370,7 @@ BarWidget {
       }
     }
     onExited: function(code, status) {
+      collector.sawExit = true
       if (code !== 0) root.healthy = false
       if (root.refreshQueue.length > 0) {
         var q = root.refreshQueue.slice()
@@ -340,8 +388,10 @@ BarWidget {
   Timer {
     // With the push watcher connected this is only a safety net; without it
     // (Mac down, watcher restarting) it is the old 6 s poll.
-    interval: root.watchAlive ? 60000 : 6000
-    running: true
+    // offline: back off to 30 s — a Mac that is off for the night must not
+    // eat a bun + ssh probe every 6 s (war room #19); "ready" restores 6 s
+    interval: root.watchAlive ? 60000 : (root.online ? 6000 : 30000)
+    running: root.leader
     repeat: true
     triggeredOnStart: true
     // While the panel is open keep the wide window, or the list would shrink
@@ -363,7 +413,10 @@ BarWidget {
   Process {
     id: watchProc
     command: [root.home + "/bin/imsg", "watch"]
-    running: true
+    running: root.leader
+    // arm liveness at START: a watcher that hangs before "ready" was never
+    // killed or restarted (war room #20)
+    onStarted: watchLiveness.restart()
     stdout: SplitParser {
       onRead: function(line) {
         var l = String(line).trim()
@@ -502,14 +555,17 @@ BarWidget {
   }
   IpcHandler {
     target: root.moduleName
+    enabled: root.leader
     function status(): string {
-      return "online=" + root.online + " unread=" + root.unread
+      var w = windowLoader.item
+      return "online=" + root.online + " unread=" + root.unread + " leader=" + root.leader
+        + " window=" + (w && w.visible ? (w.focused ? "focused" : "unfocused") : "hidden")
         + " threads=" + root.threads.length + " healthy=" + root.healthy
         + " push=" + root.watchAlive
         + (root.lastError !== "" ? " error=" + root.lastError : "")
     }
     function threads(): string { return root.automationOn ? JSON.stringify(root.threads) : root.automationOff }
-    function refresh(): void { root.refresh(false, false) }
+    function refresh(): void { root.refresh(root.anySurfaceOpen(), false) }
     function read(): string { if (!root.automationOn) return root.automationOff; root.markAllRead(); return "read" }
     function open(): void { root.open() }
     function close(): void { root.close() }
@@ -565,7 +621,7 @@ BarWidget {
     useActiveColor: false
     tooltipText: root.tooltip()
     onPressed: function(code) {
-      if (code === Qt.MiddleButton) root.refresh(false, false)
+      if (code === Qt.MiddleButton) root.refresh(root.anySurfaceOpen(), false)
       else if (code === Qt.RightButton) root.markAllRead()
       else root.leftClick()
     }

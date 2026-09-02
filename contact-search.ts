@@ -11,6 +11,8 @@
  * nobody's contacts.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 
@@ -25,21 +27,40 @@ export interface ContactHit {
   kind: string;
 }
 
-/** "(555) 010-0098" → "+15550100098"; keeps +intl and emails untouched.
+/** "(404) 555-0123" → "+14045550123"; keeps +intl and emails untouched.
  *  Bare 10-digit numbers are assumed US (+1) — that matches how chat.db
  *  stores handles for a US user. Anything AMBIGUOUS returns "" and the row
  *  is dropped: a number with an extension ("… ext 4") or an odd digit count
  *  must never be silently rewritten into a DIFFERENT dialable number
  *  (Codex HIGH, 1.2.0 review). */
-export function normalizeHandle(s: string): string {
+/** Country calling code for bare national numbers: `country_code=` in
+ *  ~/.config/blip/bridge.conf (default 1 — NANP). Read once; tests pass it. */
+export function defaultCountryCode(): string {
+  try {
+    const conf = readFileSync(join(process.env.XDG_CONFIG_HOME ?? join(HOME, ".config"), "blip", "bridge.conf"), "utf8");
+    const m = /^\s*country_code\s*=\s*['"]?(\d{1,3})/m.exec(conf);
+    if (m) return m[1];
+  } catch { /* no conf: NANP */ }
+  return "1";
+}
+
+export function normalizeHandle(s: string, cc: string = defaultCountryCode()): string {
   const t = String(s || "").trim();
   if (t.includes("@")) return t.toLowerCase();
   // Extensions can't be messaged; stripping them would change the number.
   if (/(ext|x)\.?\s*\d+\s*$/i.test(t)) return "";
   if (t.startsWith("+")) return "+" + t.slice(1).replace(/\D/g, "");
   const digits = t.replace(/\D/g, "");
-  if (digits.length === 10) return "+1" + digits;
-  if (digits.length === 11 && digits.startsWith("1")) return "+" + digits;
+  if (cc === "1") {
+    if (digits.length === 10) return "+1" + digits;
+    if (digits.length === 11 && digits.startsWith("1")) return "+" + digits;
+    return "";
+  }
+  // Outside NANP: a national number with a leading trunk 0 dropped, or
+  // already prefixed with the country code. Lengths vary; accept 6–12 digits.
+  if (digits.startsWith(cc) && digits.length >= cc.length + 6) return "+" + digits;
+  const national = digits.replace(/^0/, "");
+  if (national.length >= 6 && national.length <= 12) return "+" + cc + national;
   return "";
 }
 

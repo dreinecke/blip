@@ -26,6 +26,9 @@ FocusScope {
    *  visible). Gates reads, reloads, and autofocus — a hidden surface must
    *  never mark anything read. */
   property bool surfaceOpen: false
+  // The window may be visible but unfocused / on another workspace: it still
+  // renders and refreshes, but must not mark conversations read (war room #25).
+  property bool readActive: true
   property color foreground: Color.foreground
   property color urgent: Color.urgent
   property string fontFamily: Style.font.family
@@ -599,6 +602,7 @@ FocusScope {
       sendDraftPath = draftPath
       // caption on stdin — never in this process's argv (audit #4, war room #1/#13)
       fileSendProc.command = ["bun", root.sendFileScript, sendChat, draftPath, "--caption-stdin"]
+        .concat(/^(SMS|RCS)$/i.test(String(root.active.service || "")) ? ["--service", String(root.active.service).toUpperCase()] : [])
       fileSendProc.stdinEnabled = true
       fileSendProc.running = true
       fileSendProc.write(trimmed !== "" ? text : "")
@@ -611,6 +615,9 @@ FocusScope {
     var target = root.activeIsGroup
       ? ["--chat-id", String(root.active.guid)]
       : ["--to", sendChat]
+    // green-bubble (SMS/RCS) threads send on their own service (war room #2)
+    var svc = String(root.active.service || "")
+    if (!root.activeIsGroup && /^(SMS|RCS)$/i.test(svc)) target = target.concat(["--service", svc.toUpperCase()])
     sendProc.command = [root.home + "/bin/imsg-send"].concat(target).concat(["--yes", "--text-stdin", "--keep-dashes"])
     sendProc.stdinEnabled = true
     sendProc.running = true
@@ -658,7 +665,7 @@ FocusScope {
               // Nothing changed — do NOT rebuild the Repeater (a rebuild
               // resets scroll and re-decodes every image). Push pings mostly
               // produce identical content; this makes them free.
-              if (root.hostWidget) root.hostWidget.markThreadRead(root.threadRunningChat)
+              if (root.hostWidget && root.readActive) root.hostWidget.markThreadRead(root.threadRunningChat)
               return
             }
             root.bubblesJson = j
@@ -669,7 +676,7 @@ FocusScope {
             root.firstLoad = false
             Qt.callLater(root.autoFetchImages)
             // A dot means "looked at", so clear it only after content loaded.
-            if (root.hostWidget) root.hostWidget.markThreadRead(root.threadRunningChat)
+            if (root.hostWidget && root.readActive) root.hostWidget.markThreadRead(root.threadRunningChat)
           } else {
             root.bubbles = []
             root.note = String(d.error || "could not load this thread")
@@ -692,6 +699,10 @@ FocusScope {
 
   Process {
     id: sendProc
+    property string lastErr: ""
+    // imsg-send says WHY it refused (too long, not authorized, no SMS chat) on
+    // stderr; "send failed (exit 1)" told the user nothing (war room #24).
+    stderr: StdioCollector { onStreamFinished: sendProc.lastErr = text.trim().split("\n").filter(function(l) { return l.trim() !== "" }).pop() || "" }
     onExited: function(code, status) {
       var completedChat = root.sendChat
       var completedText = root.sendText
@@ -709,7 +720,7 @@ FocusScope {
         reloadTimer.restart()
       } else if (belongsHere) {
         if (code === 69 || code === 255) root.note = "not sent — Mac unreachable"
-        else root.note = "send failed (exit " + code + ")"
+        else root.note = (sendProc.lastErr !== "" ? "send failed: " + sendProc.lastErr : "send failed (exit " + code + ")")
       }
       if (belongsHere) composeField.forceActiveFocus()
     }
