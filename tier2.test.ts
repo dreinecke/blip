@@ -71,7 +71,7 @@ describe("send-file caption transport", () => {
       seen = { args, input: opts.input };
       return { status: 0, stdout: "", stderr: "" };
     }) as never;
-    const tmp = `${process.env.HOME}/.cache/blip-test-${process.pid}.txt`;
+    const tmp = `${process.env.XDG_CACHE_HOME}/blip-test-${process.pid}.txt`;
     writeFileSync(tmp, "FILEBYTES");
     try {
       const r = sendFile("+15551234567", tmp, "héllo", runner);
