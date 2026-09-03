@@ -628,8 +628,13 @@ FocusScope {
     contactSeq++
     newQueryRan = q
     newNote = "searching…"
-    contactProc.command = ["bun", root.contactScript, q, threadRecencyJson()]
+    // The recency map names every conversation you have. argv is world-readable
+    // through `ps`, so it goes on stdin — the same rule message text follows.
+    contactProc.command = ["bun", root.contactScript, q, "--recency-stdin"]
+    contactProc.stdinEnabled = true
     contactProc.running = true
+    contactProc.write(root.threadRecencyJson())
+    contactProc.stdinEnabled = false
   }
   function acceptNewField() {
     var q = newFieldQuery()

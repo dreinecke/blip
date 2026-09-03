@@ -234,14 +234,35 @@ function loadContacts(runner: typeof spawnSync): RawContact[] | "offline" | stri
   }
 }
 
+/** Parse the recency map, from wherever it came. Anything unexpected is
+ *  simply no recency — ranking degrades, nothing breaks. */
+export function parseRecency(raw: string): Record<string, string> {
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(parsed)) if (typeof v === "string" && v !== "") out[k] = v;
+    return out;
+  } catch { return {}; }
+}
+
 if (import.meta.main) {
   try {
-    let recency: Record<string, string> = {};
-    if (process.argv[3]) {
-      const parsed = JSON.parse(process.argv[3]);
-      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) recency = parsed as Record<string, string>;
-    }
-    console.log(JSON.stringify(searchContacts(process.argv[2] ?? "", spawnSync, recency)));
+    // The recency map is every handle you have a thread with — your whole
+    // contact graph. On argv that is readable by any process on this machine
+    // through `ps`, which is the same reason message text has never travelled
+    // that way. So it comes in on STDIN. `--recency <json>` stays for a human
+    // poking at the CLI; QML always uses stdin.
+    const argv = process.argv.slice(2);
+    const flag = argv.indexOf("--recency");
+    const recency = argv.includes("--recency-stdin")
+      ? parseRecency(readFileSync(0, "utf8"))
+      : flag >= 0
+        ? parseRecency(argv[flag + 1] ?? "")
+        : {};
+    const query = argv.find((a, i) =>
+      !a.startsWith("--") && !(flag >= 0 && i === flag + 1)) ?? "";
+    console.log(JSON.stringify(searchContacts(query, spawnSync, recency)));
   } catch (e) {
     console.log(JSON.stringify({ ok: false, online: true, error: String(e), results: [] }));
   }

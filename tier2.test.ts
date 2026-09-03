@@ -685,3 +685,27 @@ describe("link previews for URLs Messages never decorated", () => {
     expect(previewKey("https://a.test/2")).not.toBe(previewKey("https://a.test/1"));
   });
 });
+
+describe("the contact graph never rides argv", () => {
+  const { parseRecency } = require("./contact-search") as typeof import("./contact-search");
+  const panelSrc = readFileSync(new URL("./BlipView.qml", import.meta.url), "utf8");
+
+  test("QML hands the recency map to stdin, not the command line", () => {
+    // Every handle you have a thread with is your contact graph, and argv is
+    // readable by any process here through `ps` — the same reason message text
+    // has never travelled that way.
+    expect(panelSrc).toContain('"--recency-stdin"');
+    expect(panelSrc).toContain("contactProc.write(root.threadRecencyJson())");
+    expect(panelSrc).not.toContain("root.contactScript, q, threadRecencyJson()");
+  });
+
+  test("a bad or absent map degrades ranking, never the search", () => {
+    expect(parseRecency('{"+15550100011":"2026-09-03 09:00:00"}'))
+      .toEqual({ "+15550100011": "2026-09-03 09:00:00" });
+    expect(parseRecency("not json")).toEqual({});
+    expect(parseRecency("[1,2,3]")).toEqual({});
+    expect(parseRecency("null")).toEqual({});
+    expect(parseRecency("")).toEqual({});
+    expect(parseRecency('{"a":1,"b":"x"}')).toEqual({ b: "x" });   // non-strings dropped
+  });
+});
