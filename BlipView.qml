@@ -145,10 +145,14 @@ FocusScope {
     return "share sheet"
   }
   /** The full app window. The host owns creation (Quickshell never re-maps a
-   *  hidden FloatingWindow), so this asks the widget, exactly like SUPER+M. */
+   *  hidden FloatingWindow), so this asks the widget, exactly like SUPER+M.
+   *  The popout closes behind it — the same order the bar's own double-click
+   *  uses, and leaving both up put the same conversation on screen twice. */
   function openApp() {
     closeShare()
-    if (hostWidget && typeof hostWidget.showApp === "function") hostWidget.showApp()
+    if (!hostWidget) return
+    if (typeof hostWidget.close === "function") hostWidget.close()
+    if (typeof hostWidget.showApp === "function") hostWidget.showApp()
   }
   function shareOpen() { var u = shareUrl; closeShare(); openLink(u) }
   function shareCopy() { var u = shareUrl; closeShare(); copyText(u) }

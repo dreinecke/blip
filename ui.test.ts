@@ -53,6 +53,9 @@ describe("QML safety invariants", () => {
     expect(panel).toContain("var sentUrl = root.firstUrl(completedText)");
     expect(panel).toContain("function openApp()");
     expect(panel).toContain('hostWidget.showApp()');
+    // the popout gets out of the way, and closes BEFORE the window is shown
+    expect(panel).toContain('hostWidget.close()');
+    expect(panel.indexOf("hostWidget.close()")).toBeLessThan(panel.indexOf("hostWidget.showApp()"));
     expect(panel).toContain('tooltipText: "Open the app window (SUPER+M)"');
   });
 
