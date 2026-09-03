@@ -420,19 +420,18 @@ describe("contact search shaping", () => {
   });
 
   test("fuzzyScore matches subsequences and rejects missing letters", () => {
-    expect(fuzzyScore("car", "Carisa Thorén")).toBeGreaterThan(0);
-    expect(fuzzyScore("crs", "Carisa")).toBeGreaterThan(0);
-    expect(fuzzyScore("xyz", "Carisa")).toBe(0);
-    expect(fuzzyScore("carisa", "Carisa Thorén")).toBeGreaterThan(fuzzyScore("crs", "Carisa Thorén"));
+    expect(fuzzyScore("alc", "Alice")).toBeGreaterThan(0);
+    expect(fuzzyScore("xyz", "Alice")).toBe(0);
+    expect(fuzzyScore("alice", "Alice Smith")).toBeGreaterThan(fuzzyScore("alc", "Alice Smith"));
   });
 
   test("filterFuzzy keeps contacts whose name matches as a subsequence", () => {
     const raw = [
-      { name: "Carisa Thorén", phones: [{ number: "+46730000000" }] },
-      { name: "Frank Thorén", phones: [{ number: "+46730000001" }] },
+      { name: "Alice", phones: [{ number: "+15550001111" }] },
+      { name: "Bob", phones: [{ number: "+15550002222" }] },
     ];
-    const hits = filterFuzzy(raw, "crs");
-    expect(hits.map((c) => c.name)).toEqual(["Carisa Thorén"]);
+    const hits = filterFuzzy(raw, "alc");
+    expect(hits.map((c) => c.name)).toEqual(["Alice"]);
   });
 
   test("rankByRecency keeps a direct-entry row first", () => {

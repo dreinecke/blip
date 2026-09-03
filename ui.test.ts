@@ -111,6 +111,7 @@ describe("QML safety invariants", () => {
   });
 
   test("conversation search is scheduled from the field text, people first", () => {
+    expect(panel).toContain("if (q !== searchQueryRan) searchSeq++");
     expect(panel).toContain("function scheduleSearch");
     expect(panel).toContain("function conversationHits");
     expect(panel).toContain("id: searchWatch");

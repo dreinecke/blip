@@ -603,6 +603,7 @@ FocusScope {
       newCursor = 0
       return
     }
+    if (newFieldQuery() !== newQueryRan) contactSeq++
     newNote = "searching…"
     newSearchTimer.restart()
   }
@@ -731,6 +732,7 @@ FocusScope {
       return
     }
     searching = true
+    if (q !== searchQueryRan) searchSeq++
     searchResults = conversationHits(q)
     searchCursor = 0
     searchNote = searchResults.length === 0 ? "searching…" : ""
@@ -741,7 +743,8 @@ FocusScope {
     searchCursor = (searchCursor + dy + searchResults.length) % searchResults.length
   }
   function acceptSearchField() {
-    if (searchResults.length > 0) {
+    var q = searchFieldQuery()
+    if (searchResults.length > 0 && (searchQueryRan === "" || searchQueryRan === q)) {
       var i = Math.max(0, Math.min(searchCursor, searchResults.length - 1))
       openSearchHit(searchResults[i])
       return

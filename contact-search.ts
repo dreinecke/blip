@@ -198,13 +198,17 @@ export function searchContacts(
 
 const DUMP_TTL_MS = 60_000;
 
+function slimContact(c: RawContact): RawContact {
+  return { name: c.name, org: c.org, nick: c.nick, phones: c.phones, emails: c.emails };
+}
+
 function loadContacts(runner: typeof spawnSync): RawContact[] | "offline" | string {
-  const cacheDir = join(process.env.XDG_CACHE_HOME ?? join(HOME, ".cache"), "blip");
+  const cacheDir = join(process.env.XDG_RUNTIME_DIR ?? `/run/user/${process.getuid?.() ?? 1000}`, "blip");
   const cachePath = join(cacheDir, "contacts-dump.json");
   try {
     if (Date.now() - statSync(cachePath).mtimeMs < DUMP_TTL_MS) {
       const parsed = JSON.parse(readFileSync(cachePath, "utf8"));
-      if (Array.isArray(parsed)) return parsed as RawContact[];
+      if (Array.isArray(parsed)) return (parsed as RawContact[]).map(slimContact);
     }
   } catch { /* miss */ }
   const res = runner(`${HOME}/bin/contacts`, ["--json", "dump"], {
@@ -219,11 +223,12 @@ function loadContacts(runner: typeof spawnSync): RawContact[] | "offline" | stri
   try {
     const parsed = JSON.parse(res.stdout as string);
     if (!Array.isArray(parsed)) throw new Error("not an array");
+    const slim = (parsed as RawContact[]).map(slimContact);
     try {
       mkdirSync(cacheDir, { mode: 0o700, recursive: true });
-      writeFileSync(cachePath, JSON.stringify(parsed), { mode: 0o600 });
+      writeFileSync(cachePath, JSON.stringify(slim), { mode: 0o600 });
     } catch { /* cache is optional */ }
-    return parsed as RawContact[];
+    return slim;
   } catch (e) {
     return `bad JSON from contacts: ${e}`;
   }
