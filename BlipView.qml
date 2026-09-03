@@ -22,6 +22,11 @@ FocusScope {
 
   // ---- host contract (docs/app-design-review.md) ----------------------
   property var hostWidget: null
+  /** Qt format strings, owned by the host widget (see BarWidget). Empty when no host is
+   *  attached or the host has none, which thread.ts and Qt both read as "use the defaults". */
+  readonly property string timeFormat: (hostWidget && hostWidget.timeFormat) || ""
+  readonly property string dateFormat: (hostWidget && hostWidget.dateFormat) || ""
+  readonly property string dateFormatWithYear: (hostWidget && hostWidget.dateFormatWithYear) || ""
   /** The surface hosting this view is showing (popout: opened; window:
    *  visible). Gates reads, reloads, and autofocus — a hidden surface must
    *  never mark anything read. */
@@ -328,7 +333,10 @@ FocusScope {
     if (threadProc.running || pendingThreadChat === "") return
     threadRunningChat = pendingThreadChat
     pendingThreadChat = ""
-    threadProc.command = ["bun", root.threadScript, threadRunningChat, "80"]
+    threadProc.command = ["bun", root.threadScript, threadRunningChat, "80",
+                          "--time-format", root.timeFormat,
+                          "--date-format", root.dateFormat,
+                          "--date-format-with-year", root.dateFormatWithYear]
     threadProc.running = true
   }
 
@@ -763,11 +771,18 @@ FocusScope {
   }
   Timer { id: noteTimer; interval: 1500; onTriggered: if (root.note === "copied" || root.note === "sent to LocalSend") root.note = "" }
 
+  // The same patterns as the bubbles: today the time, older rows the date and
+  // the time, with the year once it is not this year.
   function fmtTime(ts) {
     var s = String(ts || "")
     if (s.length < 16) return s
-    var today = Qt.formatDateTime(new Date(), "yyyy-MM-dd")
-    return s.substring(0, 10) === today ? s.substring(11, 16) : s.substring(5, 16)
+    var now = new Date()
+    var at = new Date(+s.substring(0, 4), +s.substring(5, 7) - 1, +s.substring(8, 10),
+                      +s.substring(11, 13), +s.substring(14, 16))
+    var clock = Qt.formatTime(at, root.timeFormat)
+    if (s.substring(0, 10) === Qt.formatDate(now, "yyyy-MM-dd")) return clock
+    var date = at.getFullYear() === now.getFullYear() ? root.dateFormat : root.dateFormatWithYear
+    return Qt.formatDate(at, date) + " " + clock
   }
 
   // ------------------------------------------------------------ processes

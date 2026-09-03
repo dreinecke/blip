@@ -12,6 +12,13 @@
   every query agrees. Group names are unaffected: rename rows are still read
   for that. Mac side: re-run the install one-liner so `~/.blip/bin/imsg` picks
   it up.
+- **Clock and dates are yours to set.** Bubble times and read receipts were
+  hardcoded 12-hour while the conversation list showed 24-hour — two clocks
+  in one window, and no setting for either. Both now follow three Qt format
+  strings on the widget's shell.json entry, the way Omarchy's clock takes its
+  `format`: `timeFormat`, `dateFormat` (day dividers this year) and
+  `dateFormatWithYear`. Unset, the time follows your locale and dates read as
+  before, so nothing changes until you ask.
 - **Reads now reach the Mac, and your phone.** Blip's "mark all read" cleared
   the badge on Linux and nothing else; the iPhone kept its red dots. The old
   note called this impossible because `open imessage://<handle>` does not flip

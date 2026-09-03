@@ -301,6 +301,15 @@ cloned by hand: `omarchy plugin enable nixfred.blip --section right`, or add
 `~/.config/omarchy/shell.json`. Then `omarchy-restart-shell` — the speech
 bubble is in your bar.
 
+**Clock and dates.** Out of the box the time follows your locale — `9:08 PM`
+or `21:08` — and dates read the way Messages writes them: `Aug 28`, or
+`Aug 28, 2025` for another year. To change either, put Qt format strings on
+the same entry, exactly as Omarchy's clock takes its `format`:
+
+```jsonc
+{ "id": "nixfred.blip", "timeFormat": "HH:mm", "dateFormat": "dd.MM", "dateFormatWithYear": "dd.MM.yyyy" }
+```
+
 **5. (Optional) `SUPER+M` for the app window** — the Lua snippet under
 "The app" above.
 

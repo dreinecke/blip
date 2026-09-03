@@ -1,11 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
 import type { ImsgMessage } from "./collector";
+import type { Formats } from "./thread";
 import {
   clockLabel,
   dayLabel,
   decorate,
   dedupeSelfEcho,
+  DEFAULT_FORMATS,
+  formatStamp,
+  formatsFromArgv,
   loadThread,
   localToday,
   minutesBetween,
@@ -27,6 +31,61 @@ function msg(over: Partial<ImsgMessage> = {}): ImsgMessage {
   };
 }
 
+const DOTTED: Formats = { time: "HH:mm", date: "dd.MM", dateWithYear: "dd.MM.yyyy" };
+
+describe("formatStamp", () => {
+  const ts = "2026-08-30 21:08:22"; // a Sunday
+
+  test.each([
+    ["HH:mm", "21:08"],
+    ["h:mm AP", "9:08 PM"],
+    ["hh:mm ap", "09:08 pm"],
+    ["h:mm A", "9:08 PM"],
+    ["h", "21"],                       // no AM/PM token → h is 24-hour, as in Qt
+    ["H:m:s", "21:8:22"],
+    ["dd.MM", "30.08"],
+    ["dd.MM.yyyy", "30.08.2026"],
+    ["d/M/yy", "30/8/26"],
+    ["MMM d, yyyy", "Aug 30, 2026"],
+    ["d MMMM yyyy", "30 August 2026"],
+    ["ddd d MMM", "Sun 30 Aug"],
+    ["dddd", "Sunday"],
+    ["h 'o''clock'", "21 o'clock"],    // quoted literals, '' is a quote
+    ["'at' h:mm ap", "at 9:08 pm"],    // an 'a' inside quotes is not a token
+    ["yyyy-MM-dd'T'HH:mm", "2026-08-30T21:08"],
+    ["ww", "ww"],                      // unknown letters pass through
+  ])("%s → %s", (pattern, expected) => {
+    expect(formatStamp(ts, pattern)).toBe(expected);
+  });
+
+  test("midnight and noon on a 12-hour clock", () => {
+    expect(formatStamp("2026-08-30 00:30:00", "h:mm AP")).toBe("12:30 AM");
+    expect(formatStamp("2026-08-30 12:00:00", "h:mm AP")).toBe("12:00 PM");
+  });
+
+  test("a date-only stamp formats at midnight", () => {
+    expect(formatStamp("2026-08-30", "dd.MM HH:mm")).toBe("30.08 00:00");
+  });
+
+  test("malformed input formats to nothing, not a crash", () => {
+    expect(formatStamp("nonsense", "HH:mm")).toBe("");
+    expect(formatStamp("", "HH:mm")).toBe("");
+  });
+});
+
+describe("formatsFromArgv", () => {
+  test("reads the three flags", () => {
+    const f = formatsFromArgv(["bun", "thread.ts", "+15550100002", "80",
+      "--time-format", "HH:mm", "--date-format", "dd.MM", "--date-format-with-year", "dd.MM.yyyy"]);
+    expect(f).toEqual(DOTTED);
+  });
+
+  test("unset or empty keeps the default", () => {
+    expect(formatsFromArgv(["bun", "thread.ts", "+15550100002", "80"])).toEqual(DEFAULT_FORMATS);
+    expect(formatsFromArgv(["--time-format", "", "--date-format"])).toEqual(DEFAULT_FORMATS);
+  });
+});
+
 describe("clockLabel", () => {
   test("formats afternoon as 12-hour with PM", () => {
     expect(clockLabel("2026-08-30 21:08:22")).toBe("9:08 PM");
@@ -42,6 +101,10 @@ describe("clockLabel", () => {
 
   test("noon is 12 PM, not 0 PM", () => {
     expect(clockLabel("2026-08-30 12:00:00")).toBe("12:00 PM");
+  });
+
+  test("follows the time pattern it is given", () => {
+    expect(clockLabel("2026-08-30 21:08:22", "HH:mm")).toBe("21:08");
   });
 
   test("garbage in yields an empty label, not a crash", () => {
@@ -66,6 +129,13 @@ describe("dayLabel", () => {
 
   test("a previous year includes it", () => {
     expect(dayLabel("2025-12-24 09:00:00", today)).toBe("Dec 24, 2025");
+  });
+
+  test("dates follow the patterns, Today and Yesterday stay words", () => {
+    expect(dayLabel("2026-08-30 09:00:00", today, DOTTED)).toBe("Today");
+    expect(dayLabel("2026-08-29 09:00:00", today, DOTTED)).toBe("Yesterday");
+    expect(dayLabel("2026-08-28 09:00:00", today, DOTTED)).toBe("28.08");
+    expect(dayLabel("2025-12-24 09:00:00", today, DOTTED)).toBe("24.12.2025");
   });
 
   test("crossing a month boundary still resolves Yesterday", () => {
@@ -99,6 +169,17 @@ describe("decorate", () => {
     expect(b[0]!.groupStart).toBe(true);
     expect(b[0]!.groupEnd).toBe(true);
     expect(b[0]!.time).toBe("12:00 PM");
+  });
+
+  test("the patterns reach the divider, the timestamp and the read receipt", () => {
+    const b = decorate(
+      [msg({ ts: "2026-08-28 16:42:00", from_me: true, read_at: "2026-08-28 16:45:00" })],
+      today,
+      DOTTED,
+    );
+    expect(b[0]!.day).toBe("28.08");
+    expect(b[0]!.time).toBe("16:42");
+    expect(b[0]!.receipt).toBe("Read 28.08 16:45");
   });
 
   test("consecutive messages from one sender form a single group", () => {
@@ -271,6 +352,7 @@ describe("loadThread", () => {
       "+15551234567",
       10,
       "2026-08-30",
+      DEFAULT_FORMATS,
       fake({ status: 0, stdout: JSON.stringify([msg({ ts: "2026-08-30 12:00:00" })]) }),
     );
     expect(r.ok).toBe(true);
@@ -279,20 +361,20 @@ describe("loadThread", () => {
   });
 
   test("exit 69 reports the bridge offline", () => {
-    const r = loadThread("+1", 10, "2026-08-30", fake({ status: 69 }));
+    const r = loadThread("+1", 10, "2026-08-30", DEFAULT_FORMATS, fake({ status: 69 }));
     expect(r.ok).toBe(false);
     expect(r.online).toBe(false);
     expect(r.error).toBe("Mac unreachable");
   });
 
   test("malformed stdout is reported, not thrown", () => {
-    const r = loadThread("+1", 10, "2026-08-30", fake({ status: 0, stdout: "junk" }));
+    const r = loadThread("+1", 10, "2026-08-30", DEFAULT_FORMATS, fake({ status: 0, stdout: "junk" }));
     expect(r.ok).toBe(false);
     expect(r.error).toContain("bad JSON");
   });
 
   test("a non-zero exit surfaces the first stderr line", () => {
-    const r = loadThread("+1", 10, "2026-08-30", fake({ status: 2, stderr: "nope\nmore" }));
+    const r = loadThread("+1", 10, "2026-08-30", DEFAULT_FORMATS, fake({ status: 2, stderr: "nope\nmore" }));
     expect(r.ok).toBe(false);
     expect(r.error).toBe("nope");
   });
@@ -349,7 +431,7 @@ describe("selectThread", () => {
   test("loadThread loads a group by EXACT chat id via thread --chat", () => {
     let seen: string[] = [];
     const runner = ((_: string, args: string[]) => { seen = args; return { status: 0, stdout: "[]", stderr: "" }; }) as never;
-    loadThread(guid, 80, "2026-08-30", runner);
+    loadThread(guid, 80, "2026-08-30", DEFAULT_FORMATS, runner);
     expect(seen).toContain("--rich");
     expect(seen).toContain("--chat");
     expect(seen[seen.indexOf("--chat") + 1]).toBe(guid);
