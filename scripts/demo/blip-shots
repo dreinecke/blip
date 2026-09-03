@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# Render Blip against invented data and leave PNGs in docs/img.
+#
+# Why this exists: the README needs pictures of a messaging client, and a
+# messaging client's real screen is somebody's private conversation. Blurring
+# is not privacy. So the screenshots are made by pointing the SHIPPING code at
+# a fake bridge: same collector, same thread loader, same avatar fetcher, same
+# QML — invented people, numbers in the 555-0100..555-0199 fiction range, and a
+# link card fetched from a real public page.
+#
+#   scripts/demo/blip-shots            # write docs/img/*.png
+#   scripts/demo/blip-shots --keep     # leave the window up to poke at
+#
+# Needs: bun, quickshell, grim, magick, a running Hyprland session.
+set -euo pipefail
+
+REPO=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd)
+SANDBOX=${BLIP_DEMO_HOME:-/tmp/blip-demo-home}
+SHELLDIR=${BLIP_DEMO_SHELL:-/tmp/blip-demo-shell}
+OUT="$REPO/docs/img"
+KEEP=0
+[[ ${1:-} == "--keep" ]] && KEEP=1
+
+for tool in bun quickshell grim magick jq; do
+  command -v "$tool" >/dev/null || { echo "missing: $tool" >&2; exit 1; }
+done
+
+# Hyprland's signature drifts when the compositor restarts; a stale one in the
+# environment makes every launch fail silently.
+if ! hyprctl version >/dev/null 2>&1; then
+  sig=$(systemctl --user show-environment 2>/dev/null | sed -n 's/^HYPRLAND_INSTANCE_SIGNATURE=//p')
+  [[ -n $sig ]] && export HYPRLAND_INSTANCE_SIGNATURE="$sig"
+fi
+
+cleanup() {
+  [[ ${DEMO_PID:-} ]] && kill "$DEMO_PID" 2>/dev/null || true
+  wait "${DEMO_PID:-}" 2>/dev/null || true
+}
+[[ $KEEP == 0 ]] && trap cleanup EXIT
+
+echo "· sandbox $SANDBOX"
+rm -rf "$SANDBOX" "$SHELLDIR"
+mkdir -p "$SANDBOX/bin" "$SANDBOX/.config/blip" "$SANDBOX/.cache" "$SANDBOX/.local/state" "$OUT"
+printf '#!/usr/bin/env bash\nexec bun %q "$@"\n' "$REPO/scripts/demo/fake-imsg" > "$SANDBOX/bin/imsg"
+chmod +x "$SANDBOX/bin/imsg"
+# The shims Blip would call for sending: a screenshot never sends, so these
+# exist only so nothing in the view reports the bridge as missing.
+for t in imsg-send contacts; do printf '#!/usr/bin/env bash\nexit 0\n' > "$SANDBOX/bin/$t"; chmod +x "$SANDBOX/bin/$t"; done
+cat > "$SANDBOX/.config/blip/bridge.conf" <<'CONF'
+host=demo
+remote_bin='$HOME/.blip/bin'
+automation=on
+link_previews=on
+CONF
+
+echo "· shell copy $SHELLDIR"
+cp -r /usr/share/omarchy/shell "$SHELLDIR"
+cp "$REPO"/*.qml "$REPO"/*.ts "$SHELLDIR/"
+cp "$REPO/scripts/demo/DemoShell.qml" "$SHELLDIR/shell.qml"
+
+echo "· launching"
+HOME="$SANDBOX" XDG_CACHE_HOME="$SANDBOX/.cache" XDG_STATE_HOME="$SANDBOX/.local/state" \
+  quickshell -n -p "$SHELLDIR" >"$SANDBOX/qs.log" 2>&1 &
+DEMO_PID=$!
+
+ipc() { quickshell -p "$SHELLDIR" ipc call demo "$@" 2>/dev/null || true; }
+# Wait for the REAL answer. `quickshell ipc` prints "No running instances for
+# <path>" while the shell is still coming up, and scraping digits out of that
+# passed instantly — every command sent in that window was silently dropped,
+# which is why the first screenshot kept showing the previous layout.
+ready=0
+for _ in $(seq 1 60); do
+  n=$(ipc threads | tr -d '[:space:]')
+  if [[ $n =~ ^[0-9]+$ ]] && (( n > 0 )); then ready=$n; break; fi
+  sleep 0.5
+done
+[[ $ready -gt 0 ]] || { echo "demo shell never came up; see $SANDBOX/qs.log" >&2; tail -20 "$SANDBOX/qs.log" >&2; exit 1; }
+echo "· $ready conversations loaded"
+
+# The demo surface is a layer-shell panel at a fixed origin and size (see
+# DemoShell.qml), so the crop is known without asking the compositor anything.
+WIDE="220,140 1120x760"
+NARROW="220,140 560x760"
+GEOM="$WIDE"
+# Park the pointer off the crop: Hyprland composites a software cursor into
+# the screencopy frame, so grim captures it even without -c.
+park() { hyprctl dispatch 'hl.dsp.cursor.move({ x = 40, y = 40 })' >/dev/null 2>&1 || true; }
+shoot() { park; sleep "${2:-1.5}"; grim -g "$GEOM" "$OUT/$1.png"; echo "  → docs/img/$1.png"; }
+
+CONV=$(jq -r .conversation.chat "$REPO/scripts/demo/fixtures.json")
+
+# A mode switch resizes the layer surface; give the compositor a beat before
+# the next frame is captured, or the shot is of the previous layout.
+mode() { ipc mode "$1" >/dev/null; sleep 1.5; }
+
+# The bar popout: one column, the first thing anyone sees.
+mode narrow; GEOM="$NARROW"
+ipc list >/dev/null;                      shoot panel 2.5
+ipc open "$CONV" >/dev/null;              shoot panel-conversation 3.0
+
+# The app window: sidebar + conversation, what SUPER+M opens.
+mode wide; GEOM="$WIDE"
+ipc open "$CONV" >/dev/null;              shoot app 3.0
+ipc share https://oatlug.org >/dev/null;  shoot share-sheet 2.5
+
+if [[ $KEEP == 1 ]]; then
+  echo "· window left up (pid $DEMO_PID) — kill it when you are done"
+else
+  echo "· done"
+fi

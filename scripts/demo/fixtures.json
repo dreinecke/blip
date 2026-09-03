@@ -1,0 +1,138 @@
+{
+  "_comment": "Synthetic data for README screenshots. Every name is invented and every number is in the 555-01xx range reserved for fiction (RFC-ish: NANP 555-0100..555-0199). No real person, number, or message appears here.",
+  "self": "+15550100000",
+  "people": [
+    {
+      "handle": "+15550100011",
+      "name": "Jamie Rivera",
+      "color": "#e0533d"
+    },
+    {
+      "handle": "+15550100022",
+      "name": "Priya Raman",
+      "color": "#2f7de1"
+    },
+    {
+      "handle": "+15550100033",
+      "name": "Sam Okafor",
+      "color": "#2f9e63"
+    },
+    {
+      "handle": "+15550100044",
+      "name": "Noa Lindqvist",
+      "color": "#8a4fd6"
+    },
+    {
+      "handle": "dana@example.com",
+      "name": "Dana Whitfield",
+      "color": "#c9822a"
+    },
+    {
+      "handle": "+15550100055",
+      "name": "Marisol Vega",
+      "color": "#3f6fb5"
+    },
+    {
+      "handle": "+15550100066",
+      "name": "Theo Brandt",
+      "color": "#6b8f3a"
+    },
+    {
+      "handle": "+15550100077",
+      "name": "Ines Castellanos",
+      "color": "#a3563f"
+    },
+    {
+      "handle": "+15550100088",
+      "name": "Owen Park",
+      "color": "#4a4f8c"
+    }
+  ],
+  "groups": [
+    {
+      "chat": "chat900000000000000001",
+      "guid": "any;+;chat900000000000000001",
+      "name": "Trail Crew",
+      "members": [
+        "+15550100011",
+        "+15550100022",
+        "+15550100033"
+      ],
+      "color": "#1f8f7a"
+    },
+    {
+      "chat": "chat900000000000000002",
+      "guid": "any;+;chat900000000000000002",
+      "name": "Book Club",
+      "members": [
+        "+15550100022",
+        "+15550100044",
+        "dana@example.com"
+      ],
+      "color": "#b3406b"
+    }
+  ],
+  "pinned": [
+    "+15550100011",
+    "chat900000000000000001",
+    "+15550100022",
+    "dana@example.com",
+    "chat900000000000000002",
+    "+15550100033"
+  ],
+  "shortcodes": [
+    {
+      "handle": "31614",
+      "name": null,
+      "service": "SMS",
+      "text": "UTILITY: Your bill for 41 Mill Street is ready. $84.20 drafts on the 29th."
+    }
+  ],
+  "conversation": {
+    "chat": "+15550100011",
+    "messages": [
+      {
+        "min": -184,
+        "from_me": false,
+        "text": "trailhead at 7? forecast says clear"
+      },
+      {
+        "min": -182,
+        "from_me": true,
+        "text": "7 works. bringing the good thermos"
+      },
+      {
+        "min": -181,
+        "from_me": false,
+        "text": "Loved “7 works. bringing the good thermos”",
+        "tapback": true
+      },
+      {
+        "min": -96,
+        "from_me": false,
+        "text": "found the meetup page, it's a real thing now https://oatlug.org"
+      },
+      {
+        "min": -95,
+        "from_me": true,
+        "text": "that logo goes hard",
+        "reply_to": "found the meetup page, it's a real thing now"
+      },
+      {
+        "min": -44,
+        "from_me": false,
+        "text": "photo from the ridge",
+        "attachment": {
+          "name": "ridge.heic",
+          "mime": "image/heic"
+        }
+      },
+      {
+        "min": -12,
+        "from_me": true,
+        "text": "on my way, ten minutes out",
+        "read_at": true
+      }
+    ]
+  }
+}

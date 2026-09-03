@@ -11,11 +11,11 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-2.0-0a84ff?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-2.2.3-0a84ff?style=flat-square">
   <img alt="Omarchy" src="https://img.shields.io/badge/Omarchy-plugin-5fd7ff?style=flat-square">
   <img alt="QuickShell" src="https://img.shields.io/badge/QuickShell-QML-0a84ff?style=flat-square">
   <img alt="bun" src="https://img.shields.io/badge/bun-TypeScript-f9f1e1?style=flat-square">
-  <img alt="tests" src="https://img.shields.io/badge/tests-177%20passing-2ea043?style=flat-square">
+  <img alt="tests" src="https://img.shields.io/badge/tests-229%20passing-2ea043?style=flat-square">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square">
 </p>
 
@@ -27,25 +27,53 @@
 > Apple ID, awake and reachable over SSH — as the gateway. The Linux side is a
 > thin client. **No Mac, no Blip.** When the Mac sleeps, Blip dims and waits.
 
-## Blip 2.0
+<p align="center">
+  <img src="docs/img/app.png" alt="The Blip app window: conversation list on the left, thread with a link card, reply, attachment and read receipt on the right" width="920">
+</p>
 
-Version 2.0 (2026-08-31) is the "this is what I wanted" release. Since 1.0:
+<p align="center">
+  <img src="docs/img/panel.png" alt="The bar popout: pinned conversations as tiles above the thread list" width="330">
+  &nbsp;
+  <img src="docs/img/panel-conversation.png" alt="A conversation in the bar popout, with a tapback, a link card and a read receipt" width="330">
+</p>
 
-- **The app.** A Messages-style window — sidebar of every conversation,
-  the open thread, compose — next to the bar popout. `SUPER+M`,
-  double-click the bar icon, or `qs ipc … app`. Remembers size and whether
-  it was open across shell restarts; title shows the unread count.
-- **Contact photos** from the Mac's Contacts in the sidebar.
-- **Link cards** with preview image, title, and host, like Messages.
+<p align="center">
+  <sub>
+    Every screenshot is the real client rendered against invented people —
+    <code>scripts/demo/blip-shots</code> points the shipping code at a fake bridge, so
+    nothing here is anyone's conversation. Numbers are in the 555-0100 range
+    reserved for fiction. The link card is a real fetch of a real public page.
+  </sub>
+</p>
+
+## Blip 2.2
+
+Blip went public on 2026-08-31 and has moved fast since, much of it from
+people who showed up with pull requests. What is in it now:
+
+- **The app.** A Messages-style window — sidebar of every conversation, the
+  open thread, compose — next to the bar popout. `SUPER+M`, the ⇱ button in
+  the panel header, double-click the bar icon, or `qs ipc … app`. Remembers
+  size and whether it was open across shell restarts.
+- **Pinned conversations**, mirrored from Messages on the Mac, in the same
+  order, as avatar tiles above the list. Read-only: Blip never re-pins.
+- **Contact photos** from the Mac's Contacts, and **group photos** — a group
+  wears its own picture, never whichever member happened to speak last.
+- **Link cards for every URL.** Messages decorates some links and leaves most
+  bare; for the bare ones Blip fetches the page and builds the card from its
+  Open Graph tags. Right-click any link for a share sheet: open, copy, a QR
+  code your phone can scan, or send it to another device with LocalSend.
 - **Real-time push** — messages land in ~2 s via a watcher on the Mac.
-- **Attachments both ways** — photos inline, files as chips, send by
-  Ctrl+V / drag-and-drop / `/attach`, with captions; your own sent photos
-  stay showable.
-- **Search** across every message ever; **new conversation** from a
-  contact search; **reply from a toast**; failed-delivery flags.
-- **One source.** The Mac-side tools ship in this repo; `blip-setup`
-  installs everything including a dedicated ssh key the Mac confines to
-  the five bridge tools.
+- **Attachments both ways** — photos inline and upright (EXIF orientation is
+  baked in, so they are not sideways in your viewer either), files as chips,
+  send by Ctrl+V / drag-and-drop / `/attach`, with captions.
+- **SMS and RCS** send on their own service instead of failing as iMessage,
+  and short-code senders (banks, utilities, 2FA) open like any other thread.
+- **Search** across every message ever; **new conversation** from a contact
+  search; **reply from a toast**; failed-delivery flags.
+- **One source.** The Mac-side tools ship in this repo; `blip-setup` installs
+  everything including a dedicated ssh key the Mac confines to the five
+  bridge tools.
 - **Audited.** A full security + privacy audit, every finding fixed or
   documented — [docs/SECURITY.md](docs/SECURITY.md), [docs/PRIVACY.md](docs/PRIVACY.md).
   Message text never touches argv or disk on either machine.
@@ -141,6 +169,14 @@ Linux side. If the Mac is asleep, the widget dims and says so.
 </td>
 </tr>
 </table>
+
+<p align="center">
+  <img src="docs/img/share-sheet.png" alt="The share sheet on a link: open in browser, copy, a QR code, or send to a device with LocalSend" width="820">
+</p>
+
+<p align="center">
+  <sub>Right-click any link — or just send or receive one — and the share sheet comes up on it.</sub>
+</p>
 
 ## Privacy
 
@@ -373,14 +409,23 @@ The 273,000-message history stays on the Mac where it lives.
 ## Development
 
 ```sh
-bun test                                     # 177 tests, ~70 ms
+bun test                                     # 229 tests, ~100 ms
 bun collector.ts --deep | jq '.unread, (.threads|length)'
 bun thread.ts +15551234567 40 | jq '.bubbles[-1]'
+scripts/demo/blip-shots                      # regenerate docs/img/*.png
 ```
 
 Logic lives in TypeScript where it can be tested; QML only renders. Every
 layout bug so far was found with `grim` and eyeballs, not by reading code —
 screenshot your changes. See [CLAUDE.md](CLAUDE.md) for the invariants.
+
+**Screenshots without anyone's messages.** A messaging client's real screen is
+a private conversation, and blurring is not privacy. `scripts/demo/blip-shots`
+builds a sandbox `HOME` whose `bin/imsg` is a fake bridge
+(`scripts/demo/fake-imsg`, fixtures in `scripts/demo/fixtures.json`), then runs
+the shipping collector, thread loader, avatar fetcher and QML against it in a
+throwaway Quickshell instance and writes `docs/img/*.png`. Same code paths,
+invented people. Change the fixtures and re-run to document a new feature.
 
 ## Contributing
 
