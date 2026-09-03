@@ -96,6 +96,7 @@ Linux side. If the Mac is asleep, the widget dims and says so.
 - **photos render inline** — images ≤5MB auto-fetch over SSH (HEIC converted on the Mac); click opens full-size. PDFs/videos are chips — click fetches and opens them
 - **send files** — Ctrl+V an image into the compose box, type `/attach <path>`, or drag-and-drop; a caption rides along
 - select text and Ctrl+C · right-click a bubble to copy it whole · right-click a **link** in a bubble for the share sheet
+- the share sheet **opens itself** for a link you send, and for one that arrives while Blip is open
 - compose box at the bottom, Enter sends — **DMs and groups**
 
 **Toasts**

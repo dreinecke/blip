@@ -85,6 +85,15 @@ BarWidget {
     panelLoader.item.openThread(t || { chat: want, handle: want, name: want })
   }
 
+  /** Newest arriving link → the share sheet on whichever surface is open. */
+  function shareArrivingLink(link) {
+    if (!link || !link.url) return
+    var w = windowLoader.item
+    if (w && root.windowVisible && typeof w.shareLink === "function") { w.shareLink(String(link.url)); return }
+    var p = panelLoader.item
+    if (p && p.opened === true && typeof p.shareLink === "function") p.shareLink(String(link.url))
+  }
+
   function injectPanel() {
     var target = panelLoader.item
     if (!target) return
@@ -355,6 +364,12 @@ BarWidget {
             root.unread = list.reduce(function(n, t) { return n + (Number(t.unread) || 0) }, 0)
             root.healthy = d.persisted !== false
             if (Array.isArray(d.toast)) root.fireToasts(d.toast)
+            // A link that just arrived opens the share sheet (Fred, 2.3.0).
+            // Only onto a surface that is ALREADY open: Omarchy runs
+            // focus_on_activate=false and Blip never steals focus, so a bank
+            // alert must not throw a panel over full-screen work. When Blip is
+            // closed the desktop toast is still the notification.
+            if (Array.isArray(d.links) && d.links.length > 0) root.shareArrivingLink(d.links[d.links.length - 1])
             // A send of YOURS that died — not allowlist-gated, interrupts once.
             if (Array.isArray(d.failures) && d.failures.length > 0)
               root.fireToasts(d.failures.map(function(f) {

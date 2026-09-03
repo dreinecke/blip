@@ -39,6 +39,7 @@ FloatingWindow {
   readonly property bool loading: view.loading
   readonly property string activeLastTs: view.activeLastTs
   function openThread(t) { view.openThread(t) }
+  function shareLink(url) { return view.shareLink(url) }
   function pushReload() { view.pushReload() }
 
   // ---- persistence: the window lives inside the shell process, so every

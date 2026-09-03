@@ -720,6 +720,46 @@ describe("failed-delivery detection", () => {
   });
 });
 
+describe("a link that just arrived opens the share sheet", () => {
+  const { firstUrl, selectIncomingLinks } = require("./collector") as typeof import("./collector");
+  const WM = "2026-09-02 12:00:00";
+
+  test("firstUrl finds one http(s) url and drops sentence punctuation", () => {
+    expect(firstUrl("see https://gpc.sc/occ/pay to view bill.")).toBe("https://gpc.sc/occ/pay");
+    expect(firstUrl("(https://example.com/a_b)")).toBe("https://example.com/a_b");
+    expect(firstUrl("http://x.test/1?q=2#f")).toBe("http://x.test/1?q=2#f");
+    expect(firstUrl("no link here")).toBe("");
+    expect(firstUrl("ftp://nope.test/x")).toBe("");
+    expect(firstUrl(null)).toBe("");
+  });
+
+  test("only NEW inbound links, newest last, one key each", () => {
+    const out = selectIncomingLinks([
+      msg({ ts: "2026-09-02 12:30:00", from_me: false, text: "read https://a.test/1" }),
+      msg({ ts: "2026-09-02 11:00:00", from_me: false, text: "old https://b.test/2" }),   // before watermark
+      msg({ ts: "2026-09-02 12:40:00", from_me: true, text: "mine https://c.test/3" }),   // outbound
+      msg({ ts: "2026-09-02 12:50:00", from_me: false, text: "no url" }),
+      msg({ ts: "2026-09-02 12:55:00", from_me: false, text: "later https://d.test/4" }),
+    ], WM, []);
+    expect(out.map((l) => l.url)).toEqual(["https://a.test/1", "https://d.test/4"]);
+    expect(out[out.length - 1]!.url).toBe("https://d.test/4");   // the caller shows the newest
+    expect(out.every((l) => l.key.startsWith("link:"))).toBe(true);
+  });
+
+  test("a link fires once — its key suppresses the next poll", () => {
+    const m = msg({ ts: "2026-09-02 12:30:00", from_me: false, text: "https://a.test/1" });
+    const first = selectIncomingLinks([m], WM, []);
+    expect(first.length).toBe(1);
+    expect(selectIncomingLinks([m], WM, [first[0]!.key])).toEqual([]);
+  });
+
+  test("never the backlog on first run, never the self-thread", () => {
+    const m = msg({ ts: "2026-09-02 12:30:00", from_me: false, text: "https://a.test/1" });
+    expect(selectIncomingLinks([m], "", [])).toEqual([]);
+    expect(selectIncomingLinks([m], WM, [], [String(m.chat || m.handle)])).toEqual([]);
+  });
+});
+
 describe("a re-keyed group is ONE conversation", () => {
   const { aliasesFromChats, foldThreadAliases, foldChatRecord } =
     require("./collector") as typeof import("./collector");

@@ -27,6 +27,16 @@
   later — a new group picture, a Contacts card, or a bridge fix that starts
   finding one — now shows up within a day instead of after the 7-day cache
   expired.
+- **The share sheet opens itself for a link, sent or received.** Send a
+  message containing a URL and the sheet comes up on it; a link that ARRIVES
+  does the same — but only onto a Blip surface that is already open, because
+  Omarchy runs `focus_on_activate=false` and a bank alert must not throw a
+  panel over full-screen work. One sheet, the newest link only, and each
+  message fires exactly once through a persisted `link:` ring, so a catch-up
+  after sleep cannot stack modals and yesterday's links never pop tomorrow.
+  The self-thread never triggers it.
+- **Open the app from the panel.** A ⇱ button beside ＋ in the panel header
+  opens the full app window, the same thing SUPER+M does.
 - **Share sheet for links.** Right-click a link in a bubble, or a link card,
   and Blip opens a sheet: open in browser, copy, a QR code your phone can
   scan, and "send to a device" through LocalSend — Omarchy's own share sheet,

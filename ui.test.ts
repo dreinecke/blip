@@ -33,6 +33,20 @@ describe("QML safety invariants", () => {
     expect(panel).not.toContain('["--yes", "--", text]');
   });
 
+  test("an arriving link opens the sheet only on a surface already open", () => {
+    expect(widget).toContain("function shareArrivingLink(link)");
+    expect(widget).toContain("d.links[d.links.length - 1]");          // newest only, never a queue
+    expect(widget).toContain("p.opened === true");                    // panel must already be open
+    expect(widget).toContain("root.windowVisible");                   // or the app window
+  });
+
+  test("a link you SEND opens the sheet too, and the app button asks the host", () => {
+    expect(panel).toContain("var sentUrl = root.firstUrl(completedText)");
+    expect(panel).toContain("function openApp()");
+    expect(panel).toContain('hostWidget.showApp()');
+    expect(panel).toContain('tooltipText: "Open the app window (SUPER+M)"');
+  });
+
   test("group rows and tiles show the GROUP's photo, never the last speaker's", () => {
     const bind = 'root.isGroupId(String(modelData.chat || "")) ? String(modelData.chat) : String(modelData.handle || modelData.chat || "")';
     expect(panel.split(bind).length - 1).toBe(2);   // list row + pinned tile

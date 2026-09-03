@@ -161,6 +161,8 @@ export interface BlipOutput {
   toast: Toast[];
   /** Your own recent sends that died (chat.db error≠0); toasted once each. */
   failures: Toast[];
+  /** Links that just arrived — the surface opens the share sheet on the newest. */
+  links: IncomingLink[];
   /** False means models are fresh but state could not be committed. */
   persisted: boolean;
 }
@@ -436,8 +438,9 @@ function digest(value: string): string {
 }
 
 function normalizeToastKey(value: string): string {
-  // "fail:" is the failure-toast namespace (selectFailures) — keep it verbatim.
-  return /^(fail:)?sha256:[0-9a-f]{64}$/.test(value) ? value : digest(value);
+  // "fail:" (selectFailures) and "link:" (selectIncomingLinks) are key
+  // namespaces — keep them verbatim or their dedupe rings reset every load.
+  return /^(fail:|link:)?sha256:[0-9a-f]{64}$/.test(value) ? value : digest(value);
 }
 
 /** Stable opaque key for one message, used to suppress repeat toasts. */
@@ -480,6 +483,55 @@ export function selectToasts(
     out.push({ chat: chatKey(m), name: m.name ?? m.handle, text: m.text, ts: m.ts, key });
   }
   return out;
+}
+
+/** First http(s) URL in a message, or "". Trailing punctuation that a person
+ *  would read as sentence-end is trimmed; a URL inside the text is fine. */
+export function firstUrl(text: string | null | undefined): string {
+  const m = /https?:\/\/[^\s<>"']+/i.exec(String(text ?? ""));
+  if (!m) return "";
+  return m[0].replace(/[.,;:!?)\]}'"]+$/, "");
+}
+
+export interface IncomingLink {
+  chat: string;
+  url: string;
+  ts: string;
+  key: string;
+}
+
+/**
+ * Links that JUST arrived — Blip opens the share sheet on them (Fred, 2.3.0).
+ *
+ * Same gate as a toast, deliberately: inbound only, strictly newer than the
+ * watermark (never the first-run backlog), never the self-thread, and each
+ * message fires exactly once through the persisted `link:` ring. A batch
+ * after sleep returns in order and the caller shows only the newest — the
+ * ring still records every key, so yesterday's links never pop tomorrow.
+ */
+export function selectIncomingLinks(
+  msgs: ImsgMessage[],
+  watermark: string,
+  toasted: string[],
+  selfChats: string[] = [],
+): IncomingLink[] {
+  if (!watermark) return [];
+  const seen = new Set(toasted);
+  const self = new Set(selfChats);
+  const out: IncomingLink[] = [];
+  for (const m of msgs) {
+    if (m.from_me) continue;
+    if (m.ts <= watermark) continue;
+    const chat = chatKey(m);
+    if (self.has(chat)) continue;
+    const url = firstUrl(m.text);
+    if (!url) continue;
+    const key = "link:" + toastKey(m);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ chat, url, ts: m.ts, key });
+  }
+  return out.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
 }
 
 /** How far back a delivery failure is still worth interrupting for. */
@@ -893,6 +945,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
       threads: [],
       toast: [],
       failures: [],
+      links: [],
       persisted: true,
     };
   }
@@ -967,6 +1020,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   const threads = chats ? mergeChats(foldedWindow, chats, groups, exactCounts) : foldedWindow;
   const toast = selectToasts(msgs, state.watermark, loadAllowlist(), state.toasted);
   const failures = selectFailures(fetched.msgs, state.toasted, nowTs);
+  const links = selectIncomingLinks(msgs, state.watermark, state.toasted, selfChats);
   const unread = Object.values(exactCounts).reduce((n, count) => n + count, 0);
 
   // Both marks advance only on a good fetch, so an outage cannot silently
@@ -983,7 +1037,8 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     readMarks,
     groups,
     chatAliases,
-    toasted: [...state.toasted, ...toast.map((t) => t.key), ...failures.map((f) => f.key)],
+    toasted: [...state.toasted, ...toast.map((t) => t.key), ...failures.map((f) => f.key),
+      ...links.map((l) => l.key)],
   });
 
   const warning = !persisted
@@ -999,6 +1054,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     // Never emit notifications that could not be committed to the dedupe ring.
     toast: persisted ? toast : [],
     failures: persisted ? failures : [],
+    links: persisted ? links : [],
     persisted,
   };
 }

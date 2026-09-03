@@ -130,12 +130,23 @@ FocusScope {
     qrProc.stdinEnabled = false
   }
   function closeShare() { shareUrl = ""; shareQr = "" }
+  /** First http(s) URL in a string, or "" — mirrors collector.firstUrl. */
+  function firstUrl(t) {
+    var m = /https?:\/\/[^\s<>"']+/i.exec(String(t || ""))
+    return m ? m[0].replace(/[.,;:!?)\]}'"]+$/, "") : ""
+  }
   /** IPC `share <url>` (host gates it behind automation=on). */
   function shareLink(u) {
     u = String(u || "")
     if (!/^https?:\/\//i.test(u)) return "not an http(s) url"
     openShare(u)
     return "share sheet"
+  }
+  /** The full app window. The host owns creation (Quickshell never re-maps a
+   *  hidden FloatingWindow), so this asks the widget, exactly like SUPER+M. */
+  function openApp() {
+    closeShare()
+    if (hostWidget && typeof hostWidget.showApp === "function") hostWidget.showApp()
   }
   function shareOpen() { var u = shareUrl; closeShare(); openLink(u) }
   function shareCopy() { var u = shareUrl; closeShare(); copyText(u) }
@@ -778,6 +789,10 @@ FocusScope {
       root.sendChat = ""
       root.sendText = ""
       if (code === 0) {
+        // A URL you just SHARED opens the sheet too (Fred, 2.3.0): send it,
+        // then offer the QR / LocalSend / copy for the same link.
+        var sentUrl = root.firstUrl(completedText)
+        if (belongsHere && sentUrl !== "") Qt.callLater(function() { root.openShare(sentUrl) })
         if (belongsHere) {
           root.note = ""
           // Never erase a newer draft typed after this send began.
@@ -1105,6 +1120,18 @@ FocusScope {
                 hoverColor: root.accent
                 fontFamily: root.fontFamily
                 onClicked: root.startNew()
+              }
+              // Open the full app window. Hidden in the app itself (it IS the
+              // window) and in the split/search/new views, like ＋.
+              PanelActionButton {
+                visible: !root.newMode && !root.searchShowing && !root.splitView
+                iconText: "⇱"
+                tooltipText: "Open the app window (SUPER+M)"
+                bordered: true
+                foreground: root.foreground
+                hoverColor: root.accent
+                fontFamily: root.fontFamily
+                onClicked: root.openApp()
               }
               // Local only: moves readMark/readMarks in state.json so the
               // badge and dots clear. Nothing is written back to the Mac —
