@@ -148,6 +148,10 @@ export interface BlipState {
    *  Refreshed on --deep with the chat list; cached so a shallow poll folds
    *  the same way and a conversation never blinks into two. */
   chatAliases: Record<string, string>;
+  /** Messages' pinned section: chat id → pin order (null when unknown).
+   *  Refreshed with the chat list on deep runs; shallow polls apply it so
+   *  pins never vanish between a deep run and the next (ids only). */
+  pins: Record<string, number | null>;
   toasted: string[];   // recent opaque sha256 keys; never message content
 }
 
@@ -165,9 +169,23 @@ export interface BlipOutput {
   links: IncomingLink[];
   /** False means models are fresh but state could not be committed. */
   persisted: boolean;
+  /** True when `threads` is the complete list (chat list fetched), not the
+   *  poll window's rows — the widget overlays a shallow result onto its last
+   *  deep one instead of replacing it. */
+  deep: boolean;
 }
 
 // ---------------------------------------------------------------- state I/O
+
+/** Only chat ids mapped to an integer pin order or null survive a reload. */
+export function validPins(raw: unknown): Record<string, number | null> {
+  if (!raw || typeof raw !== "object") return {};
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>)
+      .filter(([chat, v]) => chat !== "" && (v === null || Number.isInteger(v)))
+      .map(([chat, v]) => [chat, v === null ? null : Number(v)]),
+  );
+}
 
 export function loadState(path = STATE_PATH): BlipState {
   try {
@@ -203,6 +221,7 @@ export function loadState(path = STATE_PATH): BlipState {
       chatAliases: s.chatAliases && typeof s.chatAliases === "object"
         ? Object.fromEntries(Object.entries(s.chatAliases).filter(([, v]) => typeof v === "string" && v !== ""))
         : {},
+      pins: validPins(s.pins),
       // Older releases stored ts|chat|text verbatim. Hash legacy entries while
       // loading so the next successful save scrubs message bodies from disk.
       toasted: Array.isArray(s.toasted)
@@ -212,7 +231,7 @@ export function loadState(path = STATE_PATH): BlipState {
   } catch {
     return {
       watermark: "", readMark: "", unreadCounts: {}, unreadOldest: {}, unreadInitialized: false,
-      selfChats: [], readMarks: {}, groups: {}, chatAliases: {}, toasted: [],
+      selfChats: [], readMarks: {}, groups: {}, chatAliases: {}, pins: {}, toasted: [],
     };
   }
 }
@@ -916,6 +935,28 @@ export function aliasesFromChats(chats: ChatInfo[]): Record<string, string> {
   return out;
 }
 
+/** Pin metadata from the chat list: chat id → pin order. */
+export function pinsFromChats(chats: ChatInfo[]): Record<string, number | null> {
+  const out: Record<string, number | null> = {};
+  for (const c of chats) if (c.pinned) out[c.id] = c.pin_order;
+  return out;
+}
+
+/** Re-apply cached pins to a shallow poll's threads and re-sort. buildThreads
+ *  knows nothing about pins, so without this every shallow poll returned
+ *  Messages' pinned conversations as ordinary rows and the panel opened onto
+ *  an unpinned list that re-pinned itself a deep run later. */
+export function applyPins(threads: Thread[], pins: Record<string, number | null>): Thread[] {
+  if (Object.keys(pins).length === 0 && !threads.some((t) => t.pinned)) return threads;
+  return threads
+    .map((t) => {
+      const pinned = Object.prototype.hasOwnProperty.call(pins, t.chat);
+      const pin_order = pinned ? pins[t.chat] : null;
+      return t.pinned === pinned && t.pin_order === pin_order ? t : { ...t, pinned, pin_order };
+    })
+    .sort(compareThreads);
+}
+
 /** Fold threads carrying an alias id into the canonical thread. */
 export function foldThreadAliases(threads: Thread[], aliases: Record<string, string>): Thread[] {
   if (Object.keys(aliases).length === 0) return threads;
@@ -1120,10 +1161,11 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   // cached so shallow polls fold identically (a conversation must never
   // blink into two between a deep run and the next poll).
   const chatAliases = chats ? aliasesFromChats(chats) : state.chatAliases;
+  const pins = chats ? pinsFromChats(chats) : state.pins;
   exactCounts = foldChatRecord(exactCounts, chatAliases, (a, b) => a + b);
   exactOldest = foldChatRecord(exactOldest, chatAliases, (a, b) => (a < b ? a : b));
   const foldedWindow = foldThreadAliases(windowThreads, chatAliases);
-  const threads = chats ? mergeChats(foldedWindow, chats, groups, exactCounts) : foldedWindow;
+  const threads = chats ? mergeChats(foldedWindow, chats, groups, exactCounts) : applyPins(foldedWindow, pins);
   const toast = selectToasts(msgs, state.watermark, loadAllowlist(), state.toasted);
   const failures = selectFailures(fetched.msgs, state.toasted, nowTs);
   const links = selectIncomingLinks(msgs, state.watermark, state.toasted, selfChats);
@@ -1143,6 +1185,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     readMarks,
     groups,
     chatAliases,
+    pins,
     toasted: [...state.toasted, ...toast.map((t) => t.key), ...failures.map((f) => f.key),
       ...links.map((l) => l.key)],
   });
@@ -1166,6 +1209,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     failures: persisted ? failures : [],
     links: persisted ? links : [],
     persisted,
+    deep: chats !== null,
   };
 }
 

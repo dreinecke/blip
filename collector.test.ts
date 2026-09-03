@@ -17,6 +17,9 @@ import {
   fetchMessages,
   loadAllowlist,
   loadState,
+  validPins,
+  pinsFromChats,
+  applyPins,
   maxTs,
   saveState,
   selectToasts,
@@ -377,7 +380,7 @@ describe("state and allowlist I/O", () => {
       watermark: "2026-08-30 10:00:00", readMark: "2026-08-30 09:00:00",
       unreadCounts: { A: 2 }, unreadOldest: { A: "2026-08-30 09:01:00" },
       unreadInitialized: true, selfChats: ["SELF"],
-      readMarks: { A: "x" }, groups: {}, chatAliases: { OLD: "A" }, toasted: [opaque],
+      readMarks: { A: "x" }, groups: {}, chatAliases: { OLD: "A" }, pins: { A: 0 }, toasted: [opaque],
     }, p)).toBe(true);
     expect(loadState(p)).toEqual({
       watermark: "2026-08-30 10:00:00",
@@ -389,6 +392,7 @@ describe("state and allowlist I/O", () => {
       readMarks: { A: "x" },
       groups: {},
       chatAliases: { OLD: "A" },
+      pins: { A: 0 },
       toasted: [opaque],
     });
     expect(statSync(p).mode & 0o777).toBe(0o600);
@@ -397,7 +401,7 @@ describe("state and allowlist I/O", () => {
   test("a missing state file yields a safe empty watermark", () => {
     expect(loadState(join(tmp(), "nope.json"))).toEqual({
       watermark: "", readMark: "", unreadCounts: {}, unreadOldest: {}, unreadInitialized: false,
-      selfChats: [], readMarks: {}, groups: {}, chatAliases: {}, toasted: [],
+      selfChats: [], readMarks: {}, groups: {}, chatAliases: {}, pins: {}, toasted: [],
     });
   });
 
@@ -406,7 +410,7 @@ describe("state and allowlist I/O", () => {
     writeFileSync(p, "{ this is not json");
     expect(loadState(p)).toEqual({
       watermark: "", readMark: "", unreadCounts: {}, unreadOldest: {}, unreadInitialized: false,
-      selfChats: [], readMarks: {}, groups: {}, chatAliases: {}, toasted: [],
+      selfChats: [], readMarks: {}, groups: {}, chatAliases: {}, pins: {}, toasted: [],
     });
   });
 
@@ -1062,5 +1066,47 @@ describe("which service a DM sends on (@lukejmorrison, PR #4)", () => {
             ts: "2026-09-03 10:00:00" }),
     ], "2026-09-03 09:00:00");
     expect(threads[0]!.service).toBe("RCS");
+  });
+});
+
+describe("pins survive shallow polls", () => {
+  const thread = (chat: string, last_ts: string, extra: Partial<Thread> = {}): Thread => ({
+    chat, guid: "", name: chat, handle: chat, service: "iMessage", last_ts, last_text: "",
+    last_from_me: false, count: 1, unread: 0, pinned: false, pin_order: null, ...extra,
+  });
+  const chat = (id: string, pinned: boolean, pin_order: number | null): ChatInfo => ({
+    id, name: id, service: "iMessage", last: "2026-09-03 10:00:00", last_text: "", last_from_me: false,
+    last_handle: id, last_name: null, pinned, pin_order, aliases: [],
+  });
+
+  test("pinsFromChats keeps only pinned rows, with their order", () => {
+    expect(pinsFromChats([chat("A", true, 1), chat("B", false, null), chat("C", true, null)]))
+      .toEqual({ A: 1, C: null });
+  });
+
+  test("applyPins re-pins a shallow poll's rows and sorts them first", () => {
+    const shallow = [thread("NEW", "2026-09-03 12:00:00"), thread("MOM", "2026-09-03 11:00:00"), thread("OLD", "2026-09-03 10:00:00")];
+    const out = applyPins(shallow, { MOM: 0, QUIET: 1 });
+    expect(out.map((t) => t.chat)).toEqual(["MOM", "NEW", "OLD"]);
+    expect(out[0]).toMatchObject({ pinned: true, pin_order: 0 });
+    expect(out[1].pinned).toBe(false);
+    // rows are reused when nothing changed (the widget skips identical lists)
+    expect(out[1]).toBe(shallow[0]);
+  });
+
+  test("applyPins un-pins a row whose pin was removed on the Mac", () => {
+    const stale = [thread("X", "2026-09-03 12:00:00", { pinned: true, pin_order: 0 }), thread("Y", "2026-09-03 13:00:00")];
+    expect(applyPins(stale, {}).map((t) => [t.chat, t.pinned])).toEqual([["Y", false], ["X", false]]);
+  });
+
+  test("applyPins with nothing pinned anywhere is a no-op", () => {
+    const list = [thread("A", "2026-09-03 12:00:00")];
+    expect(applyPins(list, {})).toBe(list);
+  });
+
+  test("validPins drops anything that is not an integer order or null", () => {
+    expect(validPins({ A: 0, B: null, C: "1", D: 1.5, "": 2, E: 3 })).toEqual({ A: 0, B: null, E: 3 });
+    expect(validPins(undefined)).toEqual({});
+    expect(validPins("nope")).toEqual({});
   });
 });

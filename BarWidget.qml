@@ -207,6 +207,39 @@ BarWidget {
   // `readChat` clears one thread's blue dot — iMessage semantics: the dot
   // survives viewing the list and only goes when that conversation is opened.
   property var refreshQueue: []        // stateful requests are never overwritten
+  // The complete conversation list (quiet chats, pins) only comes from a deep
+  // run (`imsg chats`); a shallow poll returns the window's rows. Kept so a
+  // shallow result can be overlaid rather than replacing the model.
+  property var deepThreads: []
+  function overlayThreads(deep, shallow) {
+    var byChat = {}
+    for (var i = 0; i < shallow.length; i++) byChat[String(shallow[i].chat)] = shallow[i]
+    var out = []
+    for (var j = 0; j < deep.length; j++) {
+      var t = deep[j], c = String(t.chat)
+      if (byChat[c] !== undefined) { out.push(byChat[c]); delete byChat[c]; continue }
+      // Every unread conversation is inside the poll window (the ledger's
+      // catch-up fetch guarantees it), so a row the poll did not return has
+      // been read since the deep run.
+      out.push(t.unread > 0 ? Object.assign({}, t, { unread: 0 }) : t)
+    }
+    for (var k in byChat) out.push(byChat[k])
+    out.sort(root.compareThreads)   // mirrors collector.ts compareThreads
+    return out
+  }
+  function compareThreads(a, b) {
+    var ap = a.pinned === true, bp = b.pinned === true
+    if (ap !== bp) return ap ? -1 : 1
+    if (ap && bp) {
+      var ao = a.pin_order, bo = b.pin_order
+      var an = ao === null || ao === undefined, bn = bo === null || bo === undefined
+      if (!an && !bn && ao !== bo) return ao - bo
+      if (!an && bn) return -1
+      if (an && !bn) return 1
+    }
+    var at = String(a.last_ts || ""), bt = String(b.last_ts || "")
+    return at < bt ? 1 : at > bt ? -1 : 0
+  }
   property bool collectorReserved: false // a queued run owns the next event-loop turn
 
   function refresh(deep, markRead, readChat, seen) {
@@ -365,6 +398,11 @@ BarWidget {
             // already in flight when the user opened a thread must not
             // resurrect its dot for one round-trip (the double-flash).
             var list = root.applyLocalReads(Array.isArray(d.threads) ? d.threads : [])
+            // A shallow poll carries only the message window's rows. Overlay
+            // it on the last complete list so the panel never opens onto a
+            // dozen rows that grow (and re-pin) a deep run later.
+            if (d.deep === true) root.deepThreads = list
+            else if (root.deepThreads.length > 0) list = root.overlayThreads(root.deepThreads, list)
             // Reassigning `threads` rebuilds the panel's list Repeater and
             // resets its scroll — with push, that was every few seconds.
             // Skip the assignment when nothing actually changed.
@@ -423,8 +461,10 @@ BarWidget {
     repeat: true
     triggeredOnStart: true
     // While the panel is open keep the wide window, or the list would shrink
-    // from 40 threads to 14 on the next tick.
-    onTriggered: root.refresh(root.anySurfaceOpen(), false,
+    // from 40 threads to 14 on the next tick. Until ONE deep run has landed
+    // (startup, or after a garbled one) go deep regardless, so the first
+    // open finds the complete, pinned list already in memory.
+    onTriggered: root.refresh(root.anySurfaceOpen() || root.deepThreads.length === 0, false,
                               root.activeReadChat(), root.activeSeenTs())
   }
 
