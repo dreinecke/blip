@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.3.0 — 2026-09-03 — the contributors' release
 
 - **Photos in a message stopped arriving once they were full-size.** Someone
   sending two pictures at once got two grey chips and no pictures. The cause
