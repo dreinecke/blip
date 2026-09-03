@@ -208,13 +208,6 @@ FocusScope {
     }
     return -1
   }
-  // pins sort first in threads[], so 1 is the first pin when any exist
-  function threadHotkey(thread) {
-    var i = threadIndex(thread)
-    if (i < 0 || i > 8) return ""
-    return String(i + 1)
-  }
-
   function avatarInitials(thread) {
     var n = String(thread.name || "")
     if (/^[+0-9]/.test(n) || n === "") return "#"
@@ -1643,28 +1636,19 @@ FocusScope {
                       }
                     }
 
-                    RowLayout {
+                    // No number under the tile (Fred, 2.3.1). 1-9 still jumps —
+                    // handleTextKey indexes threads[] directly and never needed
+                    // the label; the digit was a hint, not the mechanism.
+                    Text {
                       Layout.fillWidth: true
-                      spacing: Style.space(4)
-                      Text {
-                        visible: root.threadHotkey(modelData) !== ""
-                        text: root.threadHotkey(modelData)
-                        textFormat: Text.PlainText
-                        color: root.dim
-                        font.family: root.fontFamily
-                        font.pixelSize: Style.font.caption
-                      }
-                      Text {
-                        Layout.fillWidth: true
-                        text: String(modelData.name || modelData.chat)
-                        textFormat: Text.PlainText
-                        horizontalAlignment: Text.AlignHCenter
-                        elide: Text.ElideRight
-                        color: root.foreground
-                        font.family: root.fontFamily
-                        font.pixelSize: Style.font.caption
-                        font.bold: modelData.unread > 0
-                      }
+                      text: String(modelData.name || modelData.chat)
+                      textFormat: Text.PlainText
+                      horizontalAlignment: Text.AlignHCenter
+                      elide: Text.ElideRight
+                      color: root.foreground
+                      font.family: root.fontFamily
+                      font.pixelSize: Style.font.caption
+                      font.bold: modelData.unread > 0
                     }
                   }
                 }
@@ -1774,18 +1758,6 @@ FocusScope {
                   anchors.fill: parent
                   anchors.margins: Style.space(6)
                   spacing: Style.space(8)
-
-                  Text {
-                    Layout.preferredWidth: Style.space(16)
-                    Layout.alignment: Qt.AlignVCenter
-                    text: root.threadHotkey(modelData)
-                    textFormat: Text.PlainText
-                    color: root.dim
-                    font.family: root.fontFamily
-                    font.pixelSize: Style.font.caption
-                    horizontalAlignment: Text.AlignHCenter
-                    opacity: text === "" ? 0 : 1
-                  }
 
                   // the iMessage blue dot — present only while the thread has
                   // unread inbound; the slot stays so names line up.

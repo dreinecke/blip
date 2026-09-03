@@ -119,9 +119,14 @@ describe("QML safety invariants", () => {
     expect(fn).toContain("openThread(threads[i])");
   });
 
-  test("sidebar rows show the 1-9 jump digit", () => {
-    expect(panel).toContain("function threadHotkey");
-    expect(panel.split("text: root.threadHotkey(modelData)").length - 1).toBe(2);
+  test("1-9 still jumps, with no digit drawn anywhere (Fred, 2.3.1)", () => {
+    // The label was a hint, never the mechanism: handleTextKey indexes
+    // threads[] directly. Drawing it also cost every conversation row a blank
+    // left gutter, because a fixed-width column stayed reserved when the text
+    // was empty — which it always is once nine pins own 1-9.
+    expect(panel).not.toContain("threadHotkey");
+    expect(panel).toContain('if (text >= "1" && text <= "9")');
+    expect(panel).toContain("openThread(threads[i])");
     const catcher = panel.slice(panel.indexOf("function catchNavText"), panel.indexOf("function catchEscape"));
     expect(catcher).toContain('text >= "1" && text <= "9"');
     expect(catcher).toContain("root.draftPath");
