@@ -30,6 +30,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import plistlib
 import re
 import sqlite3
 import sys
@@ -41,12 +42,58 @@ ADDRESSBOOK_DIR = os.path.expanduser(
 )
 APPLE_EPOCH = 978307200  # 2001-01-01 UTC
 
+_ACCOUNTS_DB = os.path.expanduser("~/Library/Accounts/Accounts4.sqlite")
+
+
+def _archived_bool(blob) -> bool:
+    """True when an NSKeyedArchiver plist archives the single value YES."""
+    try:
+        p = plistlib.loads(blob)
+        root = p["$top"]["root"]
+        v = p["$objects"][root.data] if isinstance(root, plistlib.UID) else root
+        return v is True
+    except Exception:
+        return False
+
+
+def _child_delegate_sources() -> set[str]:
+    """Identifiers of Contacts stores that mirror a Family Sharing child's
+    address book (Screen Time -> Manage Contacts). Each child gets its own
+    CardDAV store under AddressBook/Sources/<id>/, and the Accounts database
+    flags that account with isChildDelegate = YES. Contacts.app keeps them out
+    of All Contacts; the bridge must too, or a child's "Mom" card outvotes your
+    own spelling of the same number (two sons, two "Mom"s, one "Monica").
+    Any failure -> empty set, i.e. the old read-every-source behavior."""
+    out: set[str] = set()
+    try:
+        con = sqlite3.connect(f"file:{_ACCOUNTS_DB}?mode=ro", uri=True)
+        rows = con.execute(
+            "SELECT a.ZIDENTIFIER, p.ZVALUE FROM ZACCOUNTPROPERTY p "
+            "JOIN ZACCOUNT a ON a.Z_PK = p.ZOWNER WHERE p.ZKEY = 'isChildDelegate'"
+        ).fetchall()
+        con.close()
+    except sqlite3.DatabaseError:
+        return out
+    for ident, blob in rows:
+        if ident and _archived_bool(blob):
+            out.add(str(ident))
+    return out
+
+
+def _ab_sources() -> list[str]:
+    """Every AddressBook source db that belongs to the user, sorted, minus the
+    child-delegate mirrors. The Sources/<id>/ folder name IS the account id."""
+    skip = _child_delegate_sources()
+    return [
+        p for p in sorted(glob(os.path.join(ADDRESSBOOK_DIR, "Sources", "*", "AddressBook-v22.abcddb")))
+        if os.path.basename(os.path.dirname(p)) not in skip
+    ]
+
 
 def source_dbs() -> list[str]:
-    """All AddressBook-v22.abcddb files (one per source/account)."""
-    paths = sorted(
-        glob(os.path.join(ADDRESSBOOK_DIR, "Sources", "*", "AddressBook-v22.abcddb"))
-    )
+    """All AddressBook-v22.abcddb files (one per source/account), minus
+    Family Sharing child-delegate mirrors (see _child_delegate_sources)."""
+    paths = _ab_sources()
     # Also include the root db if non-trivial
     root = os.path.join(ADDRESSBOOK_DIR, "AddressBook-v22.abcddb")
     if os.path.exists(root):

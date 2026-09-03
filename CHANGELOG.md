@@ -17,6 +17,18 @@
   original**. Applies to every image, not just HEIC: a 12 MP PNG was just as
   slow shipped raw. Mac side: re-run the install one-liner.
 
+- **Your kids' contact lists no longer rename your contacts.** Family
+  Sharing's "Manage Contacts" (Screen Time) mirrors each child's address book
+  onto the parent's Mac as a separate Contacts store. Contacts.app keeps those
+  out of All Contacts, but the bridge read every store on disk and let them
+  vote on names — so with two sons, the number saved as "Monica Gamble" in
+  your own contacts showed as "Mom" in every Blip thread, tile and group
+  name, two votes to one. `imsg`, `contacts` and `blip-check` now skip stores
+  whose account is flagged `isChildDelegate` in the Accounts database; a Mac
+  where that database cannot be read behaves exactly as before. `blip-check`
+  says how many child lists it ignored. Mac side: re-run the install
+  one-liner. Names and photos that exist ONLY in a child's list fall back to
+  the bare number, which is what Contacts.app shows you too.
 - **Location-sharing notices no longer show up as empty unread messages.**
   Messages.app writes its own announcements — someone joined or left, a
   rename, location sharing started or stopped — into the message table with
