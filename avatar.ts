@@ -60,9 +60,13 @@ export function fetchAvatar(handle: string, runner = spawnSync): AvatarResult {
   const res = runner(`${HOME}/bin/imsg`, avatarArgs(h), { timeout: 20000, maxBuffer: AVATAR_MAX_BYTES + (1 << 20) });
   if (res.status === 69 || res.status === 255) return { ok: false, url: "", error: "Mac unreachable" };
   const bytes = res.stdout as Buffer;
-  // Only a real JPEG/PNG is cached; anything else (an error string, a
-  // Core Data reference) becomes a negative marker instead of a broken file.
-  const isImage = !!bytes && bytes.length > 4 && ((bytes[0] === 0xff && bytes[1] === 0xd8) || (bytes[0] === 0x89 && bytes[1] === 0x50));
+  // Only a real image is cached; anything else (an error string, a Core Data
+  // reference) becomes a negative marker instead of a broken file. GIF counts:
+  // AddressBook stores a few that way and Qt renders them (#16).
+  const isImage = !!bytes && bytes.length > 4 && (
+    (bytes[0] === 0xff && bytes[1] === 0xd8) ||
+    (bytes[0] === 0x89 && bytes[1] === 0x50) ||
+    (bytes[0] === 0x47 && bytes[1] === 0x49 && bytes[2] === 0x46));
   if (res.error || res.status === null || res.status === 69 || res.status === 255) {
     return { ok: false, url: "", error: "Mac unreachable" };   // transient: no negative marker
   }

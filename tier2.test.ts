@@ -709,3 +709,21 @@ describe("the contact graph never rides argv", () => {
     expect(parseRecency('{"a":1,"b":"x"}')).toEqual({ b: "x" });   // non-strings dropped
   });
 });
+
+describe("AddressBook photos behind a tag byte (#16)", () => {
+  test("a GIF contact photo is cached, not thrown away as a non-image", () => {
+    const gif = Buffer.from([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 1, 0, 1, 0]);
+    const runner = (() => ({ status: 0, stdout: gif, stderr: "" })) as never;
+    const h = `gif-${Date.now()}@example.com`;
+    const r = fetchAvatar(h, runner);
+    expect(r.ok).toBe(true);
+    unlinkSync(`${AVATAR_DIR}/${avatarKey(h)}.jpg`);
+  });
+
+  test("a Core Data reference is still not an image", () => {
+    const runner = (() => ({ status: 0, stdout: Buffer.from("\x02ABCDEF01-2345-6789-ABCD-EF0123456789\x00"), stderr: "" })) as never;
+    const h = `ref2-${Date.now()}@example.com`;
+    expect(fetchAvatar(h, runner).ok).toBe(false);
+    unlinkSync(`${AVATAR_DIR}/${avatarKey(h)}.none`);
+  });
+});

@@ -57,6 +57,37 @@ def _normalize_phone(s: str) -> str:
 _NAME_INDEX: dict[str, str] | None = None
 
 
+def _is_dm_id(s: str | None) -> bool:
+    """True for a chat_identifier that names a PERSON rather than a group.
+
+    Groups are `chat<digits>` or 32 hex chars (see cmd_groups); a DM's
+    chat_identifier IS the counterpart's handle. The guard matters: name_for
+    keys on the last ten digits, so a group id's digits could otherwise
+    collide with a real contact, and a group member's name must come from the
+    sender alone or your own messages get labelled with the group.
+    """
+    s = (s or "").strip()
+    if not s:
+        return False
+    if "@" in s:
+        return True
+    if re.fullmatch(r"chat\d+", s) or re.fullmatch(r"[0-9a-f]{32}", s, re.I):
+        return False
+    return bool(re.fullmatch(r"\+?\d[\d\s\-().]*", s))
+
+
+def _dm_name(handle: str | None, chat_identifier: str | None) -> str | None:
+    """The name to show for a row. An OUTBOUND row has no handle, and both
+    JSON paths used to fall through to the raw chat key — so a one-to-one
+    conversation was labelled with a phone number for exactly as long as your
+    own message was the newest, and flipped back when they replied (#17,
+    @znayer). For a DM the conversation IS the person, so resolve that.
+    """
+    if handle:
+        return name_for(handle)
+    return name_for(chat_identifier) if _is_dm_id(chat_identifier) else None
+
+
 def name_for(handle: str | None) -> str | None:
     """Resolve a Messages handle (phone or email) to a Contacts display name.
     Lazily builds an in-memory index from all AddressBook source DBs on first
@@ -504,7 +535,7 @@ def render(rows, as_json: bool, with_names: bool = True, con=None, rich: bool = 
                 "ts": fmt_ts(r["date"]),
                 "from_me": bool(r["is_from_me"]),
                 "handle": r["handle"],
-                "name": name_for(r["handle"]) if with_names else None,
+                "name": _dm_name(r["handle"], r["chat_identifier"]) if with_names else None,
                 "service": r["service"],
                 "chat": r["room_name"] or r["chat_identifier"],
                 "text": message_text(r),
@@ -760,7 +791,8 @@ def cmd_chats(con, args):
                 "last_text": message_text(last) if last else "",
                 "last_from_me": bool(last["is_from_me"]) if last else False,
                 "last_handle": (last["handle"] if last else None) or "",
-                "last_name": (name_for(last["handle"]) if last and last["handle"] and not args.no_names else None),
+                "last_name": (None if args.no_names
+                              else _dm_name(last["handle"] if last else None, r["chat_identifier"])),
                 "pinned": pin_order is not None,
                 "pin_order": pin_order,
                 # Other chat rows of this same conversation. A client must fold
@@ -1000,10 +1032,32 @@ def _stream_group_photo(con, chat_identifier: str) -> None:
     sys.stdout.buffer.flush()
 
 
+# JPEG, PNG, GIF. Qt renders all three, and all three turn up in AddressBook.
+_IMAGE_MAGIC = (b"\xff\xd8", b"\x89PNG", b"GIF8")
+_AVATAR_MAX = 2 * 1024 * 1024
+
+
+def _unwrap_image(data: bytes) -> bytes:
+    """Image bytes from an AddressBook blob, or b"" if it is not an image.
+
+    Core Data tags an inline binary attribute with ONE leading byte, and on
+    every Mac we have looked at that byte is 0x01 — `01FFD8FF…`, `0189504E…`,
+    `01474946…`. The old check demanded that the blob START with the magic, so
+    every inline photo was thrown away and only external-storage records (the
+    0x02 form, handled below) ever produced a picture. Reported by @dreinecke
+    in #16, where NONE resolved; on the maintainer's Mac 333 of 346 thumbnails
+    were being discarded, which is why it looked like it worked.
+    """
+    if data[:1] == b"\x01" and data[1:5].startswith(_IMAGE_MAGIC):
+        data = data[1:]
+    return data if data.startswith(_IMAGE_MAGIC) else b""
+
+
 def _avatar_bytes(db_path: str, pk: int) -> bytes:
     """Photo bytes for one AddressBook record, or b"". Tries the thumbnail,
-    then the full image. Either column may hold the bytes inline OR a Core
-    Data external-storage reference (\x02<UUID>\x00) naming a file under
+    then the full image. Either column may hold the bytes inline (optionally
+    behind a 0x01 Core Data tag byte) OR an external-storage reference
+    (\x02<UUID>\x00) naming a file under
     <Source>/.AddressBook-v22_SUPPORT/_EXTERNAL_DATA/."""
     try:
         con2 = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
@@ -1018,7 +1072,10 @@ def _avatar_bytes(db_path: str, pk: int) -> bytes:
         data = bytes(col) if col is not None else b""
         if not data:
             continue
-        if not data.startswith((b"\xff\xd8", b"\x89PNG")):
+        unwrapped = _unwrap_image(data)
+        if unwrapped:
+            data = unwrapped
+        else:
             mref = re.search(r"[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}",
                              data.decode("latin-1"))
             if not mref:
@@ -1028,10 +1085,10 @@ def _avatar_bytes(db_path: str, pk: int) -> bytes:
                 continue
             try:
                 with open(fp, "rb") as f:
-                    data = f.read(2 * 1024 * 1024 + 1)
+                    data = _unwrap_image(f.read(_AVATAR_MAX + 1))
             except OSError:
                 continue
-        if data.startswith((b"\xff\xd8", b"\x89PNG")) and len(data) <= 2 * 1024 * 1024:
+        if data and len(data) <= _AVATAR_MAX:
             return data
     return b""
 
