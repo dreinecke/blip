@@ -89,6 +89,10 @@ what it is handed. Keep it that way.
 - **The Linux shims' ssh preflight must use `ssh -n`.** A bare
   `ssh <mac> true` connectivity probe EATS STDIN, which silently empties
   `imsg-send --file-stdin` payloads. Fixed 2026-08-31.
+- **Preferences cross a bounded helper.** QML never feeds
+  `~/.config/blip/preferences.json` into `FileView`. `preferences.ts` rejects
+  symlinks/FIFOs/wrong owners/oversized or invalid JSON and writes 0600 via a
+  pinned directory fd + atomic rename. Keep the schema portable and versioned.
 - **`bridge.conf` is data, never `source`d.** The shim parses four keys and
   validates them; keep it that way (audit #7). `automation=on` is what lets
   `qs ipc … goto/compose/bubbles` work — off, they return a refusal string.

@@ -1,5 +1,77 @@
 # Changelog
 
+## Unreleased
+
+- The appearance page now uses the full window: the live preview fills the
+  available space (fit by both width and height, centered) and the controls
+  pin to the right edge at a fixed measure. The preview now depicts the app
+  window's default 1040×720 geometry instead of the live window — mirroring
+  the live window made 100% structurally impossible — and reaches a
+  pixel-true 100% (never upscaling past it) whenever the workspace has room.
+- A previewable pasted or dropped attachment (png/jpg/gif/webp/bmp/svg) shows
+  the image itself in the compose chip; non-previewable files like a vCard
+  keep the filename pill, which also remains the fallback while a preview
+  decodes or if it fails.
+- Open settings on the Appearance page. The live app preview is now a true
+  miniature: the whole mock window is laid out at real app dimensions (raw-px
+  sidebar, spaceReal avatars, the window's own gutters) and shrunk by one
+  uniform scale transform, replacing the old per-part approximations.
+- Center the avatar and name inside pinned-conversation tiles: the tile now
+  sizes itself to its content with even padding instead of a fixed tail that
+  left extra space under the label.
+- Make chronological sidebar rows contiguous: each row absorbs half the old
+  inter-row gap, so the hover highlight fills the whole area up to the
+  hairline separator instead of stopping short of it. Separators touching a
+  hovered or selected row hide so the highlight reads as one clean block.
+- Keep the settings page still while dragging appearance sliders: the page's
+  own chrome uses scale values frozen at open, and only the live preview
+  (plus the app behind it) tracks the moving density/font/corner values.
+- Move the popout's new-message and open-app-window buttons into the header,
+  upper right beside the gear, ordered by function: start a conversation,
+  promote to the app window, then settings.
+- Double the popout's width (and give it a little extra height) while the
+  appearance settings page is showing, so the live preview sits beside the
+  controls instead of stacking above them. New `panelsettings <page>` IPC
+  opens the settings pages inside the popout the way `settings`/`appearance`
+  do for the window. The two-column threshold dropped to space(700) with
+  smaller column minimums: the old 940 threshold sat too close to the wide
+  popout width (both shrink with density while the panel padding does not,
+  so low density flipped it back to stacked) and above what a narrow app
+  window can offer.
+- Preserve the natural aspect ratio of tall link-preview artwork, allow cards
+  to grow beyond the old shallow banner cap, and render tapback reactions on
+  unfurled cards. Conversation headers now use Messages' pinned group title,
+  short emoji-only messages use the large bubble-free Messages treatment, and
+  incoming group-message runs show the sender's avatar beside their last item.
+- Add subtle post-avatar separators between chronological sidebar discussions,
+  matching the visual grouping used by Messages on macOS.
+- Balance the vertical space above and below sidebar search before the
+  pinned grid.
+- Enlarge tapback reactions, add Messages-like background padding and two-dot
+  tails, raise them away from message text, and render their fill fully opaque
+  without the badge-style outline.
+- Match the Appearance preview bubbles to the live sender-corner treatment,
+  and add a portable 12/24-hour conversation-list time preference (AM/PM by
+  default).
+- Coalesce migrated named group-chat records when their title and exact
+  participant set agree. Pin state follows the one logical conversation, the
+  newest source remains the send target, and history/unread state spans every
+  retained source identifier.
+
+- Remove the sidebar's duplicate left inset in the app window so search,
+  pinned conversations, and the message list sit closer to the window edge
+  while retaining breathing room beside the conversation divider.
+- Match Messages' compact sidebar hierarchy by moving Settings into the Blip
+  header and removing redundant Messages/Pinned labels. Pinned direct and
+  group conversations now use short names from Contacts' unified-card view.
+- Suppress a message body when it contains only the URL already represented by
+  an unfurled link card, including when its preview metadata canonicalizes away
+  tracking parameters. Captions and other accompanying text remain visible.
+- Make message links inherit the bubble's readable text color, render grouped
+  bubble corners as one translucent shape without a darker overlap, and cap
+  inline media in logical UI units on wide windows. Retina PNG density is now
+  honored so 144-DPI screenshots render at their intended 2× logical scale.
+
 ## 2.3.2 — 2026-09-04
 
 - **A mute list, for the texts nobody opted into.** Political fundraising
@@ -360,6 +432,38 @@ findings, the clear ones fixed here, the rest on the roadmap.
 **Repo**
 - CI on every push and PR (bun test, Mac tools byte-compile, shellcheck),
   CONTRIBUTING, issue/PR templates, security policy, GitHub Releases.
+- Add explicitly gated Mac Contacts repair from Blip: exact-card preview,
+  second confirmation, supported Contacts.app removal, Mac-local undo receipt,
+  and post-change revalidation. The restricted SSH key remains unable to turn
+  contact writes on by itself.
+- Add an in-Blip active-card comparison with bounded contact details, a
+  de-duplicated combined view, missing-detail hints, exact-card editing handoff,
+  and guarded invocation of Contacts' native link/merge action. Preview and
+  execution are separate, the confirmed action is pinned end-to-end, and Blip
+  never links during discovery or testing.
+- Keep the Settings UI visually stable during five-second configuration checks: silent identity reads no longer toggle visible loading state, and unchanged identity/preference results no longer rebuild QML models or controls.
+
+**Added**
+- File-backed appearance preferences with an in-app QML editor: bubble colors,
+  app-window opacity, font scale, density, sidebar width, avatar size, and
+  corner roundness. `~/.config/blip/preferences.json` is portable, atomically
+  written, owner-only, bounded, and reloaded live after an external restore.
+- Messages.app pinned conversations, sourced read-only from the Mac's pinning
+  plist and rendered in its ordered circular-avatar grid above the regular
+  chronological list.
+- Explicit contact-name resolution for ambiguous phone/email handles. The QML
+  chooser writes a bounded, atomic `~/.config/blip/identities.json` override;
+  a source-fix action opens the validated persistent card in Contacts.app on
+  the Mac without writing Apple’s private AddressBook database.
+
+**Changed**
+- Contact-name repair is now a guided two-stage flow: selecting a candidate is
+  harmless, remembering the Contacts match is explicit, and optional Mac repair lists and
+  opens every exact source card separately. Generic one-click **Use** and
+  **Fix on Mac** controls were removed.
+- Settings now separates Contacts from Appearance with tabs. Contact repair is
+  a list-to-detail flow with Back/Escape navigation, bounded content width, and
+  collapsed Mac/source-card details instead of one enormous settings scroll.
 
 ## 2.0.0 — 2026-08-31
 

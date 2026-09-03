@@ -15,7 +15,7 @@
   <img alt="Omarchy" src="https://img.shields.io/badge/Omarchy-plugin-5fd7ff?style=flat-square">
   <img alt="QuickShell" src="https://img.shields.io/badge/QuickShell-QML-0a84ff?style=flat-square">
   <img alt="bun" src="https://img.shields.io/badge/bun-TypeScript-f9f1e1?style=flat-square">
-  <img alt="tests" src="https://img.shields.io/badge/tests-312%20passing-2ea043?style=flat-square">
+  <img alt="tests" src="https://img.shields.io/badge/tests-356%20passing-2ea043?style=flat-square">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square">
 </p>
 
@@ -133,7 +133,8 @@ Linux side. If the Mac is asleep, the widget dims and says so.
 - **link cards** — URL messages show the preview image, title, and host, like Messages. Apple only decorates some links; for the rest Blip fetches the page's own Open Graph card itself, so a bare URL still gets its picture. Click opens the link, **right-click opens the share sheet** (open · copy · QR for your phone · send to a device via LocalSend, Omarchy's share). `link_previews=off` in `bridge.conf` disables the fetching
 - **photos render inline** — images ≤5MB auto-fetch over SSH (HEIC converted on the Mac); click opens full-size. PDFs/videos are chips — click fetches and opens them
 - **send files** — Ctrl+V an image into the compose box, type `/attach <path>`, or drag-and-drop; a caption rides along
-- select text and Ctrl+C · right-click a bubble to copy it whole · right-click a **link** in a bubble for the share sheet
+- select text and Ctrl+C · right-click a bubble for **Copy message**;
+  right-click a **link** in a bubble for the share sheet
 - the share sheet **opens itself** for a link you send, and for one that arrives while Blip is open
 - compose box at the bottom, Enter sends — **DMs and groups**
 
@@ -390,6 +391,38 @@ send on their own service automatically.
 on the first screen polls and owns the app window, the others show the
 badge and forward clicks to it.
 
+## Settings and portable configuration
+
+Choose the gear in Blip's message header to edit appearance live. The editor
+writes a normal JSON file at `~/.config/blip/preferences.json`, so it can be
+copied between machines or tracked by dotfile tooling. A restored file is
+noticed within five seconds, or immediately with **Reload file**. Track the
+real file rather than a symlink: the preference boundary deliberately refuses
+symlinks and non-regular files.
+
+```json
+{
+  "schemaVersion": 1,
+  "outgoingBubbleColor": "theme",
+  "incomingBubbleColor": "theme",
+  "backgroundOpacity": 0.7,
+  "fontScale": 1,
+  "density": 1,
+  "sidebarWidth": 320,
+  "avatarSize": 30,
+  "cornerScale": 1,
+  "hideShortCodeConversations": true,
+  "use12HourConversationTimes": true
+}
+```
+
+Bubble colors accept `"theme"`, `#rrggbb`, or `#rrggbbaa`. The GUI exposes
+every field: app-window opacity, font scale, density, sidebar width, avatar
+size, corner roundness, short-code visibility, and 12/24-hour conversation-list
+times. Writes are atomic and owner-only; malformed,
+oversized, symlinked, or out-of-range files are rejected with an error in the
+settings view instead of being loaded into the long-lived shell.
+
 ## Keyboard
 
 | where | key | does |
@@ -410,6 +443,7 @@ IPC, for scripts and other plugins:
 
 ```sh
 qs -p /usr/share/omarchy/shell ipc call nixfred.blip status
+qs -p /usr/share/omarchy/shell ipc call nixfred.blip settings
 qs -p /usr/share/omarchy/shell ipc call nixfred.blip goto 15551234567   # bare digits
 qs -p /usr/share/omarchy/shell ipc call nixfred.blip read               # mark all read
 qs -p /usr/share/omarchy/shell ipc call nixfred.blip share https://example.com   # share sheet for a URL
@@ -419,7 +453,7 @@ Everything that sends or reads message content over IPC (`goto`, `compose`,
 `bubbles`, `threads`, `find`, `newchat`, `read`) is **off by default** — any
 local process could otherwise send as you. Turn it on with `automation=on`
 in `~/.config/blip/bridge.conf` (re-read live). `status`, `open`, `close`,
-`toggle`, `window`, `app` are always available.
+`toggle`, `window`, `app`, `settings` are always available.
 
 ## Design notes worth knowing
 
@@ -478,7 +512,7 @@ The 273,000-message history stays on the Mac where it lives.
 ## Development
 
 ```sh
-bun test                                     # 312 tests, ~110 ms
+bun test                                     # 356 tests, ~100 ms
 bun collector.ts --deep | jq '.unread, (.threads|length)'
 bun thread.ts +15551234567 40 | jq '.bubbles[-1]'
 scripts/demo/blip-shots                      # regenerate docs/img/*.png
