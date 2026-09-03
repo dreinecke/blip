@@ -15,6 +15,7 @@ from __future__ import annotations
 import glob
 import json
 import os
+import plistlib
 import sqlite3
 import subprocess
 import sys
@@ -63,10 +64,47 @@ def check_automation() -> tuple[bool, str]:
     return False, err[:200]
 
 
+ACCOUNTS_DB = os.path.expanduser("~/Library/Accounts/Accounts4.sqlite")
+
+
+def _archived_bool(blob) -> bool:
+    """True when an NSKeyedArchiver plist archives the single value YES."""
+    try:
+        p = plistlib.loads(blob)
+        root = p["$top"]["root"]
+        v = p["$objects"][root.data] if isinstance(root, plistlib.UID) else root
+        return v is True
+    except Exception:
+        return False
+
+
+def _child_delegate_sources() -> set[str]:
+    """Account ids of Family Sharing child-delegate Contacts stores (Screen
+    Time -> Manage Contacts). Same rule as imsg/contacts: those .abcddb files
+    are a child's address book, not the user's, and are skipped for names and
+    photos. Unreadable Accounts db -> empty set."""
+    out: set[str] = set()
+    try:
+        con = sqlite3.connect(f"file:{ACCOUNTS_DB}?mode=ro", uri=True)
+        rows = con.execute(
+            "SELECT a.ZIDENTIFIER, p.ZVALUE FROM ZACCOUNTPROPERTY p "
+            "JOIN ZACCOUNT a ON a.Z_PK = p.ZOWNER WHERE p.ZKEY = 'isChildDelegate'"
+        ).fetchall()
+        con.close()
+    except sqlite3.DatabaseError:
+        return out
+    for ident, blob in rows:
+        if ident and _archived_bool(blob):
+            out.add(str(ident))
+    return out
+
+
 def _addressbook_dbs() -> list[str]:
     """One .abcddb per Contacts source/account, plus the root db, like the
     `contacts` tool. Order is stable so the check is deterministic."""
-    paths = sorted(glob.glob(AB_GLOB))
+    skip = _child_delegate_sources()
+    paths = [p for p in sorted(glob.glob(AB_GLOB))
+             if os.path.basename(os.path.dirname(p)) not in skip]
     root = os.path.join(AB_DIR, "AddressBook-v22.abcddb")
     if os.path.exists(root):
         paths.append(root)
@@ -96,6 +134,9 @@ def check_contacts() -> tuple[bool, str]:
     if readable:
         skipped = len(paths) - readable
         tail = f", {skipped} stale source(s) skipped" if skipped else ""
+        kids = len(_child_delegate_sources())
+        if kids:
+            tail += f", {kids} Family Sharing child list(s) ignored"
         return True, f"{total} contacts readable ({readable}/{len(paths)} sources{tail})"
     return False, last_err or "no AddressBook source could be opened"
 
