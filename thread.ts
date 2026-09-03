@@ -62,7 +62,7 @@ export interface Bubble {
   groupStart: boolean;
   /** Last bubble of a run — carries the timestamp, like iMessage. */
   groupEnd: boolean;
-  /** "9:41 PM", shown only on groupEnd. */
+  /** "9:41 PM" (or whatever `timeFormat` says), shown only on groupEnd. */
   time: string;
   /** "Read 4:42 PM" — only on the NEWEST read from-me bubble, like iMessage. */
   receipt: string;
@@ -98,22 +98,89 @@ export interface ThreadOutput {
 
 // ---------------------------------------------------------------- formatting
 
-/** "2026-08-30 21:08:22" → "9:08 PM". Avoids Date parsing and its TZ surprises. */
-export function clockLabel(ts: string): string {
-  const m = /^\d{4}-\d{2}-\d{2} (\d{2}):(\d{2})/.exec(ts);
-  if (!m) return "";
-  let h = Number(m[1]);
-  const min = m[2];
-  const suffix = h >= 12 ? "PM" : "AM";
-  h = h % 12;
-  if (h === 0) h = 12;
-  return `${h}:${min} ${suffix}`;
+/**
+ * How times and dates read. Qt format strings, set on the widget's shell.json
+ * entry exactly the way Omarchy's clock takes its `format` — the same string
+ * drives Qt in QML and formatStamp() here, so the list and the bubbles agree.
+ * Defaults are what Messages shows on a US Mac; BarWidget swaps the time for
+ * "HH:mm" when the locale has no AM/PM.
+ */
+export interface Formats {
+  time: string;
+  date: string;
+  dateWithYear: string;
 }
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+export const DEFAULT_FORMATS: Formats = { time: "h:mm AP", date: "MMM d", dateWithYear: "MMM d, yyyy" };
 
-/** "Today" / "Yesterday" / "Aug 28" / "Aug 28, 2025" for an older year. */
-export function dayLabel(ts: string, today: string): string {
+/** `--time-format`, `--date-format`, `--date-format-with-year` from argv; unset keeps the default. */
+export function formatsFromArgv(argv: readonly string[], defaults = DEFAULT_FORMATS): Formats {
+  const flag = (name: string, fallback: string) => {
+    const i = argv.indexOf(name);
+    return i >= 0 && argv[i + 1] ? argv[i + 1]! : fallback;
+  };
+  return {
+    time: flag("--time-format", defaults.time),
+    date: flag("--date-format", defaults.date),
+    dateWithYear: flag("--date-format-with-year", defaults.dateWithYear),
+  };
+}
+
+const MONTHS = ["January", "February", "March", "April", "May", "June",
+                "July", "August", "September", "October", "November", "December"];
+const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+/**
+ * Qt's QDateTime::toString() for a "YYYY-MM-DD HH:MM:SS" stamp, the tokens
+ * Blip needs: d dd ddd dddd · M MM MMM MMMM · yy yyyy · h hh H HH · m mm · s ss ·
+ * AP ap A a, and 'quoted literals' with '' as an apostrophe. h/hh are 12-hour
+ * when an AM/PM token is present, 24-hour otherwise, as in Qt. Works on the
+ * string so a Mac-local stamp never meets the Linux time zone. Malformed
+ * input formats to "".
+ */
+export function formatStamp(ts: string, pattern: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?: (\d{2}):(\d{2})(?::(\d{2}))?)?/.exec(ts);
+  if (!m) return "";
+  const [year, month, day, hour = "00", minute = "00", second = "00"] =
+    m.slice(1) as [string, string, string, string?, string?, string?];
+  const h24 = Number(hour);
+  const h12 = h24 % 12 || 12;                                   // 0 and 12 read as 12
+  const ampm = h24 < 12 ? "am" : "pm";
+  const twelveHour = /[Aa]/.test(pattern.replace(/'(?:[^']|'')*'/g, ""));
+  const weekday = new Date(Date.UTC(Number(year), Number(month) - 1, Number(day))).getUTCDay();
+
+  const field = (v: string, n: number) => (n === 1 ? String(Number(v)) : v);          // "08" → "8" | "08"
+  const clock = (h: number, n: number) => (n === 1 ? String(h) : String(h).padStart(2, "0"));
+  const name = (names: string[], i: number, n: number) => (n === 3 ? names[i]!.slice(0, 3) : names[i]!);
+
+  // One pass: '' · 'literal' · an unterminated quote runs to the end · AP/ap · a run of one letter.
+  return pattern.replace(/''|'((?:[^']|'')*)'|'(.*)$|AP|ap|([A-Za-z])\3*/g, (tok, quoted, tail, letter) => {
+    if (tok === "''") return "'";
+    if (quoted !== undefined) return quoted.replace(/''/g, "'");
+    if (tail !== undefined) return tail;
+    if (tok === "AP" || tok === "A") return ampm.toUpperCase();
+    if (tok === "ap" || tok === "a") return ampm;
+    const n = tok.length;
+    switch (letter) {
+      case "y": return n >= 4 ? year : n === 2 ? year.slice(2) : tok;
+      case "M": return n >= 3 ? name(MONTHS, Number(month) - 1, n) : field(month, n);
+      case "d": return n >= 3 ? name(DAYS, weekday, n) : field(day, n);
+      case "H": return clock(h24, n);
+      case "h": return clock(twelveHour ? h12 : h24, n);
+      case "m": return field(minute, n);
+      case "s": return field(second, n);
+      default: return tok;                                       // unknown letters pass through, as in Qt
+    }
+  });
+}
+
+/** "2026-08-30 21:08:22" → "9:08 PM" by default; "21:08" with timeFormat "HH:mm". */
+export function clockLabel(ts: string, time = DEFAULT_FORMATS.time): string {
+  return formatStamp(ts, time);
+}
+
+/** "Today" / "Yesterday", else the date — with the year when it is not this year. */
+export function dayLabel(ts: string, today: string, formats = DEFAULT_FORMATS): string {
   const date = ts.slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return "";
   if (date === today) return "Today";
@@ -123,10 +190,7 @@ export function dayLabel(ts: string, today: string): string {
   const diffDays = Math.round((t.getTime() - d.getTime()) / 86400000);
   if (diffDays === 1) return "Yesterday";
 
-  const month = MONTHS[Number(date.slice(5, 7)) - 1] ?? "";
-  const dayNum = Number(date.slice(8, 10));
-  const year = date.slice(0, 4);
-  return year === today.slice(0, 4) ? `${month} ${dayNum}` : `${month} ${dayNum}, ${year}`;
+  return formatStamp(ts, date.slice(0, 4) === today.slice(0, 4) ? formats.date : formats.dateWithYear);
 }
 
 /** Minutes between two "YYYY-MM-DD HH:MM:SS" stamps. */
@@ -147,7 +211,7 @@ export function minutesBetween(a: string, b: string): number {
  * timestamp — that is what keeps a long back-and-forth readable instead of
  * stamping every single line.
  */
-export function decorate(msgs: ImsgMessage[], today: string): Bubble[] {
+export function decorate(msgs: ImsgMessage[], today: string, formats = DEFAULT_FORMATS): Bubble[] {
   const out: Bubble[] = [];
 
   // iMessage shows "Read" under only the newest read message you sent.
@@ -185,11 +249,11 @@ export function decorate(msgs: ImsgMessage[], today: string): Bubble[] {
       // U+FFFC is the object-replacement placeholder Messages leaves where an
       // attachment sat; the chip row carries that information instead.
       text: (m.text ?? "").replace(/￼/g, "").trim(),
-      day: newDay ? dayLabel(m.ts, today) : "",
+      day: newDay ? dayLabel(m.ts, today, formats) : "",
       groupStart,
       groupEnd,
-      time: groupEnd ? clockLabel(m.ts) : "",
-      receipt: i === receiptIdx ? receiptLabel(m.read_at!, today) : "",
+      time: groupEnd ? clockLabel(m.ts, formats.time) : "",
+      receipt: i === receiptIdx ? receiptLabel(m.read_at!, today, formats) : "",
       tapbacks: m.tapbacks ?? [],
       // Belt to imsg 1.5.1's suspenders: link-preview payloads are not files.
       attachments: (m.attachments ?? []).filter(
@@ -251,10 +315,10 @@ export function linkify(text: string): string {
 }
 
 /** "Read 4:42 PM" today, "Read Yesterday 9:03 AM" otherwise. */
-export function receiptLabel(readAt: string, today: string): string {
-  const clock = clockLabel(readAt);
+export function receiptLabel(readAt: string, today: string, formats = DEFAULT_FORMATS): string {
+  const clock = clockLabel(readAt, formats.time);
   if (!clock) return "Read";
-  const day = dayLabel(readAt, today);
+  const day = dayLabel(readAt, today, formats);
   return day === "Today" ? `Read ${clock}` : `Read ${day} ${clock}`;
 }
 
@@ -298,6 +362,7 @@ export function loadThread(
   chat: string,
   limit: number,
   today: string,
+  formats = DEFAULT_FORMATS,
   runner = spawnSync,
 ): ThreadOutput {
   // Groups load by EXACT chat id (imsg ≥1.8.0 `thread --chat`). The old
@@ -324,7 +389,7 @@ export function loadThread(
     const parsed = JSON.parse(res.stdout as string);
     if (!Array.isArray(parsed)) throw new Error("not an array");
     const msgs = selectThread(parsed as ImsgMessage[], chat, group, limit, loadState().selfChats);
-    return { ok: true, online: true, error: "", bubbles: decorate(msgs, today) };
+    return { ok: true, online: true, error: "", bubbles: decorate(msgs, today, formats) };
   } catch (e) {
     return { ok: false, online: true, error: `bad JSON from imsg: ${e}`, bubbles: [] };
   }
@@ -347,7 +412,7 @@ if (import.meta.main) {
   const limit = Number(process.argv[3] ?? 80) || 80;
   const today = localToday();
   try {
-    console.log(JSON.stringify(loadThread(chat, limit, today)));
+    console.log(JSON.stringify(loadThread(chat, limit, today, formatsFromArgv(process.argv))));
   } catch (e) {
     console.log(JSON.stringify({ ok: false, online: false, error: String(e), bubbles: [] }));
   }

@@ -24,6 +24,18 @@ BarWidget {
   readonly property string collectorPath:
     decodeURIComponent(Qt.resolvedUrl("collector.ts").toString().replace(/^file:\/\//, ""))
 
+  // Clock and date patterns from this widget's shell.json entry — Qt format
+  // strings, exactly as Omarchy's clock takes `format`. Qt formats the list
+  // with them and thread.ts formats the bubbles with the same strings, so the
+  // two never disagree. Unset, the time follows the locale (an AM/PM marker
+  // means 12-hour) and dates read the way Messages writes them.
+  readonly property string localeTimeFormat:
+    /ap/i.test(Qt.locale().timeFormat(Locale.ShortFormat)) ? "h:mm AP" : "HH:mm"
+  readonly property string timeFormat: formatSetting("timeFormat", localeTimeFormat)
+  readonly property string dateFormat: formatSetting("dateFormat", "MMM d")
+  readonly property string dateFormatWithYear: formatSetting("dateFormatWithYear", "MMM d, yyyy")
+  function formatSetting(name, fallback) { var v = String(setting(name, "")); return v === "" ? fallback : v }
+
   // ---- collector state
   property var threads: []           // [{chat,name,handle,service,last_ts,last_text,last_from_me,count,unread,pinned,pin_order}]
   property string threadsJson: ""    // last assigned list, for no-op detection

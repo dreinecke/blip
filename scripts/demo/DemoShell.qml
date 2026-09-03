@@ -6,8 +6,8 @@ import qs.Commons
 // Screenshot harness. Renders the REAL BlipView against the fake bridge, in a
 // plain window, with no bar and no second Omarchy shell fighting the live one.
 //
-// It stands in for BarWidget: BlipView asks its host for nine things, and this
-// supplies all nine — `threads` from a genuine `bun collector.ts --deep` run,
+// It stands in for BarWidget: BlipView asks its host for twelve things, and this
+// supplies all twelve — `threads` from a genuine `bun collector.ts --deep` run,
 // which in the sandbox reaches scripts/demo/fake-imsg instead of a Mac. So the
 // list, the avatars, the bubbles, the link card and the share sheet are all
 // produced by the shipping code paths.
@@ -24,6 +24,11 @@ ShellRoot {
     property int unread: 0
     property bool healthy: true
     property string lastError: ""
+    // Clock and date patterns, as BarWidget would supply them (README defaults);
+    // BLIP_DEMO_TIME_FORMAT etc. override, so a shot can show them configured.
+    property string timeFormat: Quickshell.env("BLIP_DEMO_TIME_FORMAT") || "h:mm AP"
+    property string dateFormat: Quickshell.env("BLIP_DEMO_DATE_FORMAT") || "MMM d"
+    property string dateFormatWithYear: Quickshell.env("BLIP_DEMO_DATE_FORMAT_WITH_YEAR") || "MMM d, yyyy"
     function refresh(deep, markRead, readChat, seen) { collector.reload() }
     function markAllRead() { }
     function markThreadRead(chat) { }
