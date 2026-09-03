@@ -4,6 +4,16 @@ import { CACHE_DIR, bakeOrientation, cacheFileName, exifOrientation, fetchAttach
 import { extFor, pickImageType } from "./paste";
 import { resolveTarget, sendFile } from "./send-file";
 import { linkHost, linkify, normalizeLink, selectThread } from "./thread";
+import {
+  decodeEntities,
+  hostOf,
+  isPrivateAddress,
+  parseCard,
+  previewsEnabled,
+  previewKey,
+  safeUrl,
+  sniffImage,
+} from "./linkpreview";
 import { AVATAR_DIR, AVATAR_NONE_TTL_MS, AVATAR_TTL_MS, avatarArgs, avatarKey, fetchAvatar } from "./avatar";
 import { readFileSync, writeFileSync, unlinkSync, utimesSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -596,10 +606,6 @@ describe("country code + service (2.2.0)", () => {
 });
 
 describe("link previews for URLs Messages never decorated", () => {
-  const {
-    decodeEntities, hostOf, isPrivateAddress, parseCard, previewsEnabled, previewKey, safeUrl, sniffImage,
-  } = require("./linkpreview") as typeof import("./linkpreview");
-
   test("Open Graph wins, then Twitter, then the plain document", () => {
     const html = `<html><head>
       <title>fallback title</title>
