@@ -41,6 +41,11 @@ FloatingWindow {
   function openThread(t) { view.openThread(t) }
   function shareLink(url) { return view.shareLink(url) }
   function pushReload() { view.pushReload() }
+  function navText(event) {
+    if (event.key === Qt.Key_Slash) return "/"
+    if (event.key === Qt.Key_N) return "n"
+    return event.text
+  }
 
   // ---- persistence: the window lives inside the shell process, so every
   // omarchy-restart-shell (every plugin deploy/update) would kill it. Remember
@@ -84,23 +89,39 @@ FloatingWindow {
       if (event.key === Qt.Key_Escape) {
         if (!view.unwind()) win.visible = false
         event.accepted = true
+        return
       }
+      if (view.catchNavText(win.navText(event))) event.accepted = true
     }
 
-    BlipView {
-      id: view
+    Item {
+      id: navCatcher
       anchors.fill: parent
-      // Inset from the window edge: Hyprland rounds the corners, and text
-      // flush to the border got clipped by the radius (Fred).
-      anchors.margins: Style.space(12)
-      hostWidget: win.hostWidget
-      splitView: true
-      surfaceOpen: win.visible
-      readActive: win.focused
-      foreground: Color.foreground
-      urgent: Color.urgent
-      fontFamily: Style.font.family
-      onNavigationFocusRequested: scope.forceActiveFocus()
+      focus: true
+      Keys.priority: Keys.BeforeItem
+      Keys.onPressed: function(event) {
+        if (event.key === Qt.Key_Escape && view.catchEscape()) {
+          event.accepted = true
+          return
+        }
+        if (view.catchNavText(win.navText(event))) event.accepted = true
+      }
+
+      BlipView {
+        id: view
+        anchors.fill: parent
+        // Inset from the window edge: Hyprland rounds the corners, and text
+        // flush to the border got clipped by the radius (Fred).
+        anchors.margins: Style.space(12)
+        hostWidget: win.hostWidget
+        splitView: true
+        surfaceOpen: win.visible
+        readActive: win.focused
+        foreground: Color.foreground
+        urgent: Color.urgent
+        fontFamily: Style.font.family
+        onNavigationFocusRequested: navCatcher.forceActiveFocus()
+      }
     }
   }
 }

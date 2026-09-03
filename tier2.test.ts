@@ -259,10 +259,111 @@ describe("search shaping", () => {
     expect(out.length).toBe(3);
     expect(out[0]!.group).toBe(true);
   });
+
+  test("whole-word hits outrank substring hits, ignoring case", () => {
+    const { messageMatchScore, shapeResults: shape } = require("./search") as typeof import("./search");
+    expect(messageMatchScore("cat", "The cat sat down.")).toBeGreaterThan(
+      messageMatchScore("cat", "A scatter of leaves."),
+    );
+    const rows = [
+      { ts: "2026-08-28 17:29:00", from_me: false, handle: "+15550001111", name: "Alice",
+        service: "iMessage", chat: "group-a", text: "A scatter of leaves." },
+      { ts: "2026-05-18 16:34:00", from_me: true, handle: "+15550002222", name: "Bob",
+        service: "iMessage", chat: "+15550002222", text: "The cat sat down." },
+    ] as never[];
+    const out = shape(rows, "cat", 10);
+    expect(out[0]!.text).toContain("cat sat");
+    expect(out[1]!.text).toContain("scatter");
+  });
+
+  test("query case does not change whole-word recency order", () => {
+    const { shapeResults: shape } = require("./search") as typeof import("./search");
+    const rows = [
+      { ts: "2026-05-25 22:20:00", from_me: false, handle: "+15550001111", name: "Alice",
+        service: "iMessage", chat: "group-a", text: "Alice thanks Bob." },
+      { ts: "2026-08-25 20:45:00", from_me: false, handle: "+15550002222", name: "Bob",
+        service: "iMessage", chat: "+15550002222", text: "Thanks" },
+    ] as never[];
+    const lower = shape(rows, "thanks", 10).map((h) => h.ts);
+    const titled = shape(rows, "Thanks", 10).map((h) => h.ts);
+    expect(lower).toEqual(titled);
+    expect(lower[0]).toBe("2026-08-25 20:45:00");
+  });
+
+  test("same match quality ties break on message time, not thread order", () => {
+    const { shapeResults: shape } = require("./search") as typeof import("./search");
+    const rows = [
+      { ts: "2025-07-15 17:24:00", from_me: false, handle: "+15550001111", name: "Alice",
+        service: "iMessage", chat: "quiet-old-thread", text: "Thanks everyone." },
+      { ts: "2026-05-25 22:20:00", from_me: false, handle: "+15550002222", name: "Bob",
+        service: "iMessage", chat: "busy-new-thread", text: "Alice thanks Bob." },
+    ] as never[];
+    const out = shape(rows, "thanks", 10);
+    expect(out[0]!.name).toBe("Bob");
+    expect(out[1]!.name).toBe("Alice");
+  });
+
+  test("matchConversations finds people by name, not by last message", () => {
+    const { matchConversations } = require("./search") as typeof import("./search");
+    const threads = [
+      { chat: "+15550001111", name: "Alice", handle: "+15550001111", last_text: "see you in the car" },
+      { chat: "+15550002222", name: "Carol", handle: "+15550002222", last_text: "hi" },
+      { chat: "+15550003333", name: "Bob", handle: "+15550003333", last_text: "carol said no" },
+    ];
+    const hits = matchConversations(threads, "car");
+    expect(hits.map((h) => h.name)).toEqual(["Carol"]);
+    expect(hits[0]!.kind).toBe("conversation");
+  });
+
+  test("matchConversations fuzzy-matches a subsequence on the handle", () => {
+    const { matchConversations } = require("./search") as typeof import("./search");
+    const hits = matchConversations(
+      [{ chat: "+15551234567", name: "Dad", handle: "+15551234567" }],
+      "dad",
+    );
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.chat).toBe("+15551234567");
+  });
+
+  test("runSearch prepends conversation matches from the thread list", () => {
+    const { runSearch } = require("./search") as typeof import("./search");
+    const runner = () => ({
+      status: 0,
+      stdout: JSON.stringify([{
+        ts: "2026-05-01 10:00:00", from_me: false, handle: "+15550002222", name: "Bob",
+        service: "iMessage", chat: "+15550002222", text: "the car is red",
+      }]),
+      stderr: "",
+    });
+    const out = runSearch("car", 10, runner as never, [
+      { chat: "+15550001111", name: "Carol", handle: "+15550001111" },
+    ]);
+    expect(out.ok).toBe(true);
+    expect(out.results[0]!.name).toBe("Carol");
+    expect(out.results[0]!.kind).toBe("conversation");
+    expect(out.results[1]!.name).toBe("Bob");
+    expect(out.results[1]!.kind).toBe("message");
+  });
+
+  test("mergeSearchResults puts conversations above messages", () => {
+    const { mergeSearchResults } = require("./search") as typeof import("./search");
+    const people = [{
+      chat: "+1", name: "Ann", handle: "+1", service: "iMessage",
+      ts: "", from_me: false, text: "hey", group: false, kind: "conversation" as const,
+    }];
+    const msgs = [{
+      chat: "+2", name: "Bob", handle: "+2", service: "iMessage",
+      ts: "2026-09-02 10:00:00", from_me: true, text: "ann called", group: false,
+    }];
+    const out = mergeSearchResults(people, msgs);
+    expect(out.map((h) => h.name)).toEqual(["Ann", "Bob"]);
+    expect(out[0]!.kind).toBe("conversation");
+    expect(out[1]!.kind).toBe("message");
+  });
 });
 
 describe("contact search shaping", () => {
-  const { directHandle, normalizeHandle, shapeContacts } =
+  const { directHandle, normalizeHandle, shapeContacts, rankByRecency, fuzzyScore, filterFuzzy } =
     require("./contact-search") as typeof import("./contact-search");
 
   test("US numbers normalize to E.164 like chat.db handles", () => {
@@ -306,6 +407,41 @@ describe("contact search shaping", () => {
       "x",
     );
     expect(out.length).toBe(1);
+  });
+
+  test("rankByRecency puts the most recently messaged handle first", () => {
+    const hits = [
+      { name: "C", handle: "+10001", kind: "phone" },
+      { name: "C", handle: "old@x.com", kind: "email" },
+      { name: "C", handle: "+10002", kind: "mobile" },
+    ];
+    const ranked = rankByRecency(hits, { "+10002": "2026-09-02T21:00:00Z", "old@x.com": "2024-01-01T00:00:00Z" });
+    expect(ranked.map((h) => h.handle)).toEqual(["+10002", "old@x.com", "+10001"]);
+  });
+
+  test("fuzzyScore matches subsequences and rejects missing letters", () => {
+    expect(fuzzyScore("alc", "Alice")).toBeGreaterThan(0);
+    expect(fuzzyScore("xyz", "Alice")).toBe(0);
+    expect(fuzzyScore("alice", "Alice Smith")).toBeGreaterThan(fuzzyScore("alc", "Alice Smith"));
+  });
+
+  test("filterFuzzy keeps contacts whose name matches as a subsequence", () => {
+    const raw = [
+      { name: "Alice", phones: [{ number: "+15550001111" }] },
+      { name: "Bob", phones: [{ number: "+15550002222" }] },
+    ];
+    const hits = filterFuzzy(raw, "alc");
+    expect(hits.map((c) => c.name)).toEqual(["Alice"]);
+  });
+
+  test("rankByRecency keeps a direct-entry row first", () => {
+    const hits = [
+      { name: "+10001", handle: "+10001", kind: "direct entry" },
+      { name: "C", handle: "+10002", kind: "mobile" },
+    ];
+    const ranked = rankByRecency(hits, { "+10002": "2026-09-02T21:00:00Z" });
+    expect(ranked[0]!.kind).toBe("direct entry");
+    expect(ranked[1]!.handle).toBe("+10002");
   });
 });
 

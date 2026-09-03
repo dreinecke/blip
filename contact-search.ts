@@ -4,14 +4,15 @@
  *
  *   bun contact-search.ts <query>   →  {ok, online, error, results}
  *
- * Backed by `contacts --json find` on the Mac (AddressBook). Every phone and
- * email of a matching contact becomes its own row, because each is its own
- * iMessage handle. A query that already LOOKS like a handle (phone/email)
+ * Backed by `contacts --json dump` on the Mac (AddressBook), cached locally
+ * and filtered with a subsequence score. Every phone and email of a matching
+ * contact becomes its own row, because each is its own iMessage handle.
+ * A query that already LOOKS like a handle (phone/email)
  * gets a direct "message this" row first — you can text a number that is in
  * nobody's contacts.
  */
 
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
@@ -75,8 +76,47 @@ export function directHandle(q: string): string {
 
 interface RawContact {
   name?: string;
+  org?: string;
+  nick?: string;
   phones?: { number?: string; label?: string }[];
   emails?: { address?: string; label?: string }[] | string[];
+}
+
+/** Subsequence match. 0 means no match. Consecutive and word-start hits score higher. */
+export function fuzzyScore(query: string, text: string): number {
+  const q = String(query || "").trim().toLowerCase();
+  const t = String(text || "").toLowerCase();
+  if (q === "" || t === "") return 0;
+  if (t.includes(q)) return 1000 + (t.startsWith(q) ? 100 : 0) - Math.min(t.length, 100);
+  let ti = 0;
+  let score = 0;
+  let consec = 0;
+  for (let qi = 0; qi < q.length; qi++) {
+    const idx = t.indexOf(q[qi]!, ti);
+    if (idx < 0) return 0;
+    if (idx === ti) {
+      consec += 1;
+      score += 10 + consec;
+    } else {
+      consec = 0;
+      score += 1;
+    }
+    if (idx === 0 || /\s/.test(t[idx - 1]!)) score += 20;
+    ti = idx + 1;
+  }
+  return score;
+}
+
+export function contactHaystack(c: RawContact): string {
+  const emails = (c.emails ?? []).map((e) => (typeof e === "string" ? e : String(e.address || "")));
+  const phones = (c.phones ?? []).map((p) => String(p.number || ""));
+  return [c.name, c.org, c.nick, emails.join(" "), phones.join(" ")].filter(Boolean).join(" ");
+}
+
+export function filterFuzzy(raw: RawContact[], query: string): RawContact[] {
+  const q = String(query || "").trim();
+  if (q === "") return [];
+  return raw.filter((c) => fuzzyScore(q, contactHaystack(c)) > 0);
 }
 
 export function shapeContacts(raw: RawContact[], query: string, limit = 30): ContactHit[] {
@@ -109,6 +149,21 @@ export function shapeContacts(raw: RawContact[], query: string, limit = 30): Con
   return out.slice(0, limit);
 }
 
+/** Newer `last_ts` first. Direct-entry rows stay at the top. Unknown
+ *  handles keep their original order among themselves. */
+export function rankByRecency(hits: ContactHit[], recency: Record<string, string>): ContactHit[] {
+  const ts = (h: ContactHit) => recency[h.handle] || "";
+  const direct = hits.filter((h) => h.kind === "direct entry");
+  const rest = hits.filter((h) => h.kind !== "direct entry");
+  rest.sort((a, b) => {
+    const ta = ts(a);
+    const tb = ts(b);
+    if (ta === tb) return 0;
+    return ta < tb ? 1 : -1;
+  });
+  return direct.concat(rest);
+}
+
 export interface ContactSearchOutput {
   ok: boolean;
   online: boolean;
@@ -116,36 +171,77 @@ export interface ContactSearchOutput {
   results: ContactHit[];
 }
 
-export function searchContacts(query: string, runner = spawnSync): ContactSearchOutput {
+export function searchContacts(
+  query: string,
+  runner = spawnSync,
+  recency: Record<string, string> = {},
+): ContactSearchOutput {
   const fail = (error: string, online = true): ContactSearchOutput =>
     ({ ok: false, online, error, results: [] });
   const q = String(query || "").trim();
   if (q === "") return fail("empty query");
 
-  const res = runner(`${HOME}/bin/contacts`, ["--json", "find", "--", q], {
+  const raw = loadContacts(runner);
+  if (raw === "offline") return fail("Mac unreachable", false);
+  if (typeof raw === "string") {
+    const direct = directHandle(q);
+    if (direct !== "") return { ok: true, online: true, error: "", results: rankByRecency(shapeContacts([], q), recency) };
+    return fail(raw);
+  }
+  return {
+    ok: true,
+    online: true,
+    error: "",
+    results: rankByRecency(shapeContacts(filterFuzzy(raw, q), q, 1000), recency).slice(0, 30),
+  };
+}
+
+const DUMP_TTL_MS = 60_000;
+
+function slimContact(c: RawContact): RawContact {
+  return { name: c.name, org: c.org, nick: c.nick, phones: c.phones, emails: c.emails };
+}
+
+function loadContacts(runner: typeof spawnSync): RawContact[] | "offline" | string {
+  const cacheDir = join(process.env.XDG_RUNTIME_DIR ?? `/run/user/${process.getuid?.() ?? 1000}`, "blip");
+  const cachePath = join(cacheDir, "contacts-dump.json");
+  try {
+    if (Date.now() - statSync(cachePath).mtimeMs < DUMP_TTL_MS) {
+      const parsed = JSON.parse(readFileSync(cachePath, "utf8"));
+      if (Array.isArray(parsed)) return (parsed as RawContact[]).map(slimContact);
+    }
+  } catch { /* miss */ }
+  const res = runner(`${HOME}/bin/contacts`, ["--json", "dump"], {
     encoding: "utf8",
     timeout: 15000, maxBuffer: 64 * 1024 * 1024,
   });
-  if (res.status === 69 || res.status === 255) return fail("Mac unreachable", false);
+  if (res.status === 69 || res.status === 255) return "offline";
   if (res.status !== 0) {
-    // No contact match is not an error when the query is itself a handle.
-    const direct = directHandle(q);
-    if (direct !== "") return { ok: true, online: true, error: "", results: shapeContacts([], q) };
     const err = (res.stderr || "").toString().trim().split("\n")[0] || `contacts exit ${res.status}`;
-    return fail(err);
+    return err;
   }
   try {
     const parsed = JSON.parse(res.stdout as string);
     if (!Array.isArray(parsed)) throw new Error("not an array");
-    return { ok: true, online: true, error: "", results: shapeContacts(parsed, q) };
+    const slim = (parsed as RawContact[]).map(slimContact);
+    try {
+      mkdirSync(cacheDir, { mode: 0o700, recursive: true });
+      writeFileSync(cachePath, JSON.stringify(slim), { mode: 0o600 });
+    } catch { /* cache is optional */ }
+    return slim;
   } catch (e) {
-    return fail(`bad JSON from contacts: ${e}`);
+    return `bad JSON from contacts: ${e}`;
   }
 }
 
 if (import.meta.main) {
   try {
-    console.log(JSON.stringify(searchContacts(process.argv[2] ?? "")));
+    let recency: Record<string, string> = {};
+    if (process.argv[3]) {
+      const parsed = JSON.parse(process.argv[3]);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) recency = parsed as Record<string, string>;
+    }
+    console.log(JSON.stringify(searchContacts(process.argv[2] ?? "", spawnSync, recency)));
   } catch (e) {
     console.log(JSON.stringify({ ok: false, online: true, error: String(e), results: [] }));
   }

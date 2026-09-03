@@ -4,6 +4,13 @@ import { readFileSync } from "node:fs";
 // The renderer moved from Panel.qml into BlipView.qml in 1.8.0 (shared with the app window).
 const panel = readFileSync(new URL("./BlipView.qml", import.meta.url), "utf8");
 const widget = readFileSync(new URL("./BarWidget.qml", import.meta.url), "utf8");
+const window = readFileSync(new URL("./BlipWindow.qml", import.meta.url), "utf8");
+
+function handleTextKeySource() {
+  const start = panel.indexOf("function handleTextKey");
+  const end = panel.indexOf("function unwind");
+  return panel.slice(start, end);
+}
 
 describe("QML safety invariants", () => {
   test("group sends use the cached AppleScript GUID", () => {
@@ -91,5 +98,38 @@ describe("QML safety invariants", () => {
     const mark = panel.indexOf("markThreadRead(root.threadRunningChat)");
     expect(success).toBeGreaterThan(-1);
     expect(mark).toBeGreaterThan(success);
+  });
+
+  test("app window routes n, slash, and Esc through catch helpers", () => {
+    expect(window).toContain("view.catchNavText(");
+    expect(window).toContain("view.catchEscape()");
+    expect(window).toContain("navCatcher.forceActiveFocus()");
+    expect(window).toContain("win.navText(");
+  });
+
+  test("handleTextKey runs slash and n before the inThread return", () => {
+    const fn = handleTextKeySource();
+    expect(fn.indexOf('text === "/"')).toBeLessThan(fn.indexOf("inThread"));
+    expect(fn.indexOf('text === "n"')).toBeLessThan(fn.indexOf("inThread"));
+  });
+
+  test("conversation search is scheduled from the field text, people first", () => {
+    expect(panel).toContain("if (q !== searchQueryRan) searchSeq++");
+    expect(panel).toContain("function scheduleSearch");
+    expect(panel).toContain("function conversationHits");
+    expect(panel).toContain("id: searchWatch");
+    expect(panel).toContain("function threadIdentitiesJson");
+    expect(panel).toContain("searchProc.write(threadIdentitiesJson())");
+    expect(panel).toContain("onAccepted: root.acceptSearchField()");
+  });
+
+  test("new-message contact search is scheduled from the field text, not only Enter", () => {
+    expect(panel).toContain("function scheduleContactSearch");
+    expect(panel).toContain("function newFieldQuery");
+    expect(panel).toContain("id: newSearchWatch");
+    expect(panel).toContain("running: root.newMode");
+    expect(panel).toContain("newSearchTimer.restart()");
+    expect(panel).not.toContain("forceLayout");
+    expect(panel.indexOf("onAccepted: root.acceptNewField()")).toBeGreaterThan(-1);
   });
 });

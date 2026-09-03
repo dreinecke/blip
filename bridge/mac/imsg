@@ -640,15 +640,33 @@ def cmd_thread(con, args):
            with_names=not args.no_names, con=con, rich=args.rich)
 
 
+def _search_needles(query: str) -> list[str]:
+    """Case variants to scan inside attributedBody.
+    instr() on a BLOB is byte-exact; LIKE on m.text is already ASCII
+    case-insensitive. Newer messages often have NULL text and only a
+    UTF-8 needle inside the typedstream, so a lowercase query would miss
+    a body that starts with a capital letter."""
+    q = query or ""
+    out: list[str] = []
+    seen: set[str] = set()
+    for v in (q, q.lower(), q.upper(), q[:1].upper() + q[1:].lower() if q else ""):
+        if v and v not in seen:
+            seen.add(v)
+            out.append(v)
+    return out
+
+
 def cmd_search(con, args):
     # text column is null for newer messages; also scan attributedBody as bytes
+    needles = _search_needles(args.query)
+    blob_or = " OR ".join("instr(m.attributedBody, CAST(? AS BLOB)) > 0" for _ in needles)
     rows = con.execute(
         base_select(con)
-        + """
+        + f"""
         WHERE m.text LIKE ?
-           OR (m.attributedBody IS NOT NULL AND instr(m.attributedBody, CAST(? AS BLOB)) > 0)
+           OR (m.attributedBody IS NOT NULL AND ({blob_or}))
         ORDER BY m.date DESC LIMIT ?""",
-        (f"%{args.query}%", args.query, args.n),
+        (f"%{args.query}%", *needles, args.n),
     ).fetchall()
     render(reversed(rows) if args.chrono else rows, args.json,
            with_names=not args.no_names, con=con, rich=args.rich)

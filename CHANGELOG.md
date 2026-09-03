@@ -19,6 +19,12 @@
   `format`: `timeFormat`, `dateFormat` (day dividers this year) and
   `dateFormatWithYear`. Unset, the time follows your locale and dates read as
   before, so nothing changes until you ask.
+- **Super+M keys, live search, and whole-word ranking.** The app window
+  honors `n`, `/`, and Esc the way the popout does. New-message and `/`
+  search as you type. Conversations match first, then messages. Whole-word
+  hits (case-insensitive) rank above substrings, then by message time.
+  `imsg search` also scans capitalized needles in `attributedBody`, because
+  newer messages often have a null `text` column. (Johan Thorén)
 - **Reads now reach the Mac, and your phone.** Blip's "mark all read" cleared
   the badge on Linux and nothing else; the iPhone kept its red dots. The old
   note called this impossible because `open imessage://<handle>` does not flip

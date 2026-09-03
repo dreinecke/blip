@@ -86,11 +86,15 @@ FocusScope {
   property bool newMode: false
   property var newResults: []
   property string newNote: ""
+  property int newCursor: 0
+  property string newQueryRan: ""
 
   // ---- search state (list view only; `/` opens, Esc closes)
   property bool searching: false
   property var searchResults: []
   property string searchNote: ""
+  property int searchCursor: 0
+  property string searchQueryRan: ""
   // Results replace the thread list only once a search has actually produced
   // something to show — focusing the box alone must not blank the list.
   readonly property bool searchShowing:
@@ -562,35 +566,83 @@ FocusScope {
     newMode = true
     newResults = []
     newNote = ""
-    // Flipping several visibilities in one handler can miss the layout
-    // pass — the panel collapsed to its hero until results forced a
-    // rearrange (Fred's screenshot). Force it.
-    Qt.callLater(function() { content.forceLayout(); newField.forceActiveFocus(); newField.selectAll() })
+    newCursor = 0
+    newQueryRan = ""
+    Qt.callLater(function() {
+      newField.forceActiveFocus()
+      newField.selectAll()
+    })
   }
 
   function exitNew() {
     newMode = false
     newResults = []
     newNote = ""
+    newCursor = 0
+    newQueryRan = ""
     newField.text = ""
-    Qt.callLater(function() { content.forceLayout(); root.navigationFocusRequested() })
+    newField.focus = false
+    root.navigationFocusRequested()
   }
 
   // Same identity discipline as message search: a stale completion must
   // never surface Alice's results under Bob's query (Codex HIGH, 1.2.0).
   property int contactSeq: 0
   property string contactPending: ""
+  function threadRecencyJson() {
+    var rec = {}
+    for (var i = 0; i < threads.length; i++) {
+      var t = threads[i]
+      var ts = String(t.last_ts || "")
+      if (ts === "") continue
+      if (t.handle) rec[String(t.handle)] = ts
+      if (t.chat) rec[String(t.chat)] = ts
+    }
+    return JSON.stringify(rec)
+  }
+  function newFieldQuery() {
+    var d = String(newField.displayText || "")
+    var t = String(newField.text || "")
+    return (d !== "" ? d : t).trim()
+  }
+  function scheduleContactSearch() {
+    if (!newMode) return
+    if (newFieldQuery() === "") {
+      newSearchTimer.stop()
+      newResults = []
+      newNote = ""
+      newQueryRan = ""
+      newCursor = 0
+      return
+    }
+    if (newFieldQuery() !== newQueryRan) contactSeq++
+    newNote = "searching…"
+    newSearchTimer.restart()
+  }
   function runContactSearch() {
-    var q = newField.text.trim()
+    var q = newFieldQuery()
     if (q === "") return
     // Bump the generation NOW so the in-flight (older) result is rejected,
     // never shown as clickable rows under the newer query (Codex audit #5).
-    if (contactProc.running) { contactSeq++; newResults = []; newNote = "searching contacts…"; contactPending = q; return }
+    if (contactProc.running) { contactSeq++; contactPending = q; return }
     contactSeq++
-    newNote = "searching contacts…"
-    newResults = []
-    contactProc.command = ["bun", root.contactScript, q]
+    newQueryRan = q
+    newNote = "searching…"
+    contactProc.command = ["bun", root.contactScript, q, threadRecencyJson()]
     contactProc.running = true
+  }
+  function acceptNewField() {
+    var q = newFieldQuery()
+    if (q !== "" && q === newQueryRan && newResults.length > 0) {
+      var i = Math.max(0, Math.min(newCursor, newResults.length - 1))
+      openContact(newResults[i])
+      return
+    }
+    runContactSearch()
+  }
+  function moveNewCursor(dy) {
+    if (newResults.length === 0 || dy === 0) return
+    newCursor = (newCursor + dy + newResults.length) % newResults.length
   }
 
   /** Start (or resume) a DM with a picked handle. An existing thread is
@@ -613,6 +665,9 @@ FocusScope {
     searching = true
     searchResults = []
     searchNote = ""
+    searchCursor = 0
+    searchQueryRan = ""
+    searchWatch.lastQ = ""
     Qt.callLater(function() { searchField.forceActiveFocus(); searchField.selectAll() })
   }
 
@@ -620,8 +675,93 @@ FocusScope {
     searching = false
     searchResults = []
     searchNote = ""
+    searchCursor = 0
+    searchQueryRan = ""
     searchField.text = ""
-    Qt.callLater(function() { root.navigationFocusRequested() })
+    searchField.focus = false
+    if (!newMode) root.navigationFocusRequested()
+  }
+
+  // Instant sidebar preview. search.ts matchConversations ranks the list
+  // once bun returns. Haystack is name, handle, and chat id only.
+  function fuzzyScore(query, text) {
+    var q = String(query || "").trim().toLowerCase()
+    var t = String(text || "").toLowerCase()
+    if (q === "" || t === "") return 0
+    if (t.indexOf(q) >= 0) return 1000 + (t.indexOf(q) === 0 ? 100 : 0) - Math.min(t.length, 100)
+    var ti = 0, score = 0, consec = 0
+    for (var qi = 0; qi < q.length; qi++) {
+      var idx = t.indexOf(q.charAt(qi), ti)
+      if (idx < 0) return 0
+      if (idx === ti) { consec += 1; score += 10 + consec }
+      else { consec = 0; score += 1 }
+      if (idx === 0 || /\s/.test(t.charAt(idx - 1))) score += 20
+      ti = idx + 1
+    }
+    return score
+  }
+  function searchFieldQuery() {
+    var d = String(searchField.displayText || "")
+    var t = String(searchField.text || "")
+    return (d !== "" ? d : t).trim()
+  }
+  function conversationHits(q) {
+    var scored = []
+    for (var i = 0; i < threads.length; i++) {
+      var th = threads[i]
+      var hay = [th.name, th.handle, th.chat].filter(function(x) { return x }).join(" ")
+      var s = fuzzyScore(q, hay)
+      if (s <= 0) continue
+      scored.push({ s: s, t: th })
+    }
+    scored.sort(function(a, b) { return b.s - a.s })
+    var out = []
+    var n = Math.min(scored.length, 8)
+    for (var j = 0; j < n; j++) {
+      var t = scored[j].t
+      out.push({
+        kind: "conversation",
+        chat: String(t.chat || ""),
+        name: String(t.name || t.handle || t.chat || ""),
+        handle: String(t.handle || ""),
+        service: String(t.service || ""),
+        ts: String(t.last_ts || ""),
+        from_me: t.last_from_me === true,
+        text: String(t.last_text || ""),
+        group: isGroupId(String(t.chat || ""))
+      })
+    }
+    return out
+  }
+  function scheduleSearch() {
+    var q = searchFieldQuery()
+    if (q === "") {
+      searchTimer.stop()
+      searchResults = []
+      searchNote = ""
+      searchQueryRan = ""
+      searchCursor = 0
+      return
+    }
+    searching = true
+    if (q !== searchQueryRan) searchSeq++
+    searchResults = conversationHits(q)
+    searchCursor = 0
+    searchNote = searchResults.length === 0 ? "searching…" : ""
+    searchTimer.restart()
+  }
+  function moveSearchCursor(dy) {
+    if (searchResults.length === 0 || dy === 0) return
+    searchCursor = (searchCursor + dy + searchResults.length) % searchResults.length
+  }
+  function acceptSearchField() {
+    var q = searchFieldQuery()
+    if (searchResults.length > 0 && (searchQueryRan === "" || searchQueryRan === q)) {
+      var i = Math.max(0, Math.min(searchCursor, searchResults.length - 1))
+      openSearchHit(searchResults[i])
+      return
+    }
+    runSearch()
   }
 
   // Monotonic id so a stale completion can never label itself with a newer
@@ -629,15 +769,29 @@ FocusScope {
   // when the runner frees up — same pattern as thread loads.
   property int searchSeq: 0
   property string searchPending: ""
+  function threadIdentitiesJson() {
+    var out = []
+    for (var i = 0; i < threads.length; i++) {
+      var t = threads[i]
+      out.push({
+        chat: t.chat, name: t.name, handle: t.handle, service: t.service,
+        last_ts: t.last_ts, last_from_me: t.last_from_me, last_text: t.last_text
+      })
+    }
+    return JSON.stringify(out)
+  }
   function runSearch() {
-    var q = searchField.text.trim()
+    var q = searchFieldQuery()
     if (q === "") return
-    if (searchProc.running) { searchSeq++; searchResults = []; searchNote = "searching…"; searchPending = q; return }
+    if (searchProc.running) { searchSeq++; searchPending = q; return }
     searchSeq++
-    searchNote = "searching…"
-    searchResults = []
+    searchQueryRan = q
+    if (searchResults.length === 0) searchNote = "searching…"
     searchProc.command = ["bun", root.searchScript, q, "40"]
+    searchProc.stdinEnabled = true
     searchProc.running = true
+    searchProc.write(threadIdentitiesJson())
+    searchProc.stdinEnabled = false
   }
 
   /** Push ping while this conversation is open: reload its bubbles now,
@@ -964,6 +1118,7 @@ FocusScope {
           var d = JSON.parse(text.trim())
           if (d.ok === true) {
             root.newResults = Array.isArray(d.results) ? d.results : []
+            root.newCursor = 0
             root.newNote = root.newResults.length === 0 ? "no matches — try a number or email" : ""
           } else {
             root.newNote = String(d.error || "contact search failed")
@@ -991,6 +1146,8 @@ FocusScope {
           if (d.ok === true) {
             root.searchResults = Array.isArray(d.results) ? d.results : []
             root.searchNote = root.searchResults.length === 0 ? "no matches" : ""
+            if (root.searchCursor >= root.searchResults.length)
+              root.searchCursor = Math.max(0, root.searchResults.length - 1)
           } else {
             root.searchNote = String(d.error || "search failed")
           }
@@ -1007,6 +1164,61 @@ FocusScope {
     }
   }
 
+  // TextField textChanged never reached this window. Poll the field
+  // while composing. Enter still opens the highlight.
+  Timer {
+    id: newSearchWatch
+    interval: 50
+    repeat: true
+    running: root.newMode
+    property string lastQ: ""
+    onRunningChanged: lastQ = ""
+    onTriggered: {
+      var q = root.newFieldQuery()
+      if (q === lastQ) return
+      lastQ = q
+      root.scheduleContactSearch()
+    }
+  }
+  Timer {
+    id: newSearchTimer
+    interval: 150
+    repeat: false
+    onTriggered: {
+      if (!root.newMode) return
+      if (root.newFieldQuery() === "") {
+        root.newResults = []
+        root.newNote = ""
+        root.newQueryRan = ""
+        root.newCursor = 0
+        return
+      }
+      root.runContactSearch()
+    }
+  }
+  Timer {
+    id: searchWatch
+    interval: 50
+    repeat: true
+    running: searchField.activeFocus || root.searching
+    property string lastQ: ""
+    onRunningChanged: lastQ = ""
+    onTriggered: {
+      var q = root.searchFieldQuery()
+      if (q === lastQ) return
+      lastQ = q
+      root.scheduleSearch()
+    }
+  }
+  Timer {
+    id: searchTimer
+    interval: 150
+    repeat: false
+    onTriggered: {
+      if (root.searchFieldQuery() === "") return
+      root.runSearch()
+    }
+  }
   Timer {
     id: reloadTimer
     interval: 1500
@@ -1025,24 +1237,34 @@ FocusScope {
     if (!inThread && cursor >= 0) openThread(threads[cursor])
   }
   function handleTextKey(text) {
-    if (inThread) return
-    if (text === "/") startSearch()
-    else if (text === "n" || text === "N") startNew()
-    else if (searching || newMode) return
-    else if (text === "r" || text === "R") { if (hostWidget) hostWidget.refresh(true, false) }
+    if (text === "/") { startSearch(); return }
+    if (text === "n" || text === "N") { startNew(); return }
+    if ((inThread && !splitView) || searching || newMode) return
+    if (text === "r" || text === "R") { if (hostWidget) hostWidget.refresh(true, false) }
     else if (text === "a" || text === "A") markAllRead()
     else if (text >= "1" && text <= "9") {
       var i = Number(text) - 1
       if (i < threads.length) openThread(threads[i])
     }
   }
+  function catchNavText(text) {
+    if (text !== "/" && text !== "n" && text !== "N") return false
+    if (searchField.activeFocus || newField.activeFocus || bubbleFocused) return false
+    if (composeField.activeFocus && composeField.text.length > 0) return false
+    handleTextKey(text)
+    return true
+  }
+  function catchEscape() {
+    if (newField.activeFocus || newMode) { exitNew(); return true }
+    if (searchField.activeFocus || searching) { exitSearch(); return true }
+    return false
+  }
   /** Esc semantics for a host without a PanelKeyCatcher (the window): true if
    *  something was unwound, false if the host should close. */
   function unwind() {
     if (shareUrl !== "") { closeShare(); return true }
+    if (catchEscape()) return true
     if (inThread) { back(); return true }
-    if (newMode) { exitNew(); return true }
-    if (searching) { exitSearch(); return true }
     return false
   }
   function focusDefault() {
@@ -1221,13 +1443,21 @@ FocusScope {
               id: newField
               Layout.fillWidth: true
               visible: root.online && root.listShowing && root.newMode
-              placeholderText: "name, number, or email — Enter searches contacts"
+              placeholderText: "name, number, or email"
               foreground: root.foreground
               accent: root.accent
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
-              onAccepted: root.runContactSearch()
+              onAccepted: root.acceptNewField()
               Keys.onEscapePressed: root.exitNew()
+              Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_Down) { root.moveNewCursor(1); event.accepted = true }
+                else if (event.key === Qt.Key_Up) { root.moveNewCursor(-1); event.accepted = true }
+              }
+              onVisibleChanged: if (visible) {
+                forceActiveFocus()
+                selectAll()
+              }
             }
 
             Text {
@@ -1244,10 +1474,11 @@ FocusScope {
               model: root.online && root.listShowing && root.newMode ? root.newResults : []
               delegate: Rectangle {
                 required property var modelData
+                required property int index
                 Layout.fillWidth: true
                 implicitHeight: contactRow.implicitHeight + Style.space(12)
                 radius: Style.cornerRadius
-                color: contactHover.hovered
+                color: contactHover.hovered || root.newCursor === index
                   ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
                   : "transparent"
                 HoverHandler { id: contactHover }
@@ -1286,14 +1517,18 @@ FocusScope {
               id: searchField
               Layout.fillWidth: true
               visible: root.online && root.listShowing && !root.newMode
-              placeholderText: "🔍 search all messages"
+              placeholderText: "name or message"
               foreground: root.foreground
               accent: root.accent
               font.family: root.fontFamily
               font.pixelSize: Style.font.bodySmall
-              onAccepted: root.runSearch()
+              onAccepted: root.acceptSearchField()
               onActiveFocusChanged: if (activeFocus && !root.searching) root.searching = true
               Keys.onEscapePressed: root.exitSearch()
+              Keys.onPressed: function(event) {
+                if (event.key === Qt.Key_Down) { root.moveSearchCursor(1); event.accepted = true }
+                else if (event.key === Qt.Key_Up) { root.moveSearchCursor(-1); event.accepted = true }
+              }
             }
 
             // Read-only mirror of Messages' pinned section. These tiles have
@@ -1414,10 +1649,11 @@ FocusScope {
               model: root.online && root.listShowing && root.searchShowing ? root.searchResults : []
               delegate: Rectangle {
                 required property var modelData
+                required property int index
                 Layout.fillWidth: true
                 implicitHeight: hitCol.implicitHeight + Style.space(12)
                 radius: Style.cornerRadius
-                color: hitHover.hovered
+                color: hitHover.hovered || root.searchCursor === index
                   ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
                   : "transparent"
                 HoverHandler { id: hitHover }
@@ -1436,7 +1672,8 @@ FocusScope {
                     Text {
                       Layout.fillWidth: true
                       text: String(modelData.name || modelData.chat)
-                            + (modelData.group ? "  ·  group" : "")
+                            + (modelData.kind === "conversation" ? "  ·  conversation"
+                              : modelData.group ? "  ·  group" : "")
                       textFormat: Text.PlainText
                       elide: Text.ElideRight
                       color: root.foreground
@@ -1454,7 +1691,9 @@ FocusScope {
                   }
                   Text {
                     Layout.fillWidth: true
-                    text: (modelData.from_me ? "you: " : "") + String(modelData.text || "")
+                    text: modelData.kind === "conversation"
+                      ? String(modelData.text || modelData.handle || "")
+                      : ((modelData.from_me ? "you: " : "") + String(modelData.text || ""))
                     textFormat: Text.PlainText
                     elide: Text.ElideRight
                     maximumLineCount: 2

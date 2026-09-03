@@ -69,8 +69,8 @@ people who showed up with pull requests. What is in it now:
   send by Ctrl+V / drag-and-drop / `/attach`, with captions.
 - **SMS and RCS** send on their own service instead of failing as iMessage,
   and short-code senders (banks, utilities, 2FA) open like any other thread.
-- **Search** across every message ever; **new conversation** from a contact
-  search; **reply from a toast**; failed-delivery flags.
+- **Search** conversations by name, then messages; **new conversation** from a
+  contact search; **reply from a toast**; failed-delivery flags.
 - **One source.** The Mac-side tools ship in this repo; `blip-setup` installs
   everything including a dedicated ssh key the Mac confines to the five
   bridge tools.
@@ -343,7 +343,7 @@ badge and forward clicks to it.
 | list | `Enter` · `1`–`9` | open thread |
 | list | `r` | refresh |
 | list | `a` · *mark all read* link | clear every badge and dot — and tell the Mac, so your iPhone catches up too |
-| list | `/` | search every message ever — Enter runs it, click a hit to open its conversation, Esc backs out |
+| list | `/` | search conversations by name as you type, then messages; Enter opens the highlight, Esc backs out |
 | list | `n` · *＋ new* link | start a conversation with anyone — search contacts by name, or type a number/email directly |
 | thread | `Enter` | send (text, or the queued file with the text as caption) |
 | thread | `Ctrl+V` | paste — an image on the clipboard becomes a queued file, text pastes normally |
