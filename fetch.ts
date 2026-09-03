@@ -38,10 +38,18 @@ const HOME = process.env.HOME ?? homedir();
 export const CACHE_DIR = join(process.env.XDG_CACHE_HOME ?? join(HOME, ".cache"), "blip", "att");
 export const CACHE_CAP_BYTES = 500 * 1024 * 1024;
 export const FETCH_MAX_BYTES = 100 * 1024 * 1024;
+/** Long edge for an auto-fetched inline preview. The bubble decodes at 800;
+ *  1600 keeps it crisp on a HiDPI panel and still lands well under any cap. */
+export const PREVIEW_MAX_DIM = 1600;
 
 /** HEIC needs converting on the Mac (sips) — Linux has no decoder. */
 export function wantsJpeg(mime: string): boolean {
   return mime === "image/heic" || mime === "image/heif";
+}
+
+/** Anything the panel would draw inline. */
+export function isImageMime(mime: string): boolean {
+  return String(mime || "").startsWith("image/");
 }
 
 export function sanitizeName(name: string): string {
@@ -58,10 +66,15 @@ const MIME_EXT: Record<string, string> = {
   "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/x-m4a": "m4a", "audio/aac": "aac", "audio/amr": "amr",
   "application/pdf": "pdf", "text/plain": "txt", "text/vcard": "vcf", "text/calendar": "ics",
 };
-export function cacheFileName(id: string, name: string, mime: string): string {
-  const transform = wantsJpeg(mime) ? "jpg" : "orig";
+export function cacheFileName(id: string, name: string, mime: string, preview = false): string {
+  // Three transforms, never colliding: `orig` is the untouched file, `jpg` a
+  // sips HEIC→JPEG at full size, `prev` a resampled inline preview. A preview
+  // is ALWAYS JPEG whatever the source was, so its extension is too —
+  // xdg-open dispatches on extension, and a JPEG inside a .png would be a lie
+  // (war room #49).
+  const transform = preview ? "prev" : wantsJpeg(mime) ? "jpg" : "orig";
   let base = sanitizeName(name);
-  const ext = MIME_EXT[String(mime || "").toLowerCase()];
+  const ext = preview ? "jpg" : MIME_EXT[String(mime || "").toLowerCase()];
   if (ext) base = base.replace(/\.[^.]{1,8}$/, "") + "." + ext;
   return `${id}-${transform}-${base}`;
 }
@@ -215,7 +228,8 @@ export function fetchAttachment(
   if (!/^[0-9]{1,18}$/.test(id)) return fail("bad attachment id");
   mkdirSync(CACHE_DIR, { recursive: true, mode: 0o700 });
 
-  const file = join(CACHE_DIR, cacheFileName(id, name, mime));
+  const preview = maxBytes < FETCH_MAX_BYTES && isImageMime(mime);
+  const file = join(CACHE_DIR, cacheFileName(id, name, mime, preview));
   try {
     const st = lstatSync(file);
     // A symlink planted in the cache must never be followed (or touched).
@@ -226,7 +240,19 @@ export function fetchAttachment(
     }
   } catch { /* not cached */ }
 
-  const args = ["attachment", id, ...(wantsJpeg(mime) ? ["--jpeg"] : [])];
+  // An auto-fetch is for the inline bubble, which draws at ~800 px. Ask the
+  // Mac to resample rather than shipping a full-resolution frame: sips turns a
+  // 5 MB HEIC into a 7.8 MB JPEG, so the transfer ceiling was rejecting the
+  // very photos it was meant to let through. A click has no cap and still
+  // fetches the original.
+  // Every image, not just HEIC: a 12 MP PNG shipped raw is just as slow, and
+  // the preview lands in its own cache slot (`<id>-prev-…`) so a click can
+  // still fetch the untouched original into `<id>-orig-…`.
+  const args = [
+    "attachment", id,
+    ...(wantsJpeg(mime) || preview ? ["--jpeg"] : []),
+    ...(preview ? ["--max-dim", String(PREVIEW_MAX_DIM)] : []),
+  ];
   const res = runner(`${HOME}/bin/imsg`, args, {
     timeout: 120000,
     maxBuffer: FETCH_MAX_BYTES + (1 << 20),
@@ -253,7 +279,7 @@ export function fetchAttachment(
     closeSync(fd);
   }
   renameSync(tmp, file);
-  evict(cacheFileName(id, name, mime));
+  evict(cacheFileName(id, name, mime, preview));
   return { ok: true, online: true, path: file, url: pathToFileURL(file).href, error: "" };
 }
 

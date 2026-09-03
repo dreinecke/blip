@@ -1148,7 +1148,11 @@ def cmd_attachment(con, args):
     - hard 100 MB ceiling, checked on the fstat'd size and again while
       streaming in case the file grows.
     --jpeg converts image/* (HEIC in practice) through sips first so the
-    Linux side never needs an HEIC decoder.
+    Linux side never needs an HEIC decoder. --max-dim N additionally resamples
+    to N pixels on the long edge: an inline preview is drawn at ~800 px, and a
+    full-resolution iPhone HEIC becomes a JPEG roughly HALF AGAIN AS BIG as the
+    source (5.07 MB HEIC → 7.80 MB JPEG, measured), which is how photos ended
+    up too large to auto-load. Clicking one still fetches it whole.
     """
     if not re.fullmatch(r"[0-9]{1,18}", args.id):
         sys.exit("error: attachment id must be decimal digits")
@@ -1189,11 +1193,13 @@ def cmd_attachment(con, args):
 
         fd_t, tmp = tempfile.mkstemp(suffix=".jpg")
         os.close(fd_t)
+        cmd = ["sips", "-s", "format", "jpeg"]
+        if getattr(args, "max_dim", 0):
+            # -Z is "resample, longest edge, preserve aspect"; it never upscales.
+            cmd += ["-Z", str(int(args.max_dim)), "-s", "formatOptions", "80"]
+        cmd += [path, "--out", tmp]
         try:
-            r = subprocess.run(
-                ["sips", "-s", "format", "jpeg", path, "--out", tmp],
-                capture_output=True, timeout=60,
-            )
+            r = subprocess.run(cmd, capture_output=True, timeout=60)
         except subprocess.TimeoutExpired:
             os.unlink(tmp)   # never leave a converted copy in $TMPDIR
             sys.exit("error: sips conversion timed out")
@@ -1444,6 +1450,8 @@ def main() -> None:
     s.add_argument("id")
     s.add_argument("--jpeg", action="store_true",
                    help="convert image/* (HEIC) to JPEG via sips before streaming")
+    s.add_argument("--max-dim", type=int, default=0, dest="max_dim",
+                   help="with --jpeg, resample to N px on the long edge (inline previews)")
     s.set_defaults(func=cmd_attachment)
     s = sub.add_parser("avatar", parents=[common], help="stream a contact photo (JPEG) for a handle, or a group's own photo with --chat")
     s.add_argument("handle", nargs="?", default="")

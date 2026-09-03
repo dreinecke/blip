@@ -121,11 +121,17 @@
       {
         "min": -44,
         "from_me": false,
-        "text": "photo from the ridge",
-        "attachment": {
-          "name": "ridge.heic",
-          "mime": "image/heic"
-        }
+        "text": "two from the ridge",
+        "attachments": [
+          {
+            "name": "ridge-1.heic",
+            "mime": "image/heic"
+          },
+          {
+            "name": "ridge-2.heic",
+            "mime": "image/heic"
+          }
+        ]
       },
       {
         "min": -12,

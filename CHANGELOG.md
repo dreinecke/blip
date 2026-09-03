@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- **Photos in a message stopped arriving once they were full-size.** Someone
+  sending two pictures at once got two grey chips and no pictures. The cause
+  was a cap measured against the wrong number: `sips` turns a 5.07 MB iPhone
+  HEIC into a **7.80 MB** JPEG, so a photo could pass the 5 MB auto-fetch gate
+  on its source size and then be rejected for exceeding the same 5 MB as a
+  converted transfer — or fail the gate first and never be asked for at all.
+  Both of a real two-photo message failed, one at each end.
+  Now the Mac resamples an auto-fetch to 1600 px on the long edge (`imsg
+  attachment --max-dim`), which is generous for a bubble that draws at 800,
+  and those two photos arrive at 0.86 MB and 0.73 MB instead of 7.80 and 6.33.
+  Previews live in their own cache slot (`<id>-prev-…`, always `.jpg` because
+  they always are), so **clicking a photo still fetches the untouched
+  original**. Applies to every image, not just HEIC: a 12 MP PNG was just as
+  slow shipped raw. Mac side: re-run the install one-liner.
+
 - **Location-sharing notices no longer show up as empty unread messages.**
   Messages.app writes its own announcements — someone joined or left, a
   rename, location sharing started or stopped — into the message table with

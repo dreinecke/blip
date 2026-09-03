@@ -34,7 +34,7 @@
 <p align="center">
   <img src="docs/img/panel.png" alt="The bar popout: pinned conversations as tiles above the thread list" width="330">
   &nbsp;
-  <img src="docs/img/panel-conversation.png" alt="A conversation in the bar popout, with a tapback, a link card and a read receipt" width="330">
+  <img src="docs/img/panel-conversation.png" alt="A conversation in the bar popout: two photos from one message, both inline, and a read receipt" width="330">
 </p>
 
 <p align="center">

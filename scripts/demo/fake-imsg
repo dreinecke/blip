@@ -106,8 +106,10 @@ function conversation(): Row[] {
       error: 0,
       read_at: m.read_at ? stamp(Number(m.min) + 2) : null,
       tapbacks: null,
-      attachments: m.attachment
-        ? [{ id: String(700000 + i), name: (m.attachment as Record<string, string>).name, mime: (m.attachment as Record<string, string>).mime, bytes: 1843200 }]
+      attachments: Array.isArray(m.attachments)
+        ? (m.attachments as unknown as Array<{ name: string; mime: string }>).map((a, k) => ({
+          id: String(700000 + i * 10 + k), name: a.name, mime: a.mime, bytes: 1843200,
+        }))
         : null,
       reply_to: m.reply_to ? { text: String(m.reply_to), from_me: false } : null,
       edited: false, retracted: false, effect: null, audio: false, link: null,
@@ -184,6 +186,25 @@ function main(): void {
     const chat = val("--chat");
     const rows = chat === "" || chat === F.conversation.chat ? conversation() : [];
     console.log(JSON.stringify(rows, null, 2));
+    return;
+  }
+
+  // Real bytes for the inline-photo path: fetch.ts asks for `attachment <id>
+  // --jpeg [--max-dim N]`, so serve a generated JPEG at the size requested.
+  // Without this the demo could never show what a photo message looks like.
+  if (sub === "attachment") {
+    const dim = val("--max-dim") || "1600";
+    const id = argv.find((a) => /^[0-9]+$/.test(a)) ?? "0";
+    const hue = (Number(id) % 12) * 30;
+    const r = spawnSync("magick", [
+      "-size", `${dim}x${Math.round(Number(dim) * 0.75)}`,
+      `gradient:hsl(${hue},60%,42%)-hsl(${(hue + 40) % 360},55%,22%)`,
+      "-gravity", "center", "-font", FONT, "-pointsize", String(Math.round(Number(dim) / 12)),
+      "-fill", "white", "-annotate", "+0+0", "demo photo",
+      "-quality", "80", "jpg:-",
+    ], { maxBuffer: 32 << 20 });
+    if (r.status !== 0 || !r.stdout?.length) process.exit(1);
+    process.stdout.write(r.stdout as Buffer);
     return;
   }
 

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 
-import { CACHE_DIR, bakeOrientation, cacheFileName, exifOrientation, fetchAttachment, jpegtranArgs, lruEvictions, sanitizeName, wantsJpeg } from "./fetch";
+import { CACHE_DIR, bakeOrientation, cacheFileName, exifOrientation, fetchAttachment, isImageMime, jpegtranArgs, lruEvictions, sanitizeName, wantsJpeg } from "./fetch";
 import { extFor, pickImageType } from "./paste";
 import { resolveTarget, sendFile } from "./send-file";
 import { linkHost, linkify, normalizeLink, selectThread } from "./thread";
@@ -725,5 +725,41 @@ describe("AddressBook photos behind a tag byte (#16)", () => {
     const h = `ref2-${Date.now()}@example.com`;
     expect(fetchAvatar(h, runner).ok).toBe(false);
     unlinkSync(`${AVATAR_DIR}/${avatarKey(h)}.none`);
+  });
+});
+
+describe("multi-photo messages and the preview transform (#Crystal/Thatchers)", () => {
+  test("an auto-fetch asks the Mac to resample; a click asks for the original", () => {
+    const seen: string[][] = [];
+    const runner = ((_c: string, args: string[]) => {
+      seen.push(args);
+      return { status: 0, stdout: Buffer.from([0xff, 0xd8, 0xff, 0xdb, 1, 2, 3, 4]), stderr: "" };
+    }) as never;
+    // auto: a cap below the ceiling means "this is for the bubble"
+    fetchAttachment("991", "IMG_1.HEIC", "image/heic", runner, 5 * 1024 * 1024);
+    expect(seen[0]).toContain("--max-dim");
+    expect(seen[0]).toContain("--jpeg");
+    // click: no cap, no resample
+    fetchAttachment("992", "IMG_2.HEIC", "image/heic", runner);
+    expect(seen[1]).not.toContain("--max-dim");
+    for (const f of ["991-prev-IMG_1.jpg", "992-jpg-IMG_2.jpg"]) {
+      try { unlinkSync(`${CACHE_DIR}/${f}`); } catch { /* fine */ }
+    }
+  });
+
+  test("a PNG preview is resampled too, and is named .jpg because it IS a JPEG", () => {
+    expect(cacheFileName("7", "shot.png", "image/png", true)).toBe("7-prev-shot.jpg");
+    expect(cacheFileName("7", "shot.png", "image/png", false)).toBe("7-orig-shot.png");
+    expect(cacheFileName("7", "IMG.HEIC", "image/heic", false)).toBe("7-jpg-IMG.jpg");
+    // preview and original never collide, so a click still gets the full file
+    expect(cacheFileName("7", "shot.png", "image/png", true))
+      .not.toBe(cacheFileName("7", "shot.png", "image/png", false));
+  });
+
+  test("every image in one message is enqueued, not just the first", () => {
+    const panelSrc = readFileSync(new URL("./BlipView.qml", import.meta.url), "utf8");
+    expect(panelSrc).toContain("for (var j = 0; j < atts.length; j++)");
+    expect(panelSrc).toContain("b <= root.autoFetchMaxSource");
+    expect(panelSrc).not.toContain("b <= 5 * 1024 * 1024");
   });
 });

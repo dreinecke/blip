@@ -512,15 +512,22 @@ FocusScope {
 
   /** Images ≤ 5 MB in the open conversation fetch themselves (Fred's call —
    *  it's what makes the panel feel like Messages, and cached hits are free). */
+  /** Source-size ceiling for an auto-fetch. Bigger than any photo a phone
+   *  produces, small enough that a raw camera dump is still a click. */
+  readonly property int autoFetchMaxSource: 32 * 1024 * 1024
   function autoFetchImages() {
     if (!inThread) return
     for (var i = 0; i < bubbles.length; i++) {
       var atts = bubbles[i].attachments || []
       for (var j = 0; j < atts.length; j++) {
-        // bytes must be KNOWN and small — null/0 must not slip under the cap
-        // and auto-pull something the click-path 100 MB ceiling would allow.
+        // Bytes must be KNOWN — null/0 must not slip through and auto-pull
+        // something the click-path 100 MB ceiling would allow. The SOURCE cap
+        // is generous because the Mac resamples an auto-fetch to 1600 px
+        // before sending: the old 5 MB gate was measured against the source,
+        // while sips turns a 5.07 MB HEIC into a 7.80 MB JPEG, so full-size
+        // iPhone photos were rejected at both ends and simply never appeared.
         var b = atts[j].bytes
-        if (isImageMime(atts[j].mime) && typeof b === "number" && b > 0 && b <= 5 * 1024 * 1024)
+        if (isImageMime(atts[j].mime) && typeof b === "number" && b > 0 && b <= root.autoFetchMaxSource)
           enqueueFetch(atts[j], false, true)
       }
       // link-card preview PNGs are small; the auto-fetch transfer cap bounds them
