@@ -208,6 +208,12 @@ FocusScope {
     }
     return -1
   }
+  // pins sort first in threads[], so 1 is the first pin when any exist
+  function threadHotkey(thread) {
+    var i = threadIndex(thread)
+    if (i < 0 || i > 8) return ""
+    return String(i + 1)
+  }
 
   function avatarInitials(thread) {
     var n = String(thread.name || "")
@@ -1242,22 +1248,28 @@ FocusScope {
     if (!inThread && cursor >= 0) openThread(threads[cursor])
   }
   function handleTextKey(text) {
-    if (text === "/") { startSearch(); return }
-    if (text === "n" || text === "N") { startNew(); return }
-    if ((inThread && !splitView) || searching || newMode) return
-    if (text === "r" || text === "R") { if (hostWidget) hostWidget.refresh(true, false) }
-    else if (text === "a" || text === "A") markAllRead()
-    else if (text >= "1" && text <= "9") {
+    if (text === "/") { startSearch(); return true }
+    if (text === "n" || text === "N") { startNew(); return true }
+    if (text >= "1" && text <= "9") {
+      if (searching || newMode) return false
       var i = Number(text) - 1
-      if (i < threads.length) openThread(threads[i])
+      if (i < 0 || i >= threads.length) return false
+      openThread(threads[i])
+      return true
     }
+    if ((inThread && !splitView) || searching || newMode) return false
+    if (text === "r" || text === "R") { if (hostWidget) hostWidget.refresh(true, false); return true }
+    if (text === "a" || text === "A") { markAllRead(); return true }
+    return false
   }
   function catchNavText(text) {
-    if (text !== "/" && text !== "n" && text !== "N") return false
+    var jump = text === "/" || text === "n" || text === "N"
+      || (text >= "1" && text <= "9")
+    if (!jump) return false
     if (searchField.activeFocus || newField.activeFocus || bubbleFocused) return false
-    if (composeField.activeFocus && composeField.text.length > 0) return false
-    handleTextKey(text)
-    return true
+    if (composeField.activeFocus && (composeField.text.length > 0 || root.draftPath !== ""))
+      return false
+    return handleTextKey(text) === true
   }
   function catchEscape() {
     if (newField.activeFocus || newMode) { exitNew(); return true }
@@ -1624,16 +1636,28 @@ FocusScope {
                       }
                     }
 
-                    Text {
+                    RowLayout {
                       Layout.fillWidth: true
-                      text: String(modelData.name || modelData.chat)
-                      textFormat: Text.PlainText
-                      horizontalAlignment: Text.AlignHCenter
-                      elide: Text.ElideRight
-                      color: root.foreground
-                      font.family: root.fontFamily
-                      font.pixelSize: Style.font.caption
-                      font.bold: modelData.unread > 0
+                      spacing: Style.space(4)
+                      Text {
+                        visible: root.threadHotkey(modelData) !== ""
+                        text: root.threadHotkey(modelData)
+                        textFormat: Text.PlainText
+                        color: root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                      }
+                      Text {
+                        Layout.fillWidth: true
+                        text: String(modelData.name || modelData.chat)
+                        textFormat: Text.PlainText
+                        horizontalAlignment: Text.AlignHCenter
+                        elide: Text.ElideRight
+                        color: root.foreground
+                        font.family: root.fontFamily
+                        font.pixelSize: Style.font.caption
+                        font.bold: modelData.unread > 0
+                      }
                     }
                   }
                 }
@@ -1743,6 +1767,18 @@ FocusScope {
                   anchors.fill: parent
                   anchors.margins: Style.space(6)
                   spacing: Style.space(8)
+
+                  Text {
+                    Layout.preferredWidth: Style.space(16)
+                    Layout.alignment: Qt.AlignVCenter
+                    text: root.threadHotkey(modelData)
+                    textFormat: Text.PlainText
+                    color: root.dim
+                    font.family: root.fontFamily
+                    font.pixelSize: Style.font.caption
+                    horizontalAlignment: Text.AlignHCenter
+                    opacity: text === "" ? 0 : 1
+                  }
 
                   // the iMessage blue dot — present only while the thread has
                   // unread inbound; the slot stays so names line up.

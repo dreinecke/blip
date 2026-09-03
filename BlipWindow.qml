@@ -44,7 +44,12 @@ FloatingWindow {
   function navText(event) {
     if (event.key === Qt.Key_Slash) return "/"
     if (event.key === Qt.Key_N) return "n"
-    return event.text
+    var typed = event.text
+    if (typed && typed.length > 0) return typed
+    if (event.modifiers & (Qt.ShiftModifier | Qt.ControlModifier | Qt.AltModifier | Qt.MetaModifier))
+      return ""
+    if (event.key >= Qt.Key_1 && event.key <= Qt.Key_9) return String.fromCharCode(event.key)
+    return typed
   }
 
   // ---- persistence: the window lives inside the shell process, so every

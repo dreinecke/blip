@@ -340,7 +340,7 @@ badge and forward clicks to it.
 | where | key | does |
 |---|---|---|
 | list | `j` / `k` · `↑` / `↓` | move |
-| list | `Enter` · `1`–`9` | open thread |
+| list | `Enter` · `1`–`9` | open thread (the first nine rows show the digit; Super+M jumps from an empty compose) |
 | list | `r` | refresh |
 | list | `a` · *mark all read* link | clear every badge and dot — and tell the Mac, so your iPhone catches up too |
 | list | `/` | search conversations by name as you type, then messages; Enter opens the highlight, Esc backs out |

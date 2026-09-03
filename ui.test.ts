@@ -100,17 +100,34 @@ describe("QML safety invariants", () => {
     expect(mark).toBeGreaterThan(success);
   });
 
-  test("app window routes n, slash, and Esc through catch helpers", () => {
+  test("app window routes n, slash, digits, and Esc through catch helpers", () => {
     expect(window).toContain("view.catchNavText(");
     expect(window).toContain("view.catchEscape()");
     expect(window).toContain("navCatcher.forceActiveFocus()");
     expect(window).toContain("win.navText(");
+    const nav = window.slice(window.indexOf("function navText"), window.indexOf("function saveWinState"));
+    expect(nav.indexOf("var typed = event.text")).toBeLessThan(nav.indexOf("Qt.Key_1"));
+    expect(nav).toContain("Qt.ShiftModifier");
   });
 
-  test("handleTextKey runs slash and n before the inThread return", () => {
+  test("handleTextKey runs slash, n, and 1-9 before the inThread return", () => {
     const fn = handleTextKeySource();
     expect(fn.indexOf('text === "/"')).toBeLessThan(fn.indexOf("inThread"));
     expect(fn.indexOf('text === "n"')).toBeLessThan(fn.indexOf("inThread"));
+    expect(fn.indexOf('text >= "1"')).toBeLessThan(fn.indexOf("inThread"));
+    expect(fn).toContain("if (i < 0 || i >= threads.length) return false");
+    expect(fn).toContain("openThread(threads[i])");
+  });
+
+  test("sidebar rows show the 1-9 jump digit", () => {
+    expect(panel).toContain("function threadHotkey");
+    expect(panel.split("text: root.threadHotkey(modelData)").length - 1).toBe(2);
+    const catcher = panel.slice(panel.indexOf("function catchNavText"), panel.indexOf("function catchEscape"));
+    expect(catcher).toContain('text >= "1" && text <= "9"');
+    expect(catcher).toContain("root.draftPath");
+    expect(catcher).toContain("return handleTextKey(text) === true");
+    const fn = handleTextKeySource();
+    expect(fn).toContain("if (searching || newMode) return false");
   });
 
   test("conversation search is scheduled from the field text, people first", () => {

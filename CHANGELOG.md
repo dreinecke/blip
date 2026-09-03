@@ -19,6 +19,11 @@
   `format`: `timeFormat`, `dateFormat` (day dividers this year) and
   `dateFormatWithYear`. Unset, the time follows your locale and dates read as
   before, so nothing changes until you ask.
+- **Jump to a conversation with 1–9.** Super+M then a digit opens that
+  sidebar thread without Enter. The first nine rows (pins first) show the
+  digit. A digit that cannot open a thread is typed, not eaten. Shifted
+  number keys and a queued file with an empty caption stay in compose.
+  (Johan Thorén)
 - **Super+M keys, live search, and whole-word ranking.** The app window
   honors `n`, `/`, and Esc the way the popout does. New-message and `/`
   search as you type. Conversations match first, then messages. Whole-word
