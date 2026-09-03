@@ -373,6 +373,55 @@ export function groupName(chat: string, info: GroupInfo | undefined, byHandle: M
   return members.length ? members.join(", ") : chat;
 }
 
+export type SendService = "iMessage" | "SMS" | "RCS";
+
+/** Map a chat.db service string onto what `imsg-send --service` accepts. */
+export function normalizeSendService(raw: string | undefined | null): SendService {
+  const s = String(raw ?? "").trim().toLowerCase();
+  if (s === "sms") return "SMS";
+  if (s === "rcs") return "RCS";
+  return "iMessage";
+}
+
+/**
+ * Which service a DM should send on. Originally @lukejmorrison's, in PR #4.
+ *
+ * The thread used to carry the LAST BUBBLE's service, which is wrong in both
+ * directions. A failed iMessage to someone on SMS made the next send iMessage
+ * again, so it failed again — the thread sticks. And a contact who left
+ * iMessage keeps a green thread the client never notices.
+ *
+ * Order matters:
+ *   1. the newest row is a FAILED iMessage of ours to a phone → they are not
+ *      on iMessage; send SMS. (AppleScript does not fall back the way the
+ *      Messages GUI does — the send just dies with error 22.)
+ *   2. otherwise the last INBOUND service: that is what they actually reach
+ *      us on, and a failed outbound must never override it.
+ *   3. no inbound at all → the last outbound that SUCCEEDED.
+ *   4. nothing to go on → iMessage, like a fresh conversation.
+ * Groups send `--chat-id` and ignore all of this.
+ */
+export function sendServiceForMessages(msgs: ImsgMessage[]): SendService {
+  if (!msgs.length) return "iMessage";
+  const sorted = [...msgs].sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
+  const failed = (m: ImsgMessage) => typeof m.error === "number" && m.error !== 0;
+
+  const newest = sorted[sorted.length - 1]!;
+  const chat = chatKey(newest);
+  if (newest.from_me && failed(newest)
+      && normalizeSendService(newest.service) === "iMessage"
+      && /^\+?[0-9]{5,}$/.test(chat)) {
+    return "SMS";
+  }
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    if (!sorted[i]!.from_me) return normalizeSendService(sorted[i]!.service);
+  }
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    if (!failed(sorted[i]!)) return normalizeSendService(sorted[i]!.service);
+  }
+  return "iMessage";
+}
+
 export function buildThreads(
   msgs: ImsgMessage[],
   watermark: string,
@@ -405,7 +454,7 @@ export function buildThreads(
       guid: isGroupChat(chat) ? groups[chat]?.guid ?? "" : "",
       name: isGroupChat(chat) ? groupName(chat, groups[chat], byHandle) : displayName(sorted),
       handle: String(last.handle || chat),
-      service: last.service,
+      service: isGroupChat(chat) ? last.service : sendServiceForMessages(sorted),
       last_ts: last.ts,
       last_text: last.text,
       last_from_me: last.from_me,

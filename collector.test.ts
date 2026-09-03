@@ -1007,3 +1007,60 @@ describe("pushing read state back to the Mac", () => {
     expect(pushReadArgs("thread", { markRead: false, readChat: "" })).toBeNull();
   });
 });
+
+describe("which service a DM sends on (@lukejmorrison, PR #4)", () => {
+  const { normalizeSendService, sendServiceForMessages } =
+    require("./collector") as typeof import("./collector");
+  const at = (min: number, over: Partial<ImsgMessage> = {}) =>
+    msg({ ts: `2026-09-03 1${String(min).padStart(2, "0")}:00:00`, ...over });
+
+  test("normalizes what chat.db says into what imsg-send accepts", () => {
+    expect(normalizeSendService("SMS")).toBe("SMS");
+    expect(normalizeSendService("rcs")).toBe("RCS");
+    expect(normalizeSendService("iMessage")).toBe("iMessage");
+    expect(normalizeSendService("")).toBe("iMessage");
+    expect(normalizeSendService(null)).toBe("iMessage");
+  });
+
+  test("last INBOUND wins — a failed outbound never flips the thread back", () => {
+    expect(sendServiceForMessages([
+      at(0, { from_me: false, service: "SMS" }),
+      at(1, { from_me: true, service: "iMessage", error: 3 }),
+    ])).toBe("SMS");
+  });
+
+  test("a newer inbound iMessage beats older SMS history", () => {
+    expect(sendServiceForMessages([
+      at(0, { from_me: false, service: "SMS" }),
+      at(1, { from_me: false, service: "iMessage" }),
+    ])).toBe("iMessage");
+  });
+
+  test("our failed iMessage to a phone, newest, means they are not on iMessage", () => {
+    // the case that made a thread stick: retrying iMessage forever
+    expect(sendServiceForMessages([
+      at(0, { from_me: false, service: "iMessage" }),
+      at(1, { from_me: true, service: "iMessage", error: 22 }),
+    ])).toBe("SMS");
+  });
+
+  test("...but not for an email handle, which can only be iMessage", () => {
+    expect(sendServiceForMessages([
+      at(1, { chat: "them@example.com", handle: "them@example.com",
+              from_me: true, service: "iMessage", error: 22 }),
+    ])).toBe("iMessage");
+  });
+
+  test("no inbound: the last outbound that SUCCEEDED", () => {
+    expect(sendServiceForMessages([at(0, { from_me: true, service: "SMS", error: 0 })])).toBe("SMS");
+    expect(sendServiceForMessages([])).toBe("iMessage");
+  });
+
+  test("a group keeps the raw service — it sends by chat-id, not by service", () => {
+    const threads = buildThreads([
+      msg({ chat: "chat900001", handle: "+15550100011", from_me: false, service: "RCS",
+            ts: "2026-09-03 10:00:00" }),
+    ], "2026-09-03 09:00:00");
+    expect(threads[0]!.service).toBe("RCS");
+  });
+});
