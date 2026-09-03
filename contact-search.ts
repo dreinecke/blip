@@ -4,9 +4,10 @@
  *
  *   bun contact-search.ts <query>   →  {ok, online, error, results}
  *
- * Backed by `contacts --json find` on the Mac (AddressBook). Every phone and
- * email of a matching contact becomes its own row, because each is its own
- * iMessage handle. A query that already LOOKS like a handle (phone/email)
+ * Backed by `contacts --json dump` on the Mac (AddressBook), cached locally
+ * and filtered with a subsequence score. Every phone and email of a matching
+ * contact becomes its own row, because each is its own iMessage handle.
+ * A query that already LOOKS like a handle (phone/email)
  * gets a direct "message this" row first — you can text a number that is in
  * nobody's contacts.
  */

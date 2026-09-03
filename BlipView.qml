@@ -1132,7 +1132,7 @@ FocusScope {
   }
 
   // TextField textChanged never reached this window. Poll the field
-  // while composing; Enter is not part of the search path.
+  // while composing. Enter still opens the highlight.
   Timer {
     id: newSearchWatch
     interval: 50
