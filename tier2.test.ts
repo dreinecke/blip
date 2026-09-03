@@ -325,6 +325,26 @@ describe("search shaping", () => {
     expect(hits[0]!.chat).toBe("+15551234567");
   });
 
+  test("runSearch prepends conversation matches from the thread list", () => {
+    const { runSearch } = require("./search") as typeof import("./search");
+    const runner = () => ({
+      status: 0,
+      stdout: JSON.stringify([{
+        ts: "2026-05-01 10:00:00", from_me: false, handle: "+15550002222", name: "Bob",
+        service: "iMessage", chat: "+15550002222", text: "the car is red",
+      }]),
+      stderr: "",
+    });
+    const out = runSearch("car", 10, runner as never, [
+      { chat: "+15550001111", name: "Carol", handle: "+15550001111" },
+    ]);
+    expect(out.ok).toBe(true);
+    expect(out.results[0]!.name).toBe("Carol");
+    expect(out.results[0]!.kind).toBe("conversation");
+    expect(out.results[1]!.name).toBe("Bob");
+    expect(out.results[1]!.kind).toBe("message");
+  });
+
   test("mergeSearchResults puts conversations above messages", () => {
     const { mergeSearchResults } = require("./search") as typeof import("./search");
     const people = [{

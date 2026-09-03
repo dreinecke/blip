@@ -669,9 +669,8 @@ FocusScope {
     if (!newMode) root.navigationFocusRequested()
   }
 
-  // Keep in sync with contact-search.ts fuzzyScore. QML cannot import that
-  // file, and the thread list is already in memory so this must not go
-  // through argv (last_text is message content).
+  // Instant sidebar preview. search.ts matchConversations ranks the list
+  // once bun returns. Haystack is name, handle, and chat id only.
   function fuzzyScore(query, text) {
     var q = String(query || "").trim().toLowerCase()
     var t = String(text || "").toLowerCase()
@@ -755,6 +754,17 @@ FocusScope {
   // when the runner frees up — same pattern as thread loads.
   property int searchSeq: 0
   property string searchPending: ""
+  function threadIdentitiesJson() {
+    var out = []
+    for (var i = 0; i < threads.length; i++) {
+      var t = threads[i]
+      out.push({
+        chat: t.chat, name: t.name, handle: t.handle, service: t.service,
+        last_ts: t.last_ts, last_from_me: t.last_from_me, last_text: t.last_text
+      })
+    }
+    return JSON.stringify(out)
+  }
   function runSearch() {
     var q = searchFieldQuery()
     if (q === "") return
@@ -763,7 +773,10 @@ FocusScope {
     searchQueryRan = q
     if (searchResults.length === 0) searchNote = "searching…"
     searchProc.command = ["bun", root.searchScript, q, "40"]
+    searchProc.stdinEnabled = true
     searchProc.running = true
+    searchProc.write(threadIdentitiesJson())
+    searchProc.stdinEnabled = false
   }
 
   /** Push ping while this conversation is open: reload its bubbles now,
@@ -1109,9 +1122,7 @@ FocusScope {
         try {
           var d = JSON.parse(text.trim())
           if (d.ok === true) {
-            var people = root.conversationHits(root.searchFieldQuery())
-            var msgs = Array.isArray(d.results) ? d.results : []
-            root.searchResults = people.concat(msgs)
+            root.searchResults = Array.isArray(d.results) ? d.results : []
             root.searchNote = root.searchResults.length === 0 ? "no matches" : ""
             if (root.searchCursor >= root.searchResults.length)
               root.searchCursor = Math.max(0, root.searchResults.length - 1)

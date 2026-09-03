@@ -114,7 +114,8 @@ describe("QML safety invariants", () => {
     expect(panel).toContain("function scheduleSearch");
     expect(panel).toContain("function conversationHits");
     expect(panel).toContain("id: searchWatch");
-    expect(panel).toContain("people.concat(msgs)");
+    expect(panel).toContain("function threadIdentitiesJson");
+    expect(panel).toContain("searchProc.write(threadIdentitiesJson())");
     expect(panel).toContain("onAccepted: root.acceptSearchField()");
   });
 

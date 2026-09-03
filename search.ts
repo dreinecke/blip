@@ -10,6 +10,7 @@
  */
 
 import { homedir } from "node:os";
+import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { chatKey, isGroupChat, type ImsgMessage } from "./collector";
 import { fuzzyScore } from "./contact-search";
@@ -152,7 +153,12 @@ export function mergeSearchResults(conversations: SearchHit[], messages: SearchH
     .concat(messages.map((h) => ({ ...h, kind: h.kind ?? "message" })));
 }
 
-export function runSearch(query: string, limit: number, runner = spawnSync): SearchOutput {
+export function runSearch(
+  query: string,
+  limit: number,
+  runner = spawnSync,
+  threads: Parameters<typeof matchConversations>[0] = [],
+): SearchOutput {
   const fail = (error: string, online = true): SearchOutput =>
     ({ ok: false, online, error, results: [] });
   const q = String(query || "").trim();
@@ -171,9 +177,26 @@ export function runSearch(query: string, limit: number, runner = spawnSync): Sea
   try {
     const parsed = JSON.parse(res.stdout as string);
     if (!Array.isArray(parsed)) throw new Error("not an array");
-    return { ok: true, online: true, error: "", results: shapeResults(parsed, q, limit) };
+    const messages = shapeResults(parsed, q, limit);
+    return {
+      ok: true, online: true, error: "",
+      results: mergeSearchResults(matchConversations(threads, q), messages),
+    };
   } catch (e) {
     return fail(`bad JSON from imsg: ${e}`);
+  }
+}
+
+function threadsFromStdin(): Parameters<typeof matchConversations>[0] {
+  if (process.stdin.isTTY) return [];
+  try {
+    const raw = readFileSync(0, "utf8").trim();
+    if (raw === "") return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed as Parameters<typeof matchConversations>[0];
+  } catch {
+    return [];
   }
 }
 
@@ -181,7 +204,7 @@ if (import.meta.main) {
   const query = process.argv[2] ?? "";
   const limit = Number(process.argv[3] ?? 40) || 40;
   try {
-    console.log(JSON.stringify(runSearch(query, limit)));
+    console.log(JSON.stringify(runSearch(query, limit, spawnSync, threadsFromStdin())));
   } catch (e) {
     console.log(JSON.stringify({ ok: false, online: true, error: String(e), results: [] }));
   }
