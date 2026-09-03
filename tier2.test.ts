@@ -458,3 +458,94 @@ describe("country code + service (2.2.0)", () => {
     } finally { unlinkSync(tmp); }
   });
 });
+
+describe("link previews for URLs Messages never decorated", () => {
+  const {
+    decodeEntities, hostOf, isPrivateAddress, parseCard, previewsEnabled, previewKey, safeUrl, sniffImage,
+  } = require("./linkpreview") as typeof import("./linkpreview");
+
+  test("Open Graph wins, then Twitter, then the plain document", () => {
+    const html = `<html><head>
+      <title>fallback title</title>
+      <meta property="og:title" content="Real &amp; Proper Title">
+      <meta name="twitter:description" content="a summary">
+      <meta property="og:image" content="/img/card.png">
+    </head><body>x</body></html>`;
+    const c = parseCard(html, "https://example.com/a/b");
+    expect(c.title).toBe("Real & Proper Title");
+    expect(c.summary).toBe("a summary");
+    expect(c.image).toBe("https://example.com/img/card.png");   // relative resolved against the page
+  });
+
+  test("no tags at all falls back to <title>, and a javascript: image is dropped", () => {
+    const c = parseCard('<title>Just A Page</title><meta property="og:image" content="javascript:alert(1)">',
+                        "https://example.com/");
+    expect(c.title).toBe("Just A Page");
+    expect(c.image).toBe("");
+  });
+
+  test("entities and whitespace are decoded once", () => {
+    expect(decodeEntities("a &amp; b &#39;c&#39;&nbsp;&#x64;")).toBe("a & b 'c' d");
+  });
+
+  test("only real image bytes are cached, extension follows the SNIFF", () => {
+    expect(sniffImage(Buffer.from([0x89, 0x50, 0x4e, 0x47, 13, 10, 26, 10, 0, 0, 0, 13]))).toBe("png");
+    expect(sniffImage(Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0, 16, 0, 0, 0, 0, 0, 0]))).toBe("jpg");
+    expect(sniffImage(Buffer.from("RIFF____WEBPVP8 "))).toBe("webp");
+    expect(sniffImage(Buffer.from("<!DOCTYPE html><html>"))).toBe("");
+    expect(sniffImage(Buffer.from([0x89]))).toBe("");
+  });
+
+  test("the LAN is never fetched — loopback, RFC1918, metadata, tailnet, v6", () => {
+    for (const ip of ["127.0.0.1", "10.0.0.239", "192.168.1.1", "172.16.0.1", "169.254.169.254",
+                      "100.115.139.100", "0.0.0.0", "::1", "fe80::1", "fd00::1", "::ffff:127.0.0.1"]) {
+      expect(isPrivateAddress(ip)).toBe(true);
+    }
+    for (const ip of ["1.1.1.1", "140.82.114.4", "2606:4700::1111"]) {
+      expect(isPrivateAddress(ip)).toBe(false);
+    }
+  });
+
+  test("safeUrl refuses non-http, credentials, private literals and .local — no DNS needed", async () => {
+    const never = (async () => { throw new Error("resolver must not be called"); }) as never;
+    expect(await safeUrl("file:///etc/passwd", never)).toBe("only http(s)");
+    expect(await safeUrl("ftp://x.test/a", never)).toBe("only http(s)");
+    expect(await safeUrl("not a url", never)).toBe("not a url");
+    expect(await safeUrl("http://user:pw@example.com/", never)).toBe("credentials in url");
+    expect(await safeUrl("http://127.0.0.1/x", never)).toBe("private address");
+    expect(await safeUrl("http://[::1]/x", never)).toBe("private address");
+    expect(await safeUrl("http://localhost:8765/", never)).toBe("private host");
+    expect(await safeUrl("http://nas.local/", never)).toBe("private host");
+  });
+
+  test("a public name is allowed, and a name resolving into the LAN is not", async () => {
+    const pub = (async () => [{ address: "140.82.114.4" }]) as never;
+    const lan = (async () => [{ address: "192.168.1.50" }]) as never;
+    const split = (async () => [{ address: "1.1.1.1" }, { address: "127.0.0.1" }]) as never;
+    expect(await safeUrl("https://github.com/x", pub)).toBe("");
+    expect(await safeUrl("https://rebind.test/x", lan)).toBe("private address");
+    expect(await safeUrl("https://split.test/x", split)).toBe("private address");
+  });
+
+  test("bridge.conf can turn previews off; anything else leaves them on", () => {
+    const p = `${process.env.XDG_CACHE_HOME}/lp-conf-${process.pid}`;
+    writeFileSync(p, "host=mac\nlink_previews=off\n");
+    expect(previewsEnabled(p)).toBe(false);
+    writeFileSync(p, "host=mac\nlink_previews = FALSE\n");
+    expect(previewsEnabled(p)).toBe(false);
+    writeFileSync(p, "host=mac\nlink_previews=on\n");
+    expect(previewsEnabled(p)).toBe(true);
+    writeFileSync(p, "host=mac\n");
+    expect(previewsEnabled(p)).toBe(true);
+    expect(previewsEnabled(`${p}-missing`)).toBe(true);
+    unlinkSync(p);
+  });
+
+  test("host display drops www, and the cache key is a hash of the url", () => {
+    expect(hostOf("https://www.Example.COM/a?b=1")).toBe("example.com");
+    expect(hostOf("nonsense")).toBe("");
+    expect(previewKey("https://a.test/1")).toMatch(/^[0-9a-f]{32}$/);
+    expect(previewKey("https://a.test/1")).toBe(previewKey("https://a.test/1"));
+    expect(previewKey("https://a.test/2")).not.toBe(previewKey("https://a.test/1"));
+  });
+});

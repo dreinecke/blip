@@ -14,9 +14,20 @@ inventory of what lands on disk.
 | `~/.local/state/blip/state.json` (0600, atomic) | poll watermark, read marks, per-chat unread counts and oldest-unread timestamps, self-chat ids, group names/members, opaque SHA-256 toast keys | **message bodies — ever** |
 | `~/.local/state/blip/window.json` | whether the app window was open, its size | anything else |
 | `~/.cache/blip/att/` (0700, files 0600, 500 MB LRU, no expiry) | attachments you viewed, plus images ≤ 5 MB and link-preview thumbnails in any conversation you *open* (they render inline, so they are fetched when the thread is). HEIC arrives converted to JPEG. File names carry the Mac's attachment row id and a sanitized name whose extension follows the MIME type | attachments in conversations you never opened |
+| `~/.cache/blip/linkpreview/` (0700, files 0600, 7-day TTL) | title, description and picture of pages linked in your messages, for links Messages did not decorate | anything from a page nobody linked you to |
 | `~/.cache/blip/avatars/` (0700, files 0600, 7-day TTL) | contact photos for people in your thread list, named by a hash of the handle; an empty `.none` marker for contacts without one | names, numbers |
 | `$XDG_RUNTIME_DIR/blip/` (tmpfs, 0700) | images pasted into the compose box; swept after an hour (not on cancel) and gone at logout | — |
 | `~/bin/imsg`, `~/bin/imsg-send`, `~/bin/contacts` | the bridge shim (a bash script) | — |
+
+**Link previews reach out to the web.** Messages decorates some URLs with a
+preview card and leaves most bare. For a bare one Blip fetches the page itself
+— from THIS machine, never the Mac — and reads its Open Graph tags. That
+contacts the site, so the site (and anyone who sent you a link) can tell the
+page was loaded, exactly as Messages.app's own preview does on the Mac. No
+cookies are sent, no JavaScript runs, only http(s) is followed, at most three
+redirects, and a host that resolves into your LAN or to a cloud metadata
+address is refused. Turn it off with `link_previews=off` in
+`~/.config/blip/bridge.conf`.
 
 Message text lives only in memory while the panel or window is open. Desktop
 toasts show a sender name and a preview through your notification daemon,

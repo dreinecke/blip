@@ -33,6 +33,15 @@ describe("QML safety invariants", () => {
     expect(panel).not.toContain('["--yes", "--", text]');
   });
 
+  test("a bare URL asks linkpreview.ts and renders the same card", () => {
+    expect(panel).toContain("function requestPreview(url)");
+    expect(panel).toContain("root.previewScript");
+    expect(panel).toContain("readonly property var fetched:");
+    expect(panel).toContain("modelData.link || linkRow.fetched || ({})");
+    // an Apple card still comes from the ssh-fetched attachment, ours from disk
+    expect(panel).toContain("String((linkRow.fetched && linkRow.fetched.image)");
+  });
+
   test("an arriving link opens the sheet only on a surface already open", () => {
     expect(widget).toContain("function shareArrivingLink(link)");
     expect(widget).toContain("d.links[d.links.length - 1]");          // newest only, never a queue

@@ -27,6 +27,16 @@
   later — a new group picture, a Contacts card, or a bridge fix that starts
   finding one — now shows up within a day instead of after the 7-day cache
   expired.
+- **Every link gets its card, not just the ones Apple decorated.** Messages
+  builds an `LPLinkMetadata` preview for some URLs and leaves most bare — on
+  this Mac 7 of 27. For the bare ones Blip now fetches the page itself and
+  builds the same card from its Open Graph tags: picture, title, description,
+  host. The fetch happens on the Linux box, never the Mac; http(s) only, at
+  most three redirects, and a host resolving into your LAN or to a cloud
+  metadata address is refused, so a link from a stranger cannot make Blip
+  probe your network. Cached for a week (a page with no card, for a day) under
+  `~/.cache/blip/linkpreview`. `link_previews=off` in `bridge.conf` turns it
+  off. A message that is only a URL shows just the card, like Messages.
 - **The share sheet opens itself for a link, sent or received.** Send a
   message containing a URL and the sheet comes up on it; a link that ARRIVES
   does the same — but only onto a Blip surface that is already open, because

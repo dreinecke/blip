@@ -67,6 +67,8 @@ FocusScope {
     decodeURIComponent(Qt.resolvedUrl("fetch.ts").toString().replace(/^file:\/\//, ""))
   readonly property string pasteScript:
     decodeURIComponent(Qt.resolvedUrl("paste.ts").toString().replace(/^file:\/\//, ""))
+  readonly property string previewScript:
+    decodeURIComponent(Qt.resolvedUrl("linkpreview.ts").toString().replace(/^file:\/\//, ""))
   readonly property string sendFileScript:
     decodeURIComponent(Qt.resolvedUrl("send-file.ts").toString().replace(/^file:\/\//, ""))
   readonly property string searchScript:
@@ -379,6 +381,45 @@ FocusScope {
   // Sidebar avatars: `imsg avatar <handle>` via avatar.ts (7-day cache, negative
   // markers). One request in flight; rows ask on creation; groups never ask.
   readonly property string avatarScript: fetchScript.replace(/fetch\.ts$/, "avatar.ts")
+  // ---- link previews for URLs Messages never decorated
+  // Apple builds an LPLinkMetadata balloon for some links and not others (on
+  // this Mac: 7 of 27). linkpreview.ts fetches the page's own Open Graph card
+  // for the rest, so a bare URL still shows its picture and title.
+  property var linkCards: ({})       // url → {title,summary,image,host}, null = none
+  property var previewQueue: []
+  function requestPreview(url) {
+    url = String(url || "")
+    if (url === "" || !/^https?:\/\//i.test(url)) return
+    if (linkCards[url] !== undefined || previewQueue.indexOf(url) >= 0) return
+    previewQueue.push(url)
+    pumpPreview()
+  }
+  function pumpPreview() {
+    if (previewProc.running || previewQueue.length === 0) return
+    previewProc.url = previewQueue.shift()
+    previewProc.command = ["bun", root.previewScript, previewProc.url]
+    previewProc.running = true
+  }
+  Process {
+    id: previewProc
+    property string url: ""
+    stdout: StdioCollector {
+      onStreamFinished: {
+        var card = null
+        try {
+          var d = JSON.parse(text.trim())
+          if (d.ok === true) card = { title: String(d.title || ""), summary: String(d.summary || ""),
+                                      image: String(d.image || ""), url: String(d.url || previewProc.url) }
+        } catch (e) {}
+        var m = Object.assign({}, root.linkCards)
+        m[previewProc.url] = card
+        root.linkCards = m
+        root.pumpPreview()
+      }
+    }
+    onExited: Qt.callLater(root.pumpPreview)
+  }
+
   property var avatarFiles: ({})     // handle → file:// url, "" = no photo
   property var avatarQueue: []
   function requestAvatar(handle) {
@@ -1876,7 +1917,13 @@ FocusScope {
                 // just the card, like Messages.
                 RowLayout {
                   id: linkRow
-                  visible: !modelData.retracted && !!modelData.link
+                  // Apple's card if there is one; otherwise the one Blip
+                  // fetched for the bare URL in this message.
+                  readonly property string bareUrl: modelData.link ? "" : root.firstUrl(modelData.text)
+                  readonly property var fetched: bareUrl !== "" ? root.linkCards[bareUrl] : null
+                  Component.onCompleted: if (bareUrl !== "") root.requestPreview(bareUrl)
+                  onBareUrlChanged: if (bareUrl !== "") root.requestPreview(bareUrl)
+                  visible: !modelData.retracted && (!!modelData.link || !!fetched)
                   Layout.fillWidth: true
                   Layout.topMargin: modelData.groupStart ? Style.space(6) : 0
                   spacing: 0
@@ -1895,8 +1942,12 @@ FocusScope {
                   Item { Layout.fillWidth: true; visible: bubbleRow.mine }
                   Rectangle {
                     id: linkCard
-                    readonly property var link: modelData.link || ({})
-                    readonly property string imgUrl: link.image_id ? String(root.attFiles[String(link.image_id)] || "") : ""
+                    readonly property var link: modelData.link || linkRow.fetched || ({})
+                    // Apple's preview is an attachment id fetched over ssh;
+                    // ours is already a file on disk.
+                    readonly property string imgUrl: modelData.link
+                      ? (link.image_id ? String(root.attFiles[String(link.image_id)] || "") : "")
+                      : String((linkRow.fetched && linkRow.fetched.image) || "")
                     Layout.preferredWidth: Math.min(Math.round(content.width * 0.62), Style.space(380))
                     Layout.preferredHeight: linkCol.implicitHeight
                     radius: Style.space(14)
@@ -1979,7 +2030,11 @@ FocusScope {
                                     + ((modelData.tapbacks || []).length > 0 ? Style.space(12) : 0)
                   visible: !modelData.retracted &&
                            (String(modelData.text || "") !== "" || (modelData.attachments || []).length === 0) &&
-                           !(modelData.link && String(modelData.text || "").trim() === String(modelData.link.url))
+                           // a message that is ONLY the URL shows just the card,
+                           // like Messages — for Apple's card and for ours
+                           !(modelData.link && String(modelData.text || "").trim() === String(modelData.link.url)) &&
+                           !(!modelData.link && !!linkRow.fetched
+                             && String(modelData.text || "").trim() === linkRow.bareUrl)
                   spacing: 0
 
                   Item { Layout.fillWidth: true; visible: bubbleRow.mine }

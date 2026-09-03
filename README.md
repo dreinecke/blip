@@ -92,7 +92,7 @@ Linux side. If the Mac is asleep, the widget dims and says so.
 - **tapbacks** — ❤️👍😂 pills on the bubble corner, custom emoji included
 - **"Read 4:42 PM"** under the last message of yours they've read (display only — Blip never sends receipts)
 - **inline replies** quoted above the bubble · **Edited** tags · "unsent a message" tombstones
-- **link cards** — URL messages show the preview image, title, and host, like Messages; click opens the link, **right-click opens the share sheet** (open · copy · QR for your phone · send to a device via LocalSend, Omarchy's share)
+- **link cards** — URL messages show the preview image, title, and host, like Messages. Apple only decorates some links; for the rest Blip fetches the page's own Open Graph card itself, so a bare URL still gets its picture. Click opens the link, **right-click opens the share sheet** (open · copy · QR for your phone · send to a device via LocalSend, Omarchy's share). `link_previews=off` in `bridge.conf` disables the fetching
 - **photos render inline** — images ≤5MB auto-fetch over SSH (HEIC converted on the Mac); click opens full-size. PDFs/videos are chips — click fetches and opens them
 - **send files** — Ctrl+V an image into the compose box, type `/attach <path>`, or drag-and-drop; a caption rides along
 - select text and Ctrl+C · right-click a bubble to copy it whole · right-click a **link** in a bubble for the share sheet
