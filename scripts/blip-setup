@@ -7,7 +7,7 @@
 #   1. ~/.config/blip/bridge.conf   host= (and remote_bin=, python=)
 #   2. ~/.ssh/config                 ControlMaster block for the host (47 ms warm
 #                                    round trips — Blip polls; this is required)
-#   3. ~/bin/{imsg,imsg-send,contacts}  the bridge shim (existing files backed up;
+#   3. ~/bin/{imsg,imsg-send,imsg-read,contacts}  the bridge shim (existing files backed up;
 #                                    claude-on-mac remote shims are left alone)
 #   4. Mac install                   copies bridge/mac to the Mac and runs
 #                                    install.sh there (needs ssh access already)
@@ -49,7 +49,7 @@ fi
 # 1. config
 mkdir -p "$conf_dir"
 {
-  echo "# Blip bridge — read (never sourced) by ~/bin/imsg, imsg-send, contacts"
+  echo "# Blip bridge — read (never sourced) by ~/bin/imsg, imsg-send, imsg-read, contacts"
   echo "host=$host"
   echo "# single-quoted on purpose: expanded on the MAC, not here"
   echo "remote_bin='\$HOME/.blip/bin'"
@@ -85,7 +85,7 @@ fi
 
 # 3. shims
 mkdir -p "$HOME/bin"
-for t in imsg imsg-send contacts; do
+for t in imsg imsg-send imsg-read contacts; do
   target="$HOME/bin/$t"
   if [[ -e "$target" && ! -L "$target" ]] && ! grep -q "blip-shim" "$target" 2>/dev/null; then
     cp -p "$target" "$target.pre-blip.$(date +%s)"
@@ -93,7 +93,7 @@ for t in imsg imsg-send contacts; do
   fi
   install -m 0755 "$here/bridge/linux/blip-shim" "$target"
 done
-echo "✓ shims installed: ~/bin/imsg ~/bin/imsg-send ~/bin/contacts"
+echo "✓ shims installed: ~/bin/imsg ~/bin/imsg-send ~/bin/imsg-read ~/bin/contacts"
 
 # 4. Mac install (needs ssh to already work — key-based)
 if ssh -n -o ConnectTimeout=6 -o BatchMode=yes "$host" true 2>/dev/null; then

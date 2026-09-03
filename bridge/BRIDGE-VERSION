@@ -1,3 +1,4 @@
 claude-on-mac f3612e8 (v1.11.0, 2026-08-31)
 vendored: imsg imsg-send contacts tcc-check
+blip-only (NOT upstream): imsg-read blip-check blip-dispatch
 sync: scripts/sync-bridge.sh <sha-or-tag>

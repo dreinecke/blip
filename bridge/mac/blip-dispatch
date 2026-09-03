@@ -5,7 +5,7 @@ blip-setup enrolls ~/.ssh/blip_ed25519.pub on this Mac as
 
     restrict,command="$HOME/.blip/bin/blip-dispatch" ssh-ed25519 AAAA…
 
-so that key can run exactly the five bridge tools and nothing else: no shell,
+so that key can run exactly the bridge tools and nothing else: no shell,
 no forwarding, no pty, no paths. sshd hands us the client's requested command
 in SSH_ORIGINAL_COMMAND; we split it like a shell would and exec the tool
 directly (argv list, never a shell), with stdin/stdout passed straight through
@@ -18,7 +18,7 @@ import sys
 # tcc-check is deliberately NOT reachable through the confined key: it drives
 # Mail/Calendar/Notes/Reminders and pops four Automation prompts on the Mac.
 # blip-check covers what Blip needs.
-TOOLS = {"imsg", "imsg-send", "contacts", "blip-check"}
+TOOLS = {"imsg", "imsg-send", "imsg-read", "contacts", "blip-check"}
 
 
 def refuse(msg: str) -> None:

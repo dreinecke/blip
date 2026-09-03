@@ -52,7 +52,7 @@ fi
 
 tool="$(basename "$0")"
 case "$tool" in
-  imsg|imsg-send|contacts|tcc-check|blip-check) ;;
+  imsg|imsg-send|imsg-read|contacts|tcc-check|blip-check) ;;
   *) echo "blip-shim: unknown tool name '$tool' (install as imsg, imsg-send, or contacts)" >&2; exit 64 ;;
 esac
 

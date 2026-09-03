@@ -3,7 +3,7 @@
 blip-check: the three Mac permissions Blip needs, checked the way Blip uses them.
 
   python3 ~/.blip/bin/blip-check          # human lines, exit 0 when all pass
-  python3 ~/.blip/bin/blip-check --json   # {"chatdb": bool, "automation": bool, "contacts": bool, ...}
+  python3 ~/.blip/bin/blip-check --json   # {"chatdb", "automation", "contacts", "markread": bool, ...}
 
 Run it OVER SSH — that is the context that matters (sshd's grants, not the
 Terminal's). The Automation check deliberately talks to Messages.app, which
@@ -29,6 +29,9 @@ FIX = {
     "automation": "Click Allow on the Mac's screen when Messages asks, or: System Settings → "
                   "Privacy & Security → Automation → sshd-keygen-wrapper → Messages.",
     "contacts": "Same Full Disk Access grant as chat.db (names/avatars come from the AddressBook DB).",
+    "markread": "System Settings → Privacy & Security → Accessibility → add "
+                "/usr/libexec/sshd-keygen-wrapper. OPTIONAL: without it everything works "
+                "except telling the Mac a conversation has been read.",
 }
 
 
@@ -97,13 +100,42 @@ def check_contacts() -> tuple[bool, str]:
     return False, last_err or "no AddressBook source could be opened"
 
 
+def check_markread() -> tuple[bool, str]:
+    """Can we drive Messages' menu bar? That is how a read is pushed back
+    (imsg-read). Optional: reading and sending work without it."""
+    try:
+        r = subprocess.run(
+            ["osascript", "-e",
+             'tell application "System Events" to tell process "Messages" to '
+             'name of menu bar item "Conversation" of menu bar 1'],
+            capture_output=True, timeout=20,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "System Events timed out"
+    if r.returncode == 0:
+        return True, "can mark conversations read on this Mac"
+    err = (r.stderr or b"").decode("utf-8", "replace").strip()
+    if "not allowed assistive" in err or "1002" in err:
+        return False, "Accessibility not granted (optional — only mark-as-read needs it)"
+    if "Messages" in err and "-1728" in err:
+        return True, "Messages is not running; grant looks present"
+    return False, err.splitlines()[0] if err else "System Events could not reach Messages"
+
+
 def main() -> None:
     results = {"chatdb": check_chatdb(), "automation": check_automation(), "contacts": check_contacts()}
+    # Optional: its absence costs only mark-as-read, so it must not fail the run.
+    optional = {"markread": check_markread()}
     if "--json" in sys.argv:
-        print(json.dumps({k: {"ok": v[0], "detail": v[1], "fix": "" if v[0] else FIX[k]} for k, v in results.items()}))
+        print(json.dumps({k: {"ok": v[0], "detail": v[1], "fix": "" if v[0] else FIX[k]}
+                          for k, v in {**results, **optional}.items()}))
     else:
         for k, (ok, detail) in results.items():
             print(f"  {'✅' if ok else '❌'}  {k:<10} {detail}")
+            if not ok:
+                print(f"      fix: {FIX[k]}")
+        for k, (ok, detail) in optional.items():
+            print(f"  {'✅' if ok else '➖'}  {k:<10} {detail}")
             if not ok:
                 print(f"      fix: {FIX[k]}")
     sys.exit(0 if all(v[0] for v in results.values()) else 1)

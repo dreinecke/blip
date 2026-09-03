@@ -1,0 +1,171 @@
+#!/usr/bin/env python3
+"""imsg-read — tell Messages.app that a conversation has been read.
+
+Blip's README said this was impossible. It said so on the strength of one
+experiment: `open imessage://<handle>` does not flip `is_read`. That much is
+true and still is — selecting a conversation from a URL leaves it unread. But
+Messages has carried a **Conversation ▸ Mark All as Read** menu item since
+Ventura, and a menu item is scriptable. Verified end to end on macOS 26.6:
+
+    is_read 1 → "Mark as Unread" → 0 → "Mark All as Read" → 1
+
+No SIP changes, no private API, no writing to chat.db behind Messages' back —
+which matters, because a direct sqlite UPDATE would not reach the iPhone.
+Going through Messages means the change syncs the way any read does.
+
+    imsg-read --all              mark every conversation read
+    imsg-read --chat <handle>    mark ONE conversation read (DMs only)
+    imsg-read --status           report whether this Mac can do it at all
+
+--all leaves the Mac alone: no window is raised, no selection changes, and
+whatever app was frontmost stays frontmost (verified). --chat cannot: the only
+way to aim the menu at one conversation is to open it, and opening it brings
+Messages to the front. That is why Blip's default only pushes the explicit
+mark-all-read gesture.
+
+Exit 0 when there was nothing to do — the menu item is disabled when nothing
+is unread, which is a free guard against pointless clicks.
+
+Needs Accessibility for whatever runs it. Over Blip's ssh key that is
+/usr/libexec/sshd-keygen-wrapper, the same binary that already needs Full Disk
+Access; `blip-check` reports it. Without the grant this exits 77 and says so,
+rather than failing silently.
+"""
+import re
+import subprocess
+import sys
+
+MENU = 'menu 1 of menu bar item "Conversation" of menu bar 1'
+TIMEOUT = 15
+
+
+def osa(script: str) -> tuple[int, str]:
+    try:
+        r = subprocess.run(["osascript", "-e", script], capture_output=True, timeout=TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return 124, "osascript timed out"
+    return r.returncode, (r.stdout or r.stderr).decode("utf-8", "replace").strip()
+
+
+def messages_running() -> bool:
+    code, out = osa('tell application "System Events" to (name of processes) contains "Messages"')
+    return code == 0 and out == "true"
+
+
+def ensure_messages() -> str:
+    """Start Messages if needed, WITHOUT bringing it forward (-g) or opening a
+    window (-j). Returns "" on success, else a reason."""
+    if messages_running():
+        return ""
+    try:
+        subprocess.run(["open", "-g", "-j", "-a", "Messages"], capture_output=True, timeout=TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return "could not start Messages"
+    for _ in range(20):
+        if messages_running():
+            return ""
+        subprocess.run(["sleep", "0.5"], capture_output=True)
+    return "Messages did not start"
+
+
+def accessibility() -> str:
+    """"" when System Events can drive Messages, else why not."""
+    code, out = osa(f'tell application "System Events" to tell process "Messages" to name of {MENU}')
+    if code == 0:
+        return ""
+    if "not allowed assistive" in out or "1002" in out or "osascript is not allowed" in out:
+        return ("Accessibility is not granted. System Settings ▸ Privacy & Security ▸ "
+                "Accessibility → add /usr/libexec/sshd-keygen-wrapper (the same entry "
+                "that has Full Disk Access).")
+    return out or "System Events could not reach Messages"
+
+
+def click(item: str) -> tuple[bool, str]:
+    """Click one Conversation-menu item. Returns (did_something, error).
+
+    Two ways of saying "there is nothing to do", both success:
+      * the item is present but DISABLED — nothing is unread;
+      * the item is ABSENT (-1728) — the per-conversation entry is named for
+        what it would do, so a chat that is already read offers only
+        "Mark as Unread" and the lookup for "Mark as Read" fails.
+    """
+    code, out = osa(
+        f'tell application "System Events" to tell process "Messages" to '
+        f'enabled of menu item "{item}" of {MENU}'
+    )
+    if code != 0:
+        return (False, "") if "-1728" in out else (False, out)
+    if out != "true":
+        return False, ""
+    code, out = osa(
+        f'tell application "System Events" to tell process "Messages" to '
+        f'click menu item "{item}" of {MENU}'
+    )
+    return (code == 0), ("" if code == 0 else out)
+
+
+def select_chat(handle: str) -> str:
+    """Point Messages at one conversation. Only a DM handle can be addressed
+    this way; a group's chat_identifier (chat<digits> / 32-hex) has no URL
+    form, so those callers should use --all."""
+    if not re.fullmatch(r"\+?[0-9]{3,15}|[^@\s]+@[^@\s]+", handle):
+        return "not a DM handle (groups cannot be selected by URL — use --all)"
+    try:
+        subprocess.run(["open", f"imessage://{handle}"], capture_output=True, timeout=TIMEOUT)
+    except subprocess.TimeoutExpired:
+        return "opening the conversation timed out"
+    subprocess.run(["sleep", "1.5"], capture_output=True)
+    return ""
+
+
+def main() -> None:
+    argv = sys.argv[1:]
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__.strip())
+        sys.exit(0)
+
+    if argv[0] == "--status":
+        why = ensure_messages() or accessibility()
+        print("ready" if not why else f"unavailable: {why}")
+        sys.exit(0 if not why else 77)
+
+    why = ensure_messages()
+    if why:
+        sys.stderr.write(f"imsg-read: {why}\n")
+        sys.exit(69)
+    why = accessibility()
+    if why:
+        sys.stderr.write(f"imsg-read: {why}\n")
+        sys.exit(77)
+
+    if argv[0] == "--all":
+        ok, err = click("Mark All as Read")
+        if err:
+            sys.stderr.write(f"imsg-read: {err}\n")
+            sys.exit(1)
+        print("marked" if ok else "nothing unread")
+        return
+
+    if argv[0] == "--chat":
+        if len(argv) < 2:
+            sys.stderr.write("imsg-read: --chat needs a handle\n")
+            sys.exit(64)
+        why = select_chat(argv[1])
+        if why:
+            sys.stderr.write(f"imsg-read: {why}\n")
+            sys.exit(64)
+        # The per-conversation item is literally named for what it will do:
+        # "Mark as Unread" when the chat is read, "Mark as Read" when it is not.
+        ok, err = click("Mark as Read")
+        if err:
+            sys.stderr.write(f"imsg-read: {err}\n")
+            sys.exit(1)
+        print("marked" if ok else "nothing unread")
+        return
+
+    sys.stderr.write(f"imsg-read: unknown option {argv[0]!r}\n")
+    sys.exit(64)
+
+
+if __name__ == "__main__":
+    main()

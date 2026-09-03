@@ -19,6 +19,14 @@ inventory of what lands on disk.
 | `$XDG_RUNTIME_DIR/blip/` (tmpfs, 0700) | images pasted into the compose box; swept after an hour (not on cancel) and gone at logout | — |
 | `~/bin/imsg`, `~/bin/imsg-send`, `~/bin/contacts` | the bridge shim (a bash script) | — |
 
+**Marking a conversation read is visible to the sender.** Blip can now tell
+Messages on the Mac that you have read something (`push_read=` in
+`bridge.conf`, default `all` — the explicit mark-all-read gesture only). It does
+that by clicking Messages' own menu item, so it behaves exactly like reading on
+the Mac: if you have read receipts enabled, the sender sees one. Set
+`push_read=off` to keep Blip's read state entirely local, which is what it did
+before.
+
 **Link previews reach out to the web.** Messages decorates some URLs with a
 preview card and leaves most bare. For a bare one Blip fetches the page itself
 — from THIS machine, never the Mac — and reads its Open Graph tags. That

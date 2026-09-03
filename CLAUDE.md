@@ -187,8 +187,30 @@ to whatever has focus otherwise.
 
 ## Things that are not possible
 
-- Read receipts. `open imessage://<handle>` on the Mac does not flip `is_read`.
 - Tapbacks, edits, typing indicators out. Needs SIP-off code injection; rejected.
+- Selecting a GROUP on the Mac from Linux. `imessage://` addresses a handle;
+  a group's `chat<digits>` id has no URL form. So per-conversation read-push
+  is DMs only; groups clear through `--all`.
+
+## Things that ARE possible (verified)
+
+- **Marking read ON THE MAC** (2026-09-03, macOS 26.6). The old note said this
+  was impossible because `open imessage://<handle>` does not flip `is_read` —
+  true, and still true. But Messages has a **Conversation ▸ Mark All as Read**
+  menu item, and a menu item is scriptable through System Events. Proved by
+  round trip: `is_read` 1 → "Mark as Unread" → 0 → "Mark All as Read" → 1.
+  `bridge/mac/imsg-read` does it; the collector calls it after the local marks
+  are committed. Never write `is_read` into chat.db directly — going through
+  Messages is what makes the change reach the iPhone.
+  - `--all` does NOT steal focus: no window raised, no selection changed,
+    frontmost app unchanged (measured). `--chat` MUST open the conversation,
+    which pulls Messages forward — that is why `push_read` defaults to `all`.
+  - Needs **Accessibility** for `/usr/libexec/sshd-keygen-wrapper`, on top of
+    the Full Disk Access it already has. Optional: `blip-check` reports it as
+    a ➖ rather than failing.
+  - The menu item is disabled when nothing is unread, and the per-conversation
+    item is NAMED for what it will do ("Mark as Read" only appears while the
+    chat is unread) — treat an absent item as success, not an error.
 
 ## Things that ARE possible (verified 2026-08-31)
 

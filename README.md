@@ -333,7 +333,7 @@ badge and forward clicks to it.
 | list | `j` / `k` · `↑` / `↓` | move |
 | list | `Enter` · `1`–`9` | open thread |
 | list | `r` | refresh |
-| list | `a` · *mark all read* link | clear every badge and dot (local only — iMessage itself is not told) |
+| list | `a` · *mark all read* link | clear every badge and dot — and tell the Mac, so your iPhone catches up too |
 | list | `/` | search every message ever — Enter runs it, click a hit to open its conversation, Esc backs out |
 | list | `n` · *＋ new* link | start a conversation with anyone — search contacts by name, or type a number/email directly |
 | thread | `Enter` | send (text, or the queued file with the text as caption) |
@@ -396,8 +396,8 @@ The 273,000-message history stays on the Mac where it lives.
 
 ## What it can't do
 
-- **Send read receipts.** Tested: opening the conversation on the Mac via
-  `open imessage://…` does not flip `is_read`. Needs Apple's private API.
+- **Tapbacks, edits and typing indicators outbound.** Those need SIP-off code
+  injection into Messages. Not happening.
   (Showing *their* receipts on your messages works fine — that's in.)
 - **Send tapbacks, edits, or threaded replies.** AppleScript can't; Blip
   *displays* all three. If you need to send them,

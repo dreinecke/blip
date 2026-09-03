@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+- **Reads now reach the Mac, and your phone.** Blip's "mark all read" cleared
+  the badge on Linux and nothing else; the iPhone kept its red dots. The old
+  note called this impossible because `open imessage://<handle>` does not flip
+  `is_read` — true, but Messages has a **Conversation ▸ Mark All as Read** menu
+  item, and menu items are scriptable. `imsg-read` on the Mac clicks it, and
+  the collector calls that after the local marks are committed. Verified by
+  round trip on a real Mac: unread → Blip's mark-all-read → read, on both
+  machines. Because it goes through Messages rather than writing `chat.db`, the
+  change syncs to every device the way any read does.
+  - Needs **Accessibility** for `/usr/libexec/sshd-keygen-wrapper` alongside the
+    Full Disk Access it already had. `blip-check` reports it; without it
+    everything else still works.
+  - `push_read=` in `bridge.conf`: `all` (default — only the explicit
+    mark-all-read gesture), `thread` (also every conversation you open), `off`.
+    The default is `all` because `--all` provably does not disturb the Mac,
+    while pushing one conversation has to open it, which pulls Messages to the
+    front of whatever the Mac is doing.
+  - **If you have read receipts turned on, senders will now see them.** That is
+    what marking a message read means; it was previously impossible for Blip to
+    do, and now it is not.
+
 - **A re-keyed group is one conversation again.** Messages re-keys a group
   (a re-invite, an iCloud re-sync, a service move) by writing a NEW chat row
   with the same name and the same members — Messages.app shows one thread,

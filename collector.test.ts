@@ -965,3 +965,45 @@ describe("failure-toast keys survive the ring normalizer (2.2.0)", () => {
     expect(again).toHaveLength(0);
   });
 });
+
+describe("pushing read state back to the Mac", () => {
+  const { pushReadArgs, pushReadPolicy } = require("./collector") as typeof import("./collector");
+  const conf = (body: string): string => {
+    const p = `${process.env.XDG_CACHE_HOME}/push-conf-${process.pid}-${Math.random().toString(36).slice(2)}`;
+    writeFileSync(p, body);
+    return p;
+  };
+
+  test("the default is `all` — the gesture only, because it cannot steal focus", () => {
+    expect(pushReadPolicy(conf("host=mac\n"))).toBe("all");
+    expect(pushReadPolicy(`${process.env.XDG_CACHE_HOME}/absent-${process.pid}`)).toBe("all");
+    expect(pushReadPolicy(conf("host=mac\npush_read=all\n"))).toBe("all");
+  });
+
+  test("off and thread are honoured, spelling and case are forgiving", () => {
+    expect(pushReadPolicy(conf("push_read=off\n"))).toBe("off");
+    expect(pushReadPolicy(conf("push_read = FALSE\n"))).toBe("off");
+    expect(pushReadPolicy(conf("push_read=thread\n"))).toBe("thread");
+    expect(pushReadPolicy(conf("push_read=chat\n"))).toBe("thread");
+  });
+
+  test("mark-all-read pushes --all under every policy but off", () => {
+    expect(pushReadArgs("all", { markRead: true, readChat: "" })).toEqual(["--all"]);
+    expect(pushReadArgs("thread", { markRead: true, readChat: "" })).toEqual(["--all"]);
+    expect(pushReadArgs("off", { markRead: true, readChat: "" })).toBeNull();
+  });
+
+  test("opening one conversation pushes only under `thread`", () => {
+    expect(pushReadArgs("all", { markRead: false, readChat: "+15550100011" })).toBeNull();
+    expect(pushReadArgs("thread", { markRead: false, readChat: "+15550100011" }))
+      .toEqual(["--chat", "+15550100011"]);
+    expect(pushReadArgs("thread", { markRead: false, readChat: "them@example.com" }))
+      .toEqual(["--chat", "them@example.com"]);
+  });
+
+  test("a group is never pushed per-thread — it has no imessage:// form", () => {
+    expect(pushReadArgs("thread", { markRead: false, readChat: "chat900000000000000001" })).toBeNull();
+    expect(pushReadArgs("thread", { markRead: false, readChat: "ce5a593a78af408282d61461ade89135" })).toBeNull();
+    expect(pushReadArgs("thread", { markRead: false, readChat: "" })).toBeNull();
+  });
+});

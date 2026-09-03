@@ -19,7 +19,7 @@
 
 import { openSync, writeSync, fsyncSync, closeSync } from "node:fs";
 import { homedir } from "node:os";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
@@ -534,6 +534,63 @@ export function selectIncomingLinks(
   return out.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
 }
 
+// ------------------------------------------------- pushing reads to the Mac
+
+export const BRIDGE_CONF = `${HOME}/.config/blip/bridge.conf`;
+/** off = never tell the Mac · all = only the explicit mark-all-read gesture
+ *  · thread = also each conversation you open. */
+export type PushRead = "off" | "all" | "thread";
+
+/**
+ * `push_read=` in bridge.conf (parsed, never sourced).
+ *
+ * Default `all`, and the reason is focus. `imsg-read --all` clicks Messages'
+ * "Mark All as Read" without raising a window or changing the selection —
+ * measured: the frontmost app on the Mac does not change. Aiming the menu at
+ * ONE conversation means opening it, and opening it pulls Messages to the
+ * front of whatever the Mac is doing. So per-thread pushing is opt-in.
+ */
+export function pushReadPolicy(path = BRIDGE_CONF): PushRead {
+  try {
+    for (const line of readFileSync(path, "utf8").split("\n")) {
+      const m = /^\s*push_read\s*=\s*([A-Za-z]+)\s*$/.exec(line);
+      if (!m) continue;
+      const v = m[1]!.toLowerCase();
+      if (v === "off" || v === "no" || v === "false") return "off";
+      if (v === "thread" || v === "chat") return "thread";
+      return "all";
+    }
+  } catch { /* no conf: the default */ }
+  return "all";
+}
+
+/** What to hand `imsg-read`, or null when this run should tell the Mac nothing. */
+export function pushReadArgs(
+  policy: PushRead,
+  opts: { markRead: boolean; readChat: string },
+): string[] | null {
+  if (policy === "off") return null;
+  if (opts.markRead) return ["--all"];
+  if (policy !== "thread") return null;
+  const chat = String(opts.readChat || "");
+  // Groups have no imessage:// form, so only a DM can be aimed at.
+  if (!/^\+?[0-9]{3,15}$/.test(chat) && !/^[^@\s]+@[^@\s]+$/.test(chat)) return null;
+  return ["--chat", chat];
+}
+
+/**
+ * Tell the Mac, without making the caller wait. The click costs a second or
+ * two of AppleScript; a poll must not stall behind it, and a failure must
+ * never turn into a failed refresh — the local marks have already moved.
+ */
+export function pushRead(args: string[] | null, home = HOME): void {
+  if (!args) return;
+  try {
+    const child = spawn(`${home}/bin/imsg-read`, args, { detached: true, stdio: "ignore" });
+    child.unref();
+  } catch { /* no shim, no Mac, no matter */ }
+}
+
 /** How far back a delivery failure is still worth interrupting for. */
 export const FAILURE_TOAST_WINDOW_MS = 15 * 60 * 1000;
 
@@ -1040,6 +1097,10 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     toasted: [...state.toasted, ...toast.map((t) => t.key), ...failures.map((f) => f.key),
       ...links.map((l) => l.key)],
   });
+
+  // Only after the local state is committed: if the write failed the user
+  // will be asked to read these again, and the Mac must agree.
+  if (persisted) pushRead(pushReadArgs(pushReadPolicy(), { markRead, readChat }));
 
   const warning = !persisted
     ? "state write failed; notifications paused"
