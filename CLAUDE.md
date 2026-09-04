@@ -104,6 +104,16 @@ what it is handed. Keep it that way.
   (`name_for`) and photos (`cmd_avatar`) treat a collision only WITHIN one
   source as ambiguous. Got this wrong twice (2.0.0 photos, 1.9.4 names →
   "Rob T shows as a number").
+  **Phone numbers match the way Contacts matches them.** The last-ten key is
+  exact, tried first, and decides whenever it hits. Only when it finds nothing
+  does the region-aware rule run (`_same_number`): a card saved without a
+  country code gets the Mac's region (`AppleLocale`, via
+  `calling_codes.py`), and two numbers are the same when their calling codes
+  are equal and one national number ends with the other — libphonenumber's
+  SHORT_NSN_MATCH, with a floor of seven digits and one refusal Contacts does
+  not make: a North American card shorter than ten digits has no area code and
+  matches nothing. "123 45 678" is how numbers are saved outside North
+  America; before this, every such person, the owner included, was a bare number.
   **Sources are RANKED, never counted** (`_source_ranks`, read from
   `~/Library/Accounts/Accounts4.sqlite`): `0` the local "On My Mac" store,
   which has no backing account and is what the owner typed; `1` the owner's

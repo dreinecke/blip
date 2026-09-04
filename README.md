@@ -388,8 +388,10 @@ Messages, Blip simply stops showing them.
 
 **Outside North America:** set `country_code=44` (etc.) in
 `~/.config/blip/bridge.conf` so a number typed without a country code in
-"New message" resolves correctly. Green-bubble (SMS/RCS) conversations
-send on their own service automatically.
+"New message" resolves correctly. Contacts saved without a country code
+(`123 45 678`, `07700 900123`) get their name and photo the way Contacts
+resolves them: the Mac's own region fills in the code. Green-bubble (SMS/RCS)
+conversations send on their own service automatically.
 
 **Two or more monitors:** one bar widget per screen is normal; only the one
 on the first screen polls and owns the app window, the others show the
