@@ -2650,7 +2650,6 @@ FocusScope {
           Item {
             id: composeSlot
             Layout.fillWidth: true
-<<<<<<< HEAD
             Layout.preferredWidth: 0
             Layout.minimumWidth: 0
             Layout.alignment: Qt.AlignBottom
@@ -2709,30 +2708,6 @@ FocusScope {
                   event.accepted = true
                   root.send()
                 }
-=======
-            // NEVER disabled: this field is the panel's exclusive keyboard-focus
-            // holder, and disabling the focused editor dismisses the whole
-            // panel (0.7.2 postmortem; Codex design review #8). readOnly
-            // instead; send() is the authoritative online/sendability guard.
-            enabled: true
-            readOnly: !root.online || !root.isSendable(root.active)
-            placeholderText: root.draftPath !== ""
-              ? "caption (optional) — Enter sends the file"
-              : root.isSendable(root.active) ? "iMessage" : "Read-only — group id unknown"
-            foreground: root.foreground
-            accent: root.mineFill
-            font.family: root.fontFamily
-            font.pixelSize: root.fontBodySmall
-            onAccepted: root.send()
-            Keys.onEscapePressed: root.back()
-            // Ctrl+V goes through paste.ts: an image on the clipboard becomes
-            // a draft chip; text falls through to a manual insert. One process
-            // snapshots types AND data — probing then re-reading races.
-            Keys.onPressed: (event) => {
-              if (event.matches(StandardKey.Paste)) {
-                event.accepted = true
-                root.startPaste()
->>>>>>> pr/30
               }
             }
           }

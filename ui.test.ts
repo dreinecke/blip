@@ -215,3 +215,19 @@ describe("media renders at its intended scale", () => {
     expect(panel).toContain("fillMode: Image.PreserveAspectFit");
   });
 });
+
+// A merge conflict marker is valid TEXT, so every string-matching test in this
+// file passes with one sitting in the middle of a QML file — while Quickshell
+// refuses to load the type and BOTH surfaces render empty. That shipped in
+// 2.3.2 (BlipView's compose block, PR #28 vs #30) and was invisible until the
+// post-deploy log scan. Cheapest possible guard.
+test("no source file carries a merge conflict marker", () => {
+  for (const f of ["BlipView.qml", "BarWidget.qml", "Panel.qml", "BlipWindow.qml"]) {
+    const src = readFileSync(new URL("./" + f, import.meta.url), "utf8");
+    for (const line of src.split("\n")) {
+      expect(
+        /^(<{7}|={7}|>{7})(\s|$)/.test(line) ? f + ": " + line : "clean",
+      ).toBe("clean");
+    }
+  }
+});
