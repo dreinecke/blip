@@ -265,7 +265,8 @@ unset, it follows Omarchy's type size.
   Screen Sharing) once. After that it must stay in a **logged-in desktop
   session with Messages able to run** — enable auto-login, keep FileVault
   from prompting at boot (or accept a trip to the keyboard after every
-  macOS update), and disable sleep. A Mac parked at the login window can
+  macOS update), and disable sleep (see [Keeping the Mac awake](#keeping-the-mac-awake)).
+  A Mac parked at the login window can
   read `chat.db` but cannot send.
 - Linux: [Omarchy](https://omarchy.org) (Hyprland + the Omarchy shell), and on
   the box: `bun`, `jq`, `openssh`, `libnotify`, `wl-clipboard`, `xdg-utils`.
@@ -393,6 +394,72 @@ send on their own service automatically.
 **Two or more monitors:** one bar widget per screen is normal; only the one
 on the first screen polls and owns the app window, the others show the
 badge and forward clicks to it.
+
+### Keeping the Mac awake
+
+A sleeping Mac is not a broken Blip. It is an unreachable gateway, and from
+Linux the two look identical: the widget dims, `~/bin/imsg` exits **69**, and
+the panel says it is offline. Nothing is lost — every message is still on the
+Mac and on your phone, and Blip catches up the moment it can reach the gateway
+again. But this is the single most common "Blip stopped working", so it is
+worth ten seconds of `pmset` before you go looking for a bug.
+
+**See what your Mac does today.** On the Mac:
+
+```bash
+pmset -g | grep -E 'sleep|womp'
+```
+
+`sleep 0` means never; any other number is minutes of idle before it goes.
+Usefully, that same line names whatever is currently holding it awake:
+
+```
+sleep    1 (sleep prevented by sharingd, Amphetamine, nfsd, powerd)
+```
+
+**The durable fix — never sleep while plugged in:**
+
+```bash
+sudo pmset -c sleep 0          # -c = on the power adapter only
+```
+
+Use `-c`, not `-a`. A laptop told never to sleep on battery will quietly
+flatten itself; a bridge Mac should live on AC.
+
+**A closed lid sleeps anyway.** `sleep 0` does not survive lid-close — a
+MacBook suspends regardless unless an external display is attached. To keep a
+clamshell Mac reachable, override it outright:
+
+```bash
+sudo pmset -c disablesleep 1   # stays awake on AC, lid open or shut
+sudo pmset -c disablesleep 0   # undo
+```
+
+**If you would rather not use `sudo`,** [Amphetamine](https://apps.apple.com/app/amphetamine/id937984704)
+(free, App Store) does the same job from a menu-bar toggle, and it is what the
+author's own bridge Mac runs — it is the `Amphetamine` in the `pmset` line
+above. `caffeinate -s` works too, but only for as long as that terminal stays
+open, which makes it a good thing to type before a long sync and a bad thing
+to rely on.
+
+**Do not count on wake-on-network.** `womp 1` (System Settings ▸ Energy /
+Battery ▸ *Wake for network access*) wakes the Mac for a wake-on-LAN magic
+packet on Ethernet. It does **not** reliably wake a Mac for an inbound SSH
+connection, and it will not help at all over Tailscale or from another
+network — which is exactly the case Blip is usually in. Treat it as a bonus
+on a wired desk Mac, never as the reason you left sleep enabled.
+
+**Also worth knowing:** the Mac must be in a logged-in desktop session, not
+parked at the login window — see the requirements above. Sleep and the login
+window fail differently: asleep, Blip goes offline entirely; at the login
+window it can still read `chat.db` but cannot send.
+
+**Verify from Linux.** With the Mac configured, this should answer instantly
+rather than hang:
+
+```bash
+~/bin/imsg chats 1 >/dev/null && echo "gateway reachable"
+```
 
 ## Keyboard
 
