@@ -757,9 +757,10 @@ BarWidget {
     }
   }
 
-  // Fixed cyan rather than the theme accent: several Omarchy themes use red for
-  // accents, and red must stay reserved for genuine alerts (see larry.status).
-  // Follows the Omarchy theme accent (falls back to cyan if the theme has none).
-  readonly property color blipAccent:
-    Color.accent.toString() !== Color.foreground.toString() ? Color.accent : "#5fd7ff"
+  // iMessage blue, always. The unread dot and the lit glyph are Blip's signal,
+  // and the signal is "blue bubbles" — not whatever this theme uses for accent
+  // (several Omarchy themes use red, which must stay reserved for alerts, and a
+  // red dot on a messaging icon reads as an error). Fred, 2.3.3: "should ALWAYS
+  // be BLUE no matter what."
+  readonly property color blipAccent: "#0a84ff"
 }

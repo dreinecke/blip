@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **The icon's unread dot is iMessage blue, always.** It followed the Omarchy
+  theme accent, which on several themes is red — a red dot on a messaging icon
+  reads as an error, and red belongs to alerts. Blue bubbles, blue dot.
 - **Contacts saved without a country code get their name and photo.** The
   bridge matched phone numbers on their last ten digits, which is a whole
   national number in North America and nothing anywhere else: a card saved

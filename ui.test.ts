@@ -243,3 +243,11 @@ test("a pinned tile shows the unread dot", () => {
   expect(dot).toContain("visible: modelData.unread > 0");
   expect(dot).toContain("color: root.mineFill");
 });
+
+// The bar icon's unread dot is iMessage blue no matter the theme. It followed
+// the theme accent, which on several Omarchy themes is red — a red dot on a
+// messaging icon reads as an error, and red is reserved for alerts anyway.
+test("the icon's unread dot is always iMessage blue", () => {
+  expect(widget).toContain('readonly property color blipAccent: "#0a84ff"');
+  expect(widget).not.toContain("blipAccent:\n    Color.accent");
+});
