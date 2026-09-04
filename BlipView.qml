@@ -94,6 +94,17 @@ FocusScope {
   readonly property color theirsFill: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.14)
   readonly property color theirsText: foreground
 
+  // Links inside a bubble take the bubble's readable text color instead of
+  // Qt's default theme blue, which is illegible on the accent fill.
+  function richMessageHtml(html, linkColor) {
+    var color = String(linkColor || "").toLowerCase()
+    if (!/^#[0-9a-f]{6}$/.test(color)) color = "#ffffff"
+    return String(html || "").replace(
+      /<a href=/g,
+      '<a style="color: ' + color + '; text-decoration: underline;" href='
+    )
+  }
+
   readonly property string home: Quickshell.env("HOME")
   readonly property string threadScript:
     decodeURIComponent(Qt.resolvedUrl("thread.ts").toString().replace(/^file:\/\//, ""))
@@ -133,6 +144,10 @@ FocusScope {
   // The cache under ~/.cache/blip/att is global, so results never go stale on
   // a thread switch — no ownership tracking needed, unlike thread loads.
   property var attFiles: ({})
+  // attachment id → {pixelRatio, pixelWidth, pixelHeight} from fetch.ts, so
+  // Retina media can draw at its intended logical size (a 144-DPI screenshot
+  // is a 2x image, not a wall of pixels).
+  property var attMetrics: ({})
   property var fetchQueue: []
   property string fetchingId: ""
   // Compose draft attachment (one per message in v1).
@@ -1080,6 +1095,15 @@ FocusScope {
           var m = Object.assign({}, root.attFiles)
           m[id] = d.ok === true ? String(d.url || "") : ""
           root.attFiles = m
+          var ratio = Number(d.pixelRatio)
+          var pixelWidth = Number(d.pixelWidth)
+          var pixelHeight = Number(d.pixelHeight)
+          if (!isFinite(ratio) || ratio < 1 || ratio > 4) ratio = 1
+          if (!isFinite(pixelWidth) || pixelWidth < 1 || pixelWidth > 100000) pixelWidth = 0
+          if (!isFinite(pixelHeight) || pixelHeight < 1 || pixelHeight > 100000) pixelHeight = 0
+          var metrics = Object.assign({}, root.attMetrics)
+          metrics[id] = { pixelRatio: ratio, pixelWidth: pixelWidth, pixelHeight: pixelHeight }
+          root.attMetrics = metrics
           if (d.ok === true && root.fetchJobOpen) {
             if (root.openableMime(root.fetchJobMime)) {
               Quickshell.execDetached(["xdg-open", String(d.url || "")])
@@ -2166,6 +2190,7 @@ FocusScope {
                     // undefined = not fetched, "" = failed, else file:// url
                     readonly property var fileUrl: root.attFiles[chipRow.attId]
                     readonly property bool failed: chipRow.fileUrl === ""
+                    readonly property var imageMetrics: root.attMetrics[chipRow.attId] || ({})
                     readonly property bool showImage:
                       root.isImageMime(chipRow.modelData.mime) &&
                       chipRow.fileUrl !== undefined && chipRow.fileUrl !== ""
@@ -2179,6 +2204,20 @@ FocusScope {
                       id: attImage
                       visible: chipRow.showImage
                       readonly property real maxW: Math.round(content.width * 0.6)
+                      // Retina PNGs carry their density in the header (read by
+                      // fetch.ts); divide it out so a 2x screenshot draws at
+                      // its intended logical size. sourceSize bounds the decode
+                      // below, so implicitWidth alone can't be trusted here.
+                      readonly property real pixelRatio:
+                        Number(chipRow.imageMetrics.pixelRatio || 1)
+                      readonly property real naturalWidth:
+                        Number(chipRow.imageMetrics.pixelWidth || 0) > 0
+                          ? Number(chipRow.imageMetrics.pixelWidth) / pixelRatio
+                          : implicitWidth
+                      readonly property real naturalHeight:
+                        Number(chipRow.imageMetrics.pixelHeight || 0) > 0
+                          ? Number(chipRow.imageMetrics.pixelHeight) / pixelRatio
+                          : implicitHeight
                       source: chipRow.showImage ? chipRow.fileUrl : ""
                       asynchronous: true
                       fillMode: Image.PreserveAspectFit
@@ -2199,9 +2238,9 @@ FocusScope {
                         m[chipRow.attId] = ""
                         root.attFiles = m
                       }
-                      Layout.preferredWidth: status === Image.Ready ? Math.min(maxW, implicitWidth) : maxW
-                      Layout.preferredHeight: status === Image.Ready && implicitWidth > 0
-                        ? Layout.preferredWidth * implicitHeight / implicitWidth
+                      Layout.preferredWidth: status === Image.Ready ? Math.min(maxW, naturalWidth) : maxW
+                      Layout.preferredHeight: status === Image.Ready && naturalWidth > 0
+                        ? Layout.preferredWidth * naturalHeight / naturalWidth
                         : Style.space(120)
                       HoverHandler { cursorShape: Qt.PointingHandCursor }
                       TapHandler { onTapped: root.openAttachment(chipRow.modelData) }
@@ -2284,15 +2323,18 @@ FocusScope {
                         id: linkImage
                         visible: linkCard.imgUrl !== "" && status === Image.Ready
                         Layout.fillWidth: true
+                        // Link artwork is often portrait or square. Preserve
+                        // its natural aspect ratio instead of clipping every
+                        // preview to the old shallow 220-unit banner.
                         Layout.preferredHeight: visible && implicitWidth > 0
-                          ? Math.min(Style.space(220), Math.round(linkCard.width * implicitHeight / implicitWidth))
+                          ? Math.min(Style.space(480), Math.round(linkCard.width * implicitHeight / implicitWidth))
                           : 0
                         source: linkCard.imgUrl
                         asynchronous: true
-                        fillMode: Image.PreserveAspectCrop
+                        fillMode: Image.PreserveAspectFit
                         autoTransform: true
-                        sourceSize.width: 800
-                        sourceSize.height: 800
+                        sourceSize.width: 960
+                        sourceSize.height: 960
                       }
                       ColumnLayout {
                         Layout.fillWidth: true
@@ -2388,7 +2430,12 @@ FocusScope {
                       // html is pre-escaped + linkified in thread.ts (tested);
                       // plain messages keep the cheap PlainText path.
                       readonly property bool hasLink: String(modelData.html || "") !== ""
-                      text: hasLink ? String(modelData.html) : String(modelData.text || "")
+                      text: hasLink
+                        ? root.richMessageHtml(
+                            modelData.html,
+                            bubbleRow.mine ? root.mineText : root.theirsText
+                          )
+                        : String(modelData.text || "")
                       textFormat: hasLink ? TextEdit.RichText : TextEdit.PlainText
                       // No onLinkActivated: the TapHandler below opens links (it
                       // survives selectByMouse); having both opened every link twice.

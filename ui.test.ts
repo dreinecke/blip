@@ -169,3 +169,20 @@ describe("QML safety invariants", () => {
     expect(widget).not.toContain('"bash", "-c"');
   });
 });
+
+describe("media renders at its intended scale", () => {
+  test("attachment sizing honours the header pixel density from fetch.ts", () => {
+    expect(panel).toContain("Number(chipRow.imageMetrics.pixelWidth) / pixelRatio");
+    expect(panel).toContain("Math.min(maxW, naturalWidth)");
+  });
+
+  test("message links inherit the bubble's text color", () => {
+    expect(panel).toContain("function richMessageHtml(html, linkColor)");
+    expect(panel).toContain("root.richMessageHtml(");
+  });
+
+  test("tall link artwork keeps its aspect ratio", () => {
+    expect(panel).toContain("Math.min(Style.space(480)");
+    expect(panel).toContain("fillMode: Image.PreserveAspectFit");
+  });
+});

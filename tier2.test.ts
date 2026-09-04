@@ -1,9 +1,19 @@
 import { describe, expect, test } from "bun:test";
 
-import { CACHE_DIR, bakeOrientation, cacheFileName, exifOrientation, fetchAttachment, isImageMime, jpegtranArgs, lruEvictions, sanitizeName, wantsJpeg } from "./fetch";
+import { CACHE_DIR, bakeOrientation, cacheFileName, exifOrientation, fetchAttachment, imageMetrics, isImageMime, jpegtranArgs, lruEvictions, sanitizeName, wantsJpeg } from "./fetch";
 import { extFor, pickImageType } from "./paste";
 import { resolveTarget, sendFile } from "./send-file";
 import { linkHost, linkify, normalizeLink, selectThread } from "./thread";
+import {
+  decodeEntities,
+  hostOf,
+  isPrivateAddress,
+  parseCard,
+  previewsEnabled,
+  previewKey,
+  safeUrl,
+  sniffImage,
+} from "./linkpreview";
 import { AVATAR_DIR, AVATAR_NONE_TTL_MS, AVATAR_TTL_MS, avatarArgs, avatarKey, fetchAvatar } from "./avatar";
 import { readFileSync, writeFileSync, unlinkSync, utimesSync } from "node:fs";
 import { spawnSync } from "node:child_process";
@@ -56,6 +66,28 @@ describe("fetch cache", () => {
     expect(orig).toBe("42-orig-IMG_1.png");
     expect(conv).toBe("42-jpg-IMG_1.jpg");   // extension follows the delivered format
     expect(orig).not.toBe(conv);
+  });
+
+  test("retina PNG density becomes a logical-pixel ratio", () => {
+    const png = Buffer.alloc(54);
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png, 0);
+    png.writeUInt32BE(13, 8); Buffer.from("IHDR").copy(png, 12);
+    png.writeUInt32BE(1206, 16); png.writeUInt32BE(1728, 20);
+    png.writeUInt32BE(9, 33); Buffer.from("pHYs").copy(png, 37);
+    png.writeUInt32BE(5669, 41); png.writeUInt32BE(5669, 45); png[49] = 1;
+    expect(imageMetrics(png, "image/png")).toEqual({
+      pixelWidth: 1206, pixelHeight: 1728, pixelRatio: 2,
+    });
+  });
+
+  test("ordinary PNG density stays at one logical pixel per source pixel", () => {
+    const png = Buffer.alloc(24);
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png, 0);
+    png.writeUInt32BE(13, 8); Buffer.from("IHDR").copy(png, 12);
+    png.writeUInt32BE(800, 16); png.writeUInt32BE(600, 20);
+    expect(imageMetrics(png, "image/png")).toEqual({
+      pixelWidth: 800, pixelHeight: 600, pixelRatio: 1,
+    });
   });
 
   test("sanitizeName strips traversal and hidden-file tricks", () => {
@@ -596,10 +628,6 @@ describe("country code + service (2.2.0)", () => {
 });
 
 describe("link previews for URLs Messages never decorated", () => {
-  const {
-    decodeEntities, hostOf, isPrivateAddress, parseCard, previewsEnabled, previewKey, safeUrl, sniffImage,
-  } = require("./linkpreview") as typeof import("./linkpreview");
-
   test("Open Graph wins, then Twitter, then the plain document", () => {
     const html = `<html><head>
       <title>fallback title</title>
