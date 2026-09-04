@@ -575,6 +575,24 @@ BarWidget {
     var body = String(t.text || "")
     if (body.length > 220) body = body.substring(0, 217) + "…"
     notifyProc.toastChat = String(t.chat || "")
+    // Where this toast came from, in a form that outlives it.
+    //
+    // --action=default lives inside this notify-send process and dies with it
+    // after eight seconds, so an old row in the notification center could
+    // never reach Blip. Omarchy also reads a hint, `omarchy-exec-argv`, which
+    // it persists with the notification, and that is the supported way for a
+    // restored notification to stay clickable. The value is built here and
+    // never contains anything a sender chose: the chat id is a handle Blip
+    // already resolved, it travels as its own argv element rather than inside
+    // a shell string, and a leading "+" is dropped because `qs ipc call` would
+    // read it as a flag (show() matches the bare digits as an alias).
+    var reopen = []
+    var chatArg = notifyProc.toastChat.replace(/^\+/, "")
+    if (chatArg !== "" && /^[A-Za-z0-9._@:;$-]{1,256}$/.test(chatArg))
+      reopen = ["--hint=string:omarchy-exec-argv:" + JSON.stringify(
+        ["qs", "-p", "/usr/share/omarchy/shell", "ipc", "call",
+         root.moduleName, "goto", chatArg])]
+
     notifyProc.command = [
       "notify-send",
       "--app-name=Blip",
@@ -586,10 +604,11 @@ BarWidget {
       // advertised Reply button would be a lie (Codex, read the daemon).
       "--wait",
       "--action=default=Open",
+    ].concat(reopen).concat([
       "--",                                   // a name or text starting with "-" is data, not a flag
       String(t.name || t.chat || "iMessage"),
       body
-    ]
+    ])
     notifyProc.running = true
     // The daemon PAUSES expiry while the pointer hovers a toast, and --wait
     // waits for closure — a toast parked under a stationary cursor must not

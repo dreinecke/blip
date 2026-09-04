@@ -154,4 +154,18 @@ describe("QML safety invariants", () => {
     expect(panel).not.toContain("forceLayout");
     expect(panel.indexOf("onAccepted: root.acceptNewField()")).toBeGreaterThan(-1);
   });
+
+  test("an old toast can still reopen its conversation (omarchy-exec-argv)", () => {
+    // --action=default dies with the notify-send process after eight seconds.
+    // The hint is what Omarchy persists, so a row in the notification center
+    // is still clickable a week later. If this disappears, old iMessage
+    // notifications go inert again and nothing else fails.
+    expect(widget).toContain('"--hint=string:omarchy-exec-argv:"');
+    expect(widget).toContain('root.moduleName, "goto", chatArg');
+    // The chat id goes in as its own argv element, never inside a shell
+    // string, and only when it is shaped like a handle.
+    expect(widget).toContain("JSON.stringify(");
+    expect(widget).toContain("/^[A-Za-z0-9._@:;$-]{1,256}$/.test(chatArg)");
+    expect(widget).not.toContain('"bash", "-c"');
+  });
 });

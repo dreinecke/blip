@@ -161,7 +161,8 @@ if out="$("$HOME/bin/imsg" --json recent 1 2>&1)"; then
     echo "✓ UI font present — Blip will render like Messages rather than in the theme's monospace"
   else
     echo "Blip looks most like Messages in a UI sans. Omarchy's font is monospace."
-    echo "  Inter  — open licence, one command:   sudo pacman -S --needed inter-font"
+    echo "  Inter  — open licence, drawn for interfaces:  sudo pacman -S --needed inter-font"
+    echo "           https://github.com/rsms/inter"
     echo "  SF Pro — Apple's own, what Messages uses; download it from Apple:"
     echo "           https://developer.apple.com/fonts/   (AUR: otf-san-francisco fetches it for you)"
     echo "  Neither is required, and Blip ships no fonts. Set ui_font=theme in bridge.conf to always"

@@ -66,6 +66,7 @@ people who showed up with pull requests. What is in it now:
   **Blip ships no fonts.** SF Pro is Apple's and its licence forbids
   redistribution, so it is never carried in this repo — if you want the exact
   Messages face, get it from [Apple](https://developer.apple.com/fonts/).
+  See [Fonts](#fonts).
 - **Contact photos** from the Mac's Contacts, and **group photos** — a group
   wears its own picture, never whichever member happened to speak last.
 - **Link cards for every URL.** Messages decorates some links and leaves most
@@ -229,6 +230,23 @@ enough to poll, fast enough that the panel feels local.
 Blip is **one source**: the Mac-side tools ride along in `bridge/mac/`
 (vendored from [claude-on-mac](https://github.com/nixfred/claude-on-mac),
 pinned in `bridge/BRIDGE-VERSION`), and `blip-setup` wires everything.
+
+### Fonts
+
+Blip renders in the first of these it finds, so it is optional either way:
+
+| | | |
+|---|---|---|
+| **SF Pro** | what Messages itself uses | [developer.apple.com/fonts](https://developer.apple.com/fonts/) · Arch: [`otf-san-francisco`](https://aur.archlinux.org/packages/otf-san-francisco) (AUR, downloads it from Apple) |
+| **Inter** | open licence, drawn for interfaces, very close | [rsms/inter](https://github.com/rsms/inter) · Arch: [`inter-font`](https://archlinux.org/packages/extra/any/inter-font/) — `sudo pacman -S inter-font` |
+| your theme font | whatever Omarchy is set to | nothing to install |
+
+`blip-setup` offers to install Inter if you have neither. `ui_font=theme` in
+`bridge.conf` always uses the Omarchy family.
+
+> **Blip ships no fonts.** SF Pro is Apple's and its licence forbids
+> redistribution, so it is not carried in this repo — note that even the AUR
+> package fetches it from Apple rather than mirroring it.
 
 **Requirements**
 
