@@ -2680,7 +2680,7 @@ FocusScope {
               selectionColor: Style.selectionFillFor(root.foreground, root.mineFill)
               selectedTextColor: root.foreground
               font.family: root.fontFamily
-              font.pixelSize: Style.font.bodySmall
+              font.pixelSize: root.fontBodySmall
               readonly property var _composeBorder: Border.controlSpec(
                 activeFocus ? "focus" : (hovered ? "hover-cursor" : "normal"),
                 root.foreground, root.mineFill)
