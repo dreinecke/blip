@@ -112,7 +112,7 @@ function conversation(): Row[] {
         }))
         : null,
       reply_to: m.reply_to ? { text: String(m.reply_to), from_me: false } : null,
-      edited: false, retracted: false, effect: null, audio: false, link: null,
+      edited: m.edited === true, retracted: m.retracted === true, effect: null, audio: false, link: null,
     };
     return row;
   });
