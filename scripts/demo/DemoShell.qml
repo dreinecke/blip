@@ -88,7 +88,7 @@ ShellRoot {
       splitView: !win.narrow
       foreground: Color.foreground
       urgent: Color.urgent
-      fontFamily: Style.font.family
+      themeFont: Style.font.family
     }
 
     }
