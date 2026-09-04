@@ -134,6 +134,12 @@ what it is handed. Keep it that way.
   true, which would have silently hidden the GA Power SMS from 99123 that took
   a day to make arrive at all. A default that hides messages is not a
   preference.
+- **An iMessage-app card is text, in the payload, not in the text column.**
+  Ask to Buy, Fitness sharing, Find My and friends store U+FFFD as the message
+  text and an MSMessage archive in `payload_data`; `ldtext` there is the
+  sentence Messages itself shows when it cannot render the app, then the
+  caption, then the app name (`_app_card_text`). Link cards are the one
+  balloon that is not an app; they stay links.
 - **`chat:null` exists.** Use `chatKey()`; never `String(m.chat)`.
 - **Group ids come in two shapes**: 32 hex, or `chat<digits>`. `isGroupChat()` is
   "not a phone/email" — never a positive regex on one shape.

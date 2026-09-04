@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **iMessage-app cards read as text instead of a replacement character.**
+  Ask to Buy requests, Fitness sharing, Find My and other app cards store
+  U+FFFD as their message text and the real content in an MSMessage payload.
+  Blip showed the � — or an empty bubble — in the conversation, the list
+  preview and the toast; on one family database that was 254 messages. The
+  bridge now returns the payload's `ldtext`, the sentence Messages itself
+  shows when the app cannot render the card, falling back to the card's
+  caption and then the app's name. Link cards are unchanged. Mac side:
+  re-run the install one-liner so `~/.blip/bin/imsg` picks it up.
 - **Group photos show up as photos again.** Messages stores a group's picture
   on an announcement row (`item_type = 3`). The bridge hides those rows so
   they never become empty unread bubbles, and the photo lookup joined through

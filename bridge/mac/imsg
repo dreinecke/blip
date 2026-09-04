@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import html
 import json
 import os
 import plistlib
@@ -316,7 +317,59 @@ def fmt_ts(apple_ns: int | None) -> str:
 
 
 def message_text(row: sqlite3.Row) -> str:
-    return row["text"] or decode_attributed_body(row["attributedBody"]) or ""
+    return _app_card_text(row) or row["text"] or decode_attributed_body(row["attributedBody"]) or ""
+
+
+def _unarchive(blob) -> dict | None:
+    """The NSKeyedArchiver plist in a blob, or None if it is not one."""
+    try:
+        p = plistlib.loads(bytes(blob))
+        return p if isinstance(p.get("$objects"), list) and "root" in p["$top"] else None
+    except Exception:
+        return None
+
+
+def _deref(objs: list, v, depth: int = 0):
+    """Follow archive references: UIDs into the object table, NSURL to its
+    string, NSDictionary to a plain dict. Anything deeper than six hops is
+    a cycle or an object we do not model — None."""
+    if depth > 6:
+        return None
+    if isinstance(v, plistlib.UID):
+        if v.data == 0:   # $null
+            return None
+        return _deref(objs, objs[v.data], depth + 1) if v.data < len(objs) else None
+    if isinstance(v, dict) and "NS.relative" in v:   # NSURL
+        return _deref(objs, v["NS.relative"], depth + 1)
+    if isinstance(v, dict) and "NS.keys" in v and "NS.objects" in v:   # NSDictionary
+        pairs = ((_deref(objs, k, depth + 1), _deref(objs, o, depth + 1))
+                 for k, o in zip(v["NS.keys"], v["NS.objects"]))
+        return {k: o for k, o in pairs if isinstance(k, str)}
+    return v
+
+
+def _app_card_text(row) -> str | None:
+    """Messages' own words for an iMessage-app card — Ask to Buy, Fitness
+    sharing, Find My, … The text column holds U+FFFD for these; the payload is
+    an MSMessage archive whose `ldtext` is the sentence Messages shows when the
+    app cannot render the card, then the card's caption, then the app's name.
+    Link cards are not apps and keep their URL. Anything unreadable → None.
+    Apple escapes some of these sentences as HTML ("Photo &amp; Video") and
+    leaves others raw; html.unescape makes them one thing."""
+    if "payload_data" not in row.keys():   # a snippet row, not a base_select row
+        return None
+    bundle = row["balloon_bundle_id"] or ""
+    if not bundle or bundle.endswith("URLBalloonProvider") or not row["payload_data"]:
+        return None
+    p = _unarchive(row["payload_data"])
+    root = _deref(p["$objects"], p["$top"]["root"]) if p else None
+    if not isinstance(root, dict):
+        return None
+    info = root.get("userInfo") if isinstance(root.get("userInfo"), dict) else {}
+    for text in (root.get("ldtext"), info.get("caption"), root.get("an")):
+        if isinstance(text, str) and text.strip():
+            return html.unescape(text.strip())[:500]
+    return None
 
 
 def pinned_chat_identifiers() -> list[set[str]]:
@@ -465,23 +518,13 @@ def _parse_rich_link(blob: bytes) -> dict | None:
     LPLinkMetadata) into {url, title, summary, image_index}. image_index
     indexes the message's .pluginPayloadAttachment rows (ROWID order), which
     hold the preview PNGs. Best-effort: any oddity → None."""
-    import plistlib
-    try:
-        p = plistlib.loads(blob)
-        objs = p["$objects"]
-    except Exception:
+    p = _unarchive(blob)
+    if not p:
         return None
+    objs = p["$objects"]
 
-    def deref(v, depth=0):
-        if depth > 6:
-            return None
-        if isinstance(v, plistlib.UID):
-            if v.data == 0:   # $null
-                return None
-            return deref(objs[v.data], depth + 1) if v.data < len(objs) else None
-        if isinstance(v, dict) and "NS.relative" in v:   # NSURL
-            return deref(v["NS.relative"], depth + 1)
-        return v
+    def deref(v):
+        return _deref(objs, v)
 
     md = None
     for o in objs:
