@@ -120,6 +120,20 @@ what it is handed. Keep it that way.
   store, flagged `isChildDelegate` in the same Accounts db. Contacts.app hides
   those from All Contacts; `_ab_sources()` drops them entirely, or two sons'
   "Mom" cards outvote your own "Monica Gamble" for the same number.
+- **Configuration is `bridge.conf` keys, not a settings system.** Blip has one
+  config file (`~/.config/blip/bridge.conf`, parsed not sourced) carrying
+  `host`, `remote_bin`, `automation`, `ui_font_size`, `ui_font_theme`,
+  `link_previews`, `push_read`, plus the mute list. Anything worth configuring
+  becomes another key. Settled 2026-09-04 against PR #21, which proposed a
+  `preferences.json` with eleven knobs and a ~1300-line settings panel: it was
+  careful work (atomic, 0600, ownership and size validated) and was still the
+  wrong shape. Blip inherits Omarchy's theme and aims at ONE opinionated
+  iMessage look; a second config system with per-user bubble colors, density,
+  avatar size and corner scale multiplies the states every layout bug can hide
+  in. The concrete warning: that PR defaulted `hideShortCodeConversations` to
+  true, which would have silently hidden the GA Power SMS from 99123 that took
+  a day to make arrive at all. A default that hides messages is not a
+  preference.
 - **`chat:null` exists.** Use `chatKey()`; never `String(m.chat)`.
 - **Group ids come in two shapes**: 32 hex, or `chat<digits>`. `isGroupChat()` is
   "not a phone/email" — never a positive regex on one shape.
