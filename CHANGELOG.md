@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+- **Contacts saved without a country code get their name and photo.** The
+  bridge matched phone numbers on their last ten digits, which is a whole
+  national number in North America and nothing anywhere else: a card saved
+  as `123 45 678` never met the handle `+4712345678`, so that person — the
+  owner's own card included — showed as a bare number with initials. When the
+  exact key finds nothing, `imsg` now matches the way Contacts does: the Mac's
+  region fills in the missing country code (`calling_codes.py`, generated from
+  libphonenumber), and two numbers are the same when the calling codes agree
+  and one national number ends with the other — a saved trunk zero
+  (`07700 900123`) included. A North American card shorter than ten digits is
+  missing its area code and is refused rather than guessed. The exact key
+  still decides first, so nothing that resolved before changes. Mac side:
+  re-run the install one-liner so `~/.blip/bin/imsg` picks it up.
 - **iMessage-app cards read as text instead of a replacement character.**
   Ask to Buy requests, Fitness sharing, Find My and other app cards store
   U+FFFD as their message text and the real content in an MSMessage payload.

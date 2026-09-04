@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import functools
 import html
 import json
 import os
@@ -32,6 +33,9 @@ import sqlite3
 import struct
 import sys
 from glob import glob
+
+sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
+from calling_codes import REGION_TO_CALLING_CODE, split_calling_code  # noqa: E402  (sibling module)
 
 DB_PATH = os.path.expanduser("~/Library/Messages/chat.db")
 PINNING_PLIST_PATHS = (
@@ -144,12 +148,79 @@ def _ab_sources() -> list[str]:
     return sorted(paths, key=lambda p: (_rank_of(p, ranks), p))
 
 
+def _digits(s: str) -> str:
+    return re.sub(r"\D", "", s or "")
+
+
 def _normalize_phone(s: str) -> str:
-    digits = re.sub(r"\D", "", s or "")
+    digits = _digits(s)
     return digits[-10:] if len(digits) >= 10 else digits
 
 
-_NAME_INDEX: dict[str, str] | None = None
+# ---- Phone numbers the way Contacts compares them ------------------------
+#
+# The last-ten key above is exact and is tried first, so nothing that resolves
+# today can change. It is also North American: ten digits is a whole national
+# number there and nothing anywhere else, so a card saved as "123 45 678" never
+# met the handle +4712345678 and its owner showed as a bare number.
+#
+# The fallback is libphonenumber's rule, which is what Contacts runs on: give a
+# number saved without a country code the Mac's own region, and call two
+# numbers the same when their calling codes are equal and one national number
+# ends with the other. Two guards on top: a floor of seven shared digits (a
+# local number), and a North American card shorter than ten digits is missing
+# its area code and matches nothing — Contacts would guess; Blip does not.
+
+_GLOBAL_PREFS = os.path.expanduser("~/Library/Preferences/.GlobalPreferences.plist")
+_LOCAL_NUMBER_DIGITS = 7
+
+Phone = tuple[str, str]   # (calling code, national number), digits only
+
+
+def _calling_code_for_locale(locale: str) -> str | None:
+    """"en_US@rg=nozzzz" (a region override) or "nb_NO" -> "47"; None when unknown."""
+    m = re.search(r"rg=([a-z]{2})", locale, re.I) or re.search(r"_([A-Z]{2})", locale)
+    cc = REGION_TO_CALLING_CODE.get(m.group(1).upper()) if m else None
+    return str(cc) if cc else None
+
+
+@functools.lru_cache(maxsize=None)
+def _home_calling_code() -> str | None:
+    """The Mac's region as a calling code, from AppleLocale."""
+    try:
+        with open(_GLOBAL_PREFS, "rb") as f:
+            return _calling_code_for_locale(str(plistlib.load(f).get("AppleLocale", "")))
+    except (OSError, plistlib.InvalidFileException):
+        return None
+
+
+def _parse_phone(raw: str) -> Phone | None:
+    """"+47 123 45 678" and "0047…" split on the calling code; "123 45 678"
+    takes the Mac's region. None when neither applies."""
+    s = (raw or "").strip()
+    digits = _digits(s)
+    if s.startswith("+"):
+        return split_calling_code(digits)
+    if s.startswith("00"):
+        return split_calling_code(digits[2:])
+    home = _home_calling_code()
+    return (home, digits) if home and digits else None
+
+
+def _same_number(handle: Phone, card: Phone) -> bool:
+    """libphonenumber's SHORT_NSN_MATCH with Blip's two guards (see above)."""
+    if card[0] != handle[0]:
+        return False
+    if card[0] == "1" and len(card[1]) < 10:
+        return False
+    for nsn in {card[1], card[1].removeprefix("0")}:   # a saved trunk zero (07700…) is not in the handle
+        if min(len(nsn), len(handle[1])) >= _LOCAL_NUMBER_DIGITS and (handle[1].endswith(nsn) or nsn.endswith(handle[1])):
+            return True
+    return False
+
+
+_NAME_INDEX: dict[str, str] | None = None            # exact keys: last-ten digits, lowercased email
+_PHONE_INDEX: dict[Phone, str] | None = None          # every saved number, parsed, for the region-aware fallback
 
 
 def _is_dm_id(s: str | None) -> bool:
@@ -187,7 +258,7 @@ def name_for(handle: str | None) -> str | None:
     """Resolve a Messages handle (phone or email) to a Contacts display name.
     Lazily builds an in-memory index from all AddressBook source DBs on first
     call. Returns None if no contact match."""
-    global _NAME_INDEX
+    global _NAME_INDEX, _PHONE_INDEX
     if not handle:
         return None
     if _NAME_INDEX is None:
@@ -200,7 +271,7 @@ def name_for(handle: str | None) -> str | None:
         # most common spelling only breaks ties within one rank. Counting every
         # source equally let a synced directory's bulk rows rename people.
         # key -> name -> [best source rank seen, times seen]
-        votes: dict[str, dict[str, list]] = {}
+        votes: dict[str | Phone, dict[str, list]] = {}
         ranks = _source_ranks()
         for path in _ab_sources():
             rank = _rank_of(path, ranks)
@@ -215,7 +286,7 @@ def name_for(handle: str | None) -> str | None:
                         "ZORGANIZATION AS org, ZNICKNAME AS nick FROM ZABCDRECORD"
                     )
                 }
-                local: dict[str, str | None] = {}   # None = ambiguous within this source
+                local: dict[str | Phone, str | None] = {}   # None = ambiguous within this source
                 for r in con.execute(
                     "SELECT ZOWNER AS pk, ZFULLNUMBER AS num FROM ZABCDPHONENUMBER"
                 ):
@@ -223,6 +294,9 @@ def name_for(handle: str | None) -> str | None:
                     key = _normalize_phone(r["num"] or "")
                     if name and key:
                         local[key] = None if (key in local and local[key] not in (None, name)) else (local.get(key) or name)
+                    parsed = _parse_phone(r["num"] or "")
+                    if name and parsed:
+                        local[parsed] = None if (parsed in local and local[parsed] not in (None, name)) else (local.get(parsed) or name)
                 for r in con.execute(
                     "SELECT ZOWNER AS pk, ZADDRESS AS addr FROM ZABCDEMAILADDRESS"
                 ):
@@ -242,13 +316,18 @@ def name_for(handle: str | None) -> str | None:
             except sqlite3.DatabaseError:
                 continue
         # Nearest source first; only then the most common spelling.
-        _NAME_INDEX = {
-            k: min(v.items(), key=lambda kv: (kv[1][0], -kv[1][1]))[0]
-            for k, v in votes.items()
-        }
+        resolved = {k: min(v.items(), key=lambda kv: (kv[1][0], -kv[1][1]))[0] for k, v in votes.items()}
+        _NAME_INDEX = {k: n for k, n in resolved.items() if isinstance(k, str)}
+        _PHONE_INDEX = {k: n for k, n in resolved.items() if isinstance(k, tuple)}
     if "@" in handle:
         return _NAME_INDEX.get(handle.strip().lower()) or None
-    return _NAME_INDEX.get(_normalize_phone(handle)) or None
+    hit = _NAME_INDEX.get(_normalize_phone(handle))
+    if hit:
+        return hit
+    # No exact key: a unique region-aware match names it; two different names do not.
+    parsed = _parse_phone(handle)
+    near = {n for card, n in _PHONE_INDEX.items() if parsed and _same_number(parsed, card)}
+    return near.pop() if len(near) == 1 else None
 
 
 def label(handle: str | None, is_from_me: int, with_names: bool) -> str:
@@ -1306,34 +1385,50 @@ def cmd_avatar(con, args):
     handle = (args.handle or "").strip()
     if not handle or len(handle) > 320:
         sys.exit("error: bad handle")
-    want_email = "@" in handle
-    key = handle.lower() if want_email else _normalize_phone(handle)
-    if not key:
-        sys.exit(1)
-    candidates: list[tuple[str, int]] = []
-    for path in _ab_sources():
-        try:
-            con2 = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
-            q = ("SELECT ZOWNER AS pk, ZADDRESS AS v FROM ZABCDEMAILADDRESS" if want_email
-                 else "SELECT ZOWNER AS pk, ZFULLNUMBER AS v FROM ZABCDPHONENUMBER")
-            pks = set()
-            for pk, v in con2.execute(q):
-                k = (v or "").strip().lower() if want_email else _normalize_phone(v or "")
-                if k and k == key and pk is not None:
-                    pks.add(pk)
-            con2.close()
-        except sqlite3.DatabaseError:
-            continue
-        if len(pks) == 1:
-            candidates.append((path, pks.pop()))
-        # len > 1 inside ONE source: ambiguous there — skip that source only
-    for path, pk in candidates:
+    for path, pk in _avatar_candidates(handle):
         data = _avatar_bytes(path, pk)
         if data:
             sys.stdout.buffer.write(data)
             sys.stdout.buffer.flush()
             return
     sys.exit(1)
+
+
+def _avatar_candidates(handle: str) -> list[tuple[str, int]]:
+    """(source db, record pk) per source that names this handle unambiguously,
+    nearest source first. The exact key decides when it hits; the region-aware
+    match only runs in a source with no exact hit — the rule name_for applies."""
+    want_email = "@" in handle
+    key = handle.lower() if want_email else _normalize_phone(handle)
+    if not key:
+        return []
+    parsed = None if want_email else _parse_phone(handle)
+    candidates: list[tuple[str, int]] = []
+    for path in _ab_sources():
+        try:
+            con2 = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+            q = ("SELECT ZOWNER AS pk, ZADDRESS AS v FROM ZABCDEMAILADDRESS" if want_email
+                 else "SELECT ZOWNER AS pk, ZFULLNUMBER AS v FROM ZABCDPHONENUMBER")
+            exact: set[int] = set()
+            near: set[int] = set()
+            for pk, v in con2.execute(q):
+                if pk is None:
+                    continue
+                if want_email:
+                    if (v or "").strip().lower() == key:
+                        exact.add(pk)
+                elif _normalize_phone(v or "") == key:
+                    exact.add(pk)
+                elif parsed and (card := _parse_phone(v or "")) and _same_number(parsed, card):
+                    near.add(pk)
+            con2.close()
+        except sqlite3.DatabaseError:
+            continue
+        pks = exact or near
+        if len(pks) == 1:
+            candidates.append((path, pks.pop()))
+        # len > 1 inside ONE source: ambiguous there — skip that source only
+    return candidates
 
 
 def cmd_attachment(con, args):
