@@ -946,8 +946,14 @@ FocusScope {
                       +s.substring(11, 13), +s.substring(14, 16))
     var clock = Qt.formatTime(at, root.timeFormat)
     if (s.substring(0, 10) === Qt.formatDate(now, "yyyy-MM-dd")) return clock
+    // Messages stamps a row "Yesterday", then the weekday for the last week,
+    // then a date — never a date-plus-clock, which is what a mail client does.
+    var midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+    var days = Math.floor((midnight - new Date(at.getFullYear(), at.getMonth(), at.getDate())) / 86400000)
+    if (days === 1) return "Yesterday"
+    if (days > 1 && days < 7) return Qt.formatDate(at, "ddd")
     var date = at.getFullYear() === now.getFullYear() ? root.dateFormat : root.dateFormatWithYear
-    return Qt.formatDate(at, date) + " " + clock
+    return Qt.formatDate(at, date)
   }
 
   // ------------------------------------------------------------ processes
@@ -1771,7 +1777,9 @@ FocusScope {
                   // initials otherwise (the iMessage sidebar look)
                   Rectangle {
                     id: avatarCircle
-                    width: Style.space(30); height: width; radius: width / 2
+                    // Messages' sidebar avatar is large relative to the row;
+                    // 30 looked like a contact list, not a conversation list.
+                    width: Style.space(34); height: width; radius: width / 2
                     color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.18)
                     // A group binds to ITS OWN chat id (its Messages group photo); a DM to
                     // the person. Binding a group to `handle` showed whoever spoke last —
@@ -1832,7 +1840,10 @@ FocusScope {
                         color: root.foreground
                         font.family: root.fontFamily
                         font.pixelSize: Style.font.bodySmall
-                        font.bold: modelData.unread > 0
+                        // Messages keeps the name semibold ALWAYS; unread is
+                        // carried by the dot and the blue timestamp, not by
+                        // the name suddenly changing weight.
+                        font.weight: modelData.unread > 0 ? Font.Bold : Font.DemiBold
                       }
                       Text {
                         text: root.fmtTime(modelData.last_ts)
@@ -1842,15 +1853,20 @@ FocusScope {
                         font.pixelSize: Style.font.caption
                       }
                     }
+                    // TWO lines, wrapped — the single most recognisable thing
+                    // about the Messages sidebar. One elided line reads like a
+                    // mail client; two lines of preview reads like Messages.
                     Text {
                       Layout.fillWidth: true
                       text: (modelData.last_from_me ? "You: " : "") + String(modelData.last_text || "")
                       textFormat: Text.PlainText
+                      wrapMode: Text.Wrap
                       elide: Text.ElideRight
-                      maximumLineCount: 1
+                      maximumLineCount: 2
                       color: root.dim
                       font.family: root.fontFamily
                       font.pixelSize: Style.font.caption
+                      lineHeight: 1.15
                     }
                   }
 

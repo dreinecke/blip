@@ -60,7 +60,9 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: view.inThread ? view.composeEditor : keyCatcher
-    contentWidth: panel.fittedContentWidth(Style.space(440))
+    // 20% narrower than it was (Fred, 2.3.1). Messages' own sidebar is a
+    // narrow column; 440 read like a file browser.
+    contentWidth: panel.fittedContentWidth(Style.space(352))
     // The floor keeps the panel usable if a mode flip's relayout ever lags
     // again — search/new modes always have at least a field to show.
     contentHeight: panel.fittedContentHeight(
