@@ -89,23 +89,18 @@ FocusScope {
   readonly property real contentHeightHint: listContent.implicitHeight
   /** The view wants keyboard navigation focus back (list mode). */
   signal navigationFocusRequested()
-  // Palette follows the Omarchy theme (Fred, 2026-08-31). Color.* is the
-  // live theme singleton — it hot-reloads on theme switch, so every accent,
-  // bubble, and link repaints with the rest of the desktop. If the theme
-  // ships no distinct accent (accent == foreground), fall back to iMessage
-  // blue so "my" bubbles stay readable as mine.
-  readonly property bool themeHasAccent: Color.accent.toString() !== Color.foreground.toString()
-  readonly property color accent: themeHasAccent ? Color.accent : "#0a84ff"
+  // Foreground and background follow the Omarchy theme (Color.* is the live
+  // theme singleton and hot-reloads on switch). The ACCENT does not: it is
+  // iMessage blue, always. Bubbles followed the theme accent until 2.3.3, and
+  // on the themes where that accent is red "my" messages read as errors;
+  // Fred, 2026-09-04: "Yes make the bubbles blue too" — blue bubbles are the
+  // look, not a theme preference. White text on that blue, as Messages does.
+  readonly property color accent: "#0a84ff"
   readonly property color cyan: accent            // legacy name; accents/links
   readonly property color okColor: accent
 
   readonly property color mineFill: accent
-  // Bubble text picks black/white by which CONTRASTS better with the fill:
-  // (L+0.05)/0.15 vs 1.05/(L+0.05) cross over near L≈0.35. A 0.6 threshold
-  // chose white on medium accents where dark text is clearly more legible
-  // (e.g. Evergreen #4a9a68: white 3.4:1 vs dark 5.1:1).
-  readonly property color mineText:
-    (0.299 * mineFill.r + 0.587 * mineFill.g + 0.114 * mineFill.b) > 0.35 ? "#1a1a1a" : "#ffffff"
+  readonly property color mineText: "#ffffff"
   readonly property color theirsFill: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.14)
   readonly property color theirsText: foreground
 

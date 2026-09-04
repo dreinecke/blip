@@ -251,3 +251,11 @@ test("the icon's unread dot is always iMessage blue", () => {
   expect(widget).toContain('readonly property color blipAccent: "#0a84ff"');
   expect(widget).not.toContain("blipAccent:\n    Color.accent");
 });
+
+// Bubbles are iMessage blue on every theme, white text on them, like Messages.
+// They followed the theme accent until 2.3.3 — red on several Omarchy themes.
+test("outgoing bubbles are always iMessage blue with white text", () => {
+  expect(panel).toContain('readonly property color accent: "#0a84ff"');
+  expect(panel).toContain('readonly property color mineText: "#ffffff"');
+  expect(panel).not.toContain("themeHasAccent");
+});

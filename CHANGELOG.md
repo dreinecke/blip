@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Blue bubbles.** Your messages are iMessage blue with white text on every
+  theme. They followed the Omarchy accent, which is red on several themes —
+  and red bubbles read as failed sends. The unread dot on the bar icon is the
+  same blue. Foreground and background still come from the theme.
 - **The icon's unread dot is iMessage blue, always.** It followed the Omarchy
   theme accent, which on several themes is red — a red dot on a messaging icon
   reads as an error, and red belongs to alerts. Blue bubbles, blue dot.

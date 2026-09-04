@@ -139,8 +139,10 @@ what it is handed. Keep it that way.
   becomes another key. Settled 2026-09-04 against PR #21, which proposed a
   `preferences.json` with eleven knobs and a ~1300-line settings panel: it was
   careful work (atomic, 0600, ownership and size validated) and was still the
-  wrong shape. Blip inherits Omarchy's theme and aims at ONE opinionated
-  iMessage look; a second config system with per-user bubble colors, density,
+  wrong shape. Blip inherits Omarchy's theme (foreground, background, font)
+  and aims at ONE opinionated iMessage look — the accent is NOT the theme's:
+  bubbles and the bar icon's unread dot are iMessage blue `#0a84ff` on every
+  theme, white text on the bubbles (Fred, 2026-09-04: "Blue Bubbles"); a second config system with per-user bubble colors, density,
   avatar size and corner scale multiplies the states every layout bug can hide
   in. The concrete warning: that PR defaulted `hideShortCodeConversations` to
   true, which would have silently hidden the GA Power SMS from 99123 that took
