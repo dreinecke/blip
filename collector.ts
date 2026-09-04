@@ -737,9 +737,37 @@ export function pushReadArgs(
 export function pushRead(args: string[] | null, home = HOME): void {
   if (!args) return;
   try {
-    const child = spawn(`${home}/bin/imsg-read`, args, { detached: true, stdio: "ignore" });
+    const child = spawn("sh", pushReadCommand(`${home}/bin/imsg-read`, args, pushReadLogPath(home)),
+      { detached: true, stdio: "ignore" });
     child.unref();
   } catch { /* no shim, no Mac, no matter */ }
+}
+
+/** Where a push's outcome is recorded. Timestamps, args and imsg-read's own
+ *  status line only — no message content ever reaches this file. */
+export function pushReadLogPath(home = HOME): string {
+  return `${home}/.local/state/blip/push-read.log`;
+}
+
+/**
+ * The detached push wrapped so its OUTCOME survives it. The collector exits
+ * before imsg-read finishes and cannot collect the exit code itself; without
+ * this a push that fails (Accessibility revoked, Messages without a window,
+ * the Mac asleep) is indistinguishable from one that worked — the local marks
+ * cleared, the phone kept its badge, and nothing anywhere said why. Found
+ * 2026-09-04: one unread cleared in Blip, still unread on Apple's side, no
+ * evidence in either direction. Keeps the last ~100 lines, 0600.
+ */
+export function pushReadCommand(bin: string, args: string[], log: string): string[] {
+  const script = [
+    'umask 077',
+    'log="$1"; bin="$2"; shift 2',
+    'out=$("$bin" "$@" 2>&1); rc=$?',
+    'printf "%s %s exit=%s %s\\n" "$(date +%FT%T)" "$*" "$rc" "${out:0:200}" >> "$log"',
+    '[ "$(wc -c < "$log")" -gt 65536 ] && { tail -n 100 "$log" > "$log.tmp" && mv "$log.tmp" "$log"; }',
+    'exit $rc',
+  ].join('; ');
+  return ["-c", script, "sh", log, bin, ...args];
 }
 
 /** How far back a delivery failure is still worth interrupting for. */

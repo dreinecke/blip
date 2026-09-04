@@ -231,3 +231,15 @@ test("no source file carries a merge conflict marker", () => {
     }
   }
 });
+
+// Pinned threads render ONLY in the grid (the list is unpinnedThreads), and
+// 2.3.1 removed the count under each tile. That left a bold 11px caption as a
+// pinned conversation's only unread signal — one unread in a pinned group
+// showed badge 1 and "nothing new in the app". The tile carries the same blue
+// dot the list rows do.
+test("a pinned tile shows the unread dot", () => {
+  expect(panel).toContain("id: pinnedUnreadDot");
+  const dot = panel.slice(panel.indexOf("id: pinnedUnreadDot"), panel.indexOf("id: pinnedUnreadDot") + 700);
+  expect(dot).toContain("visible: modelData.unread > 0");
+  expect(dot).toContain("color: root.mineFill");
+});

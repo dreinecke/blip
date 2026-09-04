@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  pushReadCommand,
+  pushReadLogPath,
   buildThreads,
   detectSelfChats,
   fetchMessagesAfter,
@@ -1247,5 +1249,27 @@ describe("the mute list can catch a person (documented caveat, #27)", () => {
     const m = msg({ from_me: false, text: "rush $25 — Reply STOP2END" });
     expect(mutedChats([m], [])).toEqual([]);
     expect(matchesMute(m, [])).toBe(false);
+  });
+});
+
+describe("pushRead breadcrumb", () => {
+  test("the detached push records its exit code and status text, in a 0600 log", () => {
+    const argv = pushReadCommand("/home/u/bin/imsg-read", ["--all"], "/home/u/.local/state/blip/push-read.log");
+    expect(argv[0]).toBe("-c");
+    expect(argv.slice(2)).toEqual(["sh", "/home/u/.local/state/blip/push-read.log", "/home/u/bin/imsg-read", "--all"]);
+    const script = argv[1]!;
+    expect(script.startsWith("umask 077")).toBe(true);
+    expect(script).toContain('"$bin" "$@" 2>&1');
+    expect(script).toContain("exit=");
+    expect(script).toContain('${out:0:200}');          // status text only, bounded
+    expect(script).toContain("tail -n 100");           // never grows unbounded
+    expect(script.trim().endsWith("exit $rc")).toBe(true);
+  });
+  test("--chat pushes carry the handle through untouched", () => {
+    const argv = pushReadCommand("/x/imsg-read", ["--chat", "+15550100011"], "/x/log");
+    expect(argv.slice(-2)).toEqual(["--chat", "+15550100011"]);
+  });
+  test("the log lives beside state.json, never in the cache", () => {
+    expect(pushReadLogPath("/home/u")).toBe("/home/u/.local/state/blip/push-read.log");
   });
 });

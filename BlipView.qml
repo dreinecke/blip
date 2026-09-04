@@ -1723,6 +1723,30 @@ FocusScope {
                         font.pixelSize: root.fontBody
                         font.bold: true
                       }
+
+                      // The unread dot. Pinned threads live ONLY here — the list
+                      // below is unpinnedThreads — so this is the one place a
+                      // pinned conversation can say it has something new. The
+                      // count under the tile went in 2.3.1 and took the signal
+                      // with it: a bold caption at 11px is not a signal (2.3.2,
+                      // one unread in a pinned group, badge 1, "nothing new in
+                      // the app"). Messages puts a blue dot at the top-left of
+                      // the pinned circle; the ring keeps it readable on a photo.
+                      Rectangle {
+                        id: pinnedUnreadDot
+                        visible: modelData.unread > 0
+                        width: Style.space(14); height: width; radius: width / 2
+                        anchors.left: parent.left
+                        anchors.top: parent.top
+                        anchors.leftMargin: -Style.space(1)
+                        anchors.topMargin: -Style.space(1)
+                        color: Color.background
+                        Rectangle {
+                          anchors.centerIn: parent
+                          width: Style.space(9); height: width; radius: width / 2
+                          color: root.mineFill
+                        }
+                      }
                     }
 
                     // No number under the tile (Fred, 2.3.1). 1-9 still jumps —

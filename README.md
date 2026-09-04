@@ -506,6 +506,19 @@ per-chat ledger. Blip expands the fetch to cover new arrivals and the oldest
 outstanding unread, then rebuilds exact counts from that range. An unread cannot
 fall off the preview window or remain counted after deletion.
 
+**Reads reach the Mac through its menu bar.** Nothing writes `is_read` into
+`chat.db` — that would not sync to your phone. Instead *mark all read* has the
+Mac click Messages' own **Conversation ▸ Mark All as Read**, and Messages does
+the syncing. One catch, found the hard way: AppKit only validates an app's
+menus while that app is active, so with Messages in the background every item
+in that menu reports *disabled* — which used to read as "nothing unread" and
+silently did nothing. Blip now checks what Messages itself counts as unread in
+`chat.db` before and after, and when the menu is dormant it activates Messages
+for well under a second, clicks, and hands focus straight back to whatever you
+had in front. `push_read=off` in `bridge.conf` turns the whole thing off. Every
+push records its outcome in `~/.local/state/blip/push-read.log` (no message
+content), so "did that reach the Mac?" has an answer.
+
 **Groups send by GUID.** Message rows carry a group as a bare
 `chat_identifier` (32 hex, or `chat<digits>`); AppleScript's `chat id` wants
 the full `any;+;<id>`. A group's `handle` field is whichever member spoke last

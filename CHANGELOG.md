@@ -2,6 +2,34 @@
 
 ## Unreleased
 
+- **A pinned conversation shows its unread dot.** Pinned threads render only
+  in the favourites grid — the list below is the unpinned ones — and 2.3.1
+  removed the count under each tile, which left a bold caption as a pinned
+  conversation's only unread signal. One unread in a pinned group produced
+  badge 1 and "nothing new in the app". The tile now carries the same blue dot
+  the list rows do, at the top-left of the circle like Messages, with a ring so
+  it reads on a photo.
+- **Reads actually reach the Mac now.** `imsg-read` clicked Messages' *Mark
+  All as Read* and trusted the menu item's enabled state: disabled meant
+  "nothing unread", exit 0. But AppKit only validates an app's menus while it
+  is the active app — with Messages in the background, *every* Conversation
+  item reads disabled, even with the menu forced open. So every push since
+  2.3.0 was a silent no-op unless you happened to be using Messages at the
+  time: Blip cleared, the phone kept its badge, nothing said why. `imsg-read`
+  now counts what Messages itself considers unread in `chat.db` (inbound rows
+  newer than the chat's own read cursor, which is what the Dock badge follows)
+  before and after the click; when the menu is dormant it activates Messages
+  for 0.7 s, clicks, hands focus straight back to whatever was in front, and
+  exits 75 with a reason if the count did not move. Verified end to end: 1 → 0
+  on the Mac, Dock badge gone, previous app restored in under a second.
+  `imsg-read --status` reports "ready but dormant" with the count when a push
+  would currently do nothing.
+- **A failed push leaves evidence.** The collector fires `imsg-read` detached
+  and exits before it finishes, so a failure used to be indistinguishable from
+  success. Each push now records its exit code and `imsg-read`'s status line
+  in `~/.local/state/blip/push-read.log` (0600, last ~100 lines, never any
+  message content).
+
 - **Group photos show up as photos again.** Messages stores a group's picture
   on an announcement row (`item_type = 3`). The bridge hides those rows so
   they never become empty unread bubbles, and the photo lookup joined through

@@ -85,7 +85,9 @@ what it is handed. Keep it that way.
   metadata. It is atomic and `0600`; no message bodies are allowed. EXCEPTION
   (Fred, 2026-08-31): fetched MEDIA caches as plain files in
   `~/.cache/blip/att` (0700/0600, 500 MB LRU) — the Linux box's disk is LUKS-encrypted
-  at rest. Message text still never lands on disk.
+  at rest. Message text still never lands on disk. `push-read.log` beside
+  state.json records each read-push's exit code and `imsg-read`'s status
+  line — never content.
 - **The Linux shims' ssh preflight must use `ssh -n`.** A bare
   `ssh <mac> true` connectivity probe EATS STDIN, which silently empties
   `imsg-send --file-stdin` payloads. Fixed 2026-08-31.
@@ -240,6 +242,23 @@ to whatever has focus otherwise.
   - `--all` does NOT steal focus: no window raised, no selection changed,
     frontmost app unchanged (measured). `--chat` MUST open the conversation,
     which pulls Messages forward — that is why `push_read` defaults to `all`.
+  - **The menu is DORMANT while Messages is in the background** (2026-09-04).
+    With a real unread and the Dock badge at 1, EVERY Conversation-menu item
+    read `enabled=false` through System Events, even with the menu forced
+    open — AppKit validates menus against the responder chain of the ACTIVE
+    app. `imsg-read` used to read "disabled" as "nothing unread" and exit 0,
+    so every push was a silent no-op unless you happened to be using
+    Messages. Now it counts what Messages itself calls unread in chat.db
+    (inbound, non-tapback, `item_type=0`, newer than the chat's
+    `last_read_message_timestamp` — the Dock-badge definition) before and
+    after; when the menu is dormant it activates Messages for 0.7 s, clicks,
+    hands focus straight back, and exits 75 with a reason if the count did
+    not move. The collector records every push in
+    `~/.local/state/blip/push-read.log` (exit code + status line, no content).
+    A disabled menu item is NOT evidence of anything; chat.db is the referee.
+  - With `push_read=all` a per-thread read pushes NOTHING by design — only
+    mark-all does. Conversations read in Blip stay unread on the phone until
+    the next mark-all. Documented trade-off, not a bug.
   - Needs **Accessibility** for `/usr/libexec/sshd-keygen-wrapper`, on top of
     the Full Disk Access it already has. Optional: `blip-check` reports it as
     a ➖ rather than failing.
