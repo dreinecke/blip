@@ -15,6 +15,10 @@
   the rest of the session, so a group picture or Contacts card set a minute
   later never appeared. The UI now re-asks (skipping that marker), and
   reopening the panel retries any letter.
+- **Blip text can be larger than the rest of the shell.** `ui_font_size=14`
+  in `bridge.conf` is bubble text in pixels (9–24). Caption and labels keep
+  the same proportions. Unset, Blip still follows Omarchy's type tokens.
+  This does not change the bar, GTK apps, or terminals.
 
 ## 2.3.2 — 2026-09-04
 

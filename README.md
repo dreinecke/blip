@@ -62,7 +62,9 @@ people who showed up with pull requests. What is in it now:
   picks the first of **SF Pro** (Apple's own, what Messages ships with),
   **Inter** (open licence, `pacman -S inter-font`), then your theme font — so
   nothing changes for anyone who has installed neither. `blip-setup` offers to
-  install Inter; `ui_font=theme` in `bridge.conf` opts out.
+  install Inter; `ui_font=theme` in `bridge.conf` opts out. `ui_font_size=14`
+  (9–24) is bubble text in pixels so Blip can be larger than the rest of the
+  shell.
   **Blip ships no fonts.** SF Pro is Apple's and its licence forbids
   redistribution, so it is never carried in this repo — if you want the exact
   Messages face, get it from [Apple](https://developer.apple.com/fonts/).
@@ -242,7 +244,9 @@ Blip renders in the first of these it finds, so it is optional either way:
 | your theme font | whatever Omarchy is set to | nothing to install |
 
 `blip-setup` offers to install Inter if you have neither. `ui_font=theme` in
-`bridge.conf` always uses the Omarchy family.
+`bridge.conf` always uses the Omarchy family. `ui_font_size=14` (9–24) sets
+bubble text in pixels so Blip can be larger than the rest of the shell;
+unset, it follows Omarchy's type size.
 
 > **Blip ships no fonts.** SF Pro is Apple's and its licence forbids
 > redistribution, so it is not carried in this repo — note that even the AUR
