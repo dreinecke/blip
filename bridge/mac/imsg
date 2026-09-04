@@ -86,14 +86,61 @@ def _child_delegate_sources() -> set[str]:
     return out
 
 
+# Contacts sources are NOT equal, and counting them is how a name goes wrong.
+# A synced directory — a work Exchange account, a Google export, a company
+# address book — can hold thousands of rows and outvote the one card the owner
+# typed themselves. Rank the sources instead of tallying them:
+#   0  the local store, "On My Mac": no backing account. The owner typed it.
+#   1  the owner's own iCloud (a CardDAV account owned by Apple ID settings).
+#   2  every other synced source.
+# Lowest rank that offers a name wins; only WITHIN a rank does the most common
+# spelling still decide. An unreadable Accounts database ranks everything the
+# same, which is exactly the old count-the-votes behaviour.
+_RANK_LOCAL, _RANK_ICLOUD, _RANK_SYNCED = 0, 1, 2
+
+
+def _source_ranks() -> dict:
+    """Source identifier -> rank. Empty when Accounts cannot be read."""
+    out: dict = {}
+    try:
+        con = sqlite3.connect(f"file:{_ACCOUNTS_DB}?mode=ro", uri=True)
+        rows = con.execute(
+            "SELECT a.ZIDENTIFIER, COALESCE(t.ZIDENTIFIER, ''), "
+            "       COALESCE(a.ZOWNINGBUNDLEID, ''), COALESCE(a.ZACCOUNTDESCRIPTION, '') "
+            "FROM ZACCOUNT a LEFT JOIN ZACCOUNTTYPE t ON t.Z_PK = a.ZACCOUNTTYPE"
+        ).fetchall()
+        con.close()
+    except sqlite3.DatabaseError:
+        return out
+    for ident, kind, bundle, desc in rows:
+        if not ident:
+            continue
+        apple = "AppleIDSettings" in (bundle or "") or (desc or "").strip().lower() == "icloud"
+        out[str(ident)] = _RANK_ICLOUD if apple else _RANK_SYNCED
+    return out
+
+
+def _rank_of(path: str, ranks: dict) -> int:
+    """A source directory with no account behind it is the local store."""
+    return ranks.get(os.path.basename(os.path.dirname(path)), _RANK_LOCAL)
+
+
 def _ab_sources() -> list[str]:
-    """Every AddressBook source db that belongs to the user, sorted, minus the
-    child-delegate mirrors. The Sources/<id>/ folder name IS the account id."""
+    """Every AddressBook source db that belongs to the user, minus the
+    child-delegate mirrors, NEAREST SOURCE FIRST. The Sources/<id>/ folder name
+    IS the account id.
+
+    Order matters beyond names: cmd_avatar takes the first source that has a
+    photo, so glob order let a synced directory's stock headshot beat the one
+    the owner set. Ranked, the owner's own book answers first for both.
+    """
     skip = _child_delegate_sources()
-    return [
+    ranks = _source_ranks()
+    paths = [
         p for p in sorted(glob(_AB_GLOB))
         if os.path.basename(os.path.dirname(p)) not in skip
     ]
+    return sorted(paths, key=lambda p: (_rank_of(p, ranks), p))
 
 
 def _normalize_phone(s: str) -> str:
@@ -143,14 +190,19 @@ def name_for(handle: str | None) -> str | None:
     if not handle:
         return None
     if _NAME_INDEX is None:
-        # One person usually exists in SEVERAL sources (iCloud, Exchange, On My
-        # Mac) under slightly different spellings; a Family Sharing child's
-        # mirrored address book is NOT one of yours (_ab_sources drops it) ("Rob" vs "Robert"). That is
-        # not ambiguity. Ambiguity is two DIFFERENT records inside ONE source
-        # sharing the key — that source is skipped for that key. Across
-        # sources the most common spelling wins; ties go to the first source.
-        votes: dict[str, dict[str, int]] = {}   # key -> name -> count
+        # One person usually exists in SEVERAL sources under slightly different
+        # spellings ("Rob" vs "Robert"). That is not ambiguity. Ambiguity is two
+        # DIFFERENT records inside ONE source sharing the key — that source is
+        # skipped for that key. A Family Sharing child's mirrored address book is
+        # not one of yours at all (_ab_sources drops it).
+        # Across sources the OWNER'S book wins outright (see _source_ranks); the
+        # most common spelling only breaks ties within one rank. Counting every
+        # source equally let a synced directory's bulk rows rename people.
+        # key -> name -> [best source rank seen, times seen]
+        votes: dict[str, dict[str, list]] = {}
+        ranks = _source_ranks()
         for path in _ab_sources():
+            rank = _rank_of(path, ranks)
             try:
                 con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
                 con.row_factory = sqlite3.Row
@@ -180,11 +232,19 @@ def name_for(handle: str | None) -> str | None:
                 con.close()
                 for key, name in local.items():
                     if name:
-                        votes.setdefault(key, {})
-                        votes[key][name] = votes[key].get(name, 0) + 1
+                        slot = votes.setdefault(key, {})
+                        if name in slot:
+                            slot[name][0] = min(slot[name][0], rank)
+                            slot[name][1] += 1
+                        else:
+                            slot[name] = [rank, 1]
             except sqlite3.DatabaseError:
                 continue
-        _NAME_INDEX = {k: max(v.items(), key=lambda kv: kv[1])[0] for k, v in votes.items()}
+        # Nearest source first; only then the most common spelling.
+        _NAME_INDEX = {
+            k: min(v.items(), key=lambda kv: (kv[1][0], -kv[1][1]))[0]
+            for k, v in votes.items()
+        }
     if "@" in handle:
         return _NAME_INDEX.get(handle.strip().lower()) or None
     return _NAME_INDEX.get(_normalize_phone(handle)) or None
