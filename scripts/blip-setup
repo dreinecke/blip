@@ -153,6 +153,28 @@ if out="$("$HOME/bin/imsg" --json recent 1 2>&1)"; then
   n="$(printf '%s' "$out" | jq -r 'length' 2>/dev/null || echo "?")"
   echo "✓ bridge is up — $n message(s) readable through the shim"
   echo
+  # 6. the UI font. Blip renders in SF Pro when the machine has it, else Inter,
+  # else the Omarchy theme font. We install Inter (OFL, in Arch's `extra`) and
+  # only POINT AT Apple for SF Pro: its licence forbids redistribution, so the
+  # font is never carried in this repo and never fetched by us.
+  if fc-list : family 2>/dev/null | grep -qiE '"'"'(^|,)\s*(SF Pro Text|SF Pro Display|Inter)\s*($|,)'"'"'; then
+    echo "✓ UI font present — Blip will render like Messages rather than in the theme's monospace"
+  else
+    echo "Blip looks most like Messages in a UI sans. Omarchy's font is monospace."
+    echo "  Inter  — open licence, one command:   sudo pacman -S --needed inter-font"
+    echo "  SF Pro — Apple's own, what Messages uses; download it from Apple:"
+    echo "           https://developer.apple.com/fonts/   (AUR: otf-san-francisco fetches it for you)"
+    echo "  Neither is required, and Blip ships no fonts. Set ui_font=theme in bridge.conf to always"
+    echo "  use the Omarchy family."
+    if command -v pacman >/dev/null 2>&1; then
+      read -r -p "Install Inter now with pacman? [y/N] " ans
+      case "$ans" in
+        [Yy]*) sudo pacman -S --needed --noconfirm inter-font && echo "✓ Inter installed" || echo "  (skipped — install it yourself later)" ;;
+        *) echo "  (skipped)" ;;
+      esac
+    fi
+    echo
+  fi
   echo "Next: restart the Omarchy shell (omarchy-restart-shell). Toasts are allowlist-only:"
   echo "  ~/.config/blip/allowlist.json  →  { \"allow\": [\"+15551234567\"] }"
 else

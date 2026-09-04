@@ -57,10 +57,15 @@ people who showed up with pull requests. What is in it now:
   size and whether it was open across shell restarts.
 - **Pinned conversations**, mirrored from Messages on the Mac, in the same
   order, as avatar tiles above the list. Read-only: Blip never re-pins.
-- **The font Messages uses.** If this machine has **SF Pro Text**, Blip uses it
-  rather than Omarchy's monospace family — it is most of what makes a
-  screenshot read as Messages. Falls back to your theme font when it is
-  absent; `ui_font=theme` in `bridge.conf` opts out.
+- **The font Messages uses.** Omarchy renders everything in monospace, and that
+  one thing is most of what makes a screenshot read as *not* Messages. Blip
+  picks the first of **SF Pro** (Apple's own, what Messages ships with),
+  **Inter** (open licence, `pacman -S inter-font`), then your theme font — so
+  nothing changes for anyone who has installed neither. `blip-setup` offers to
+  install Inter; `ui_font=theme` in `bridge.conf` opts out.
+  **Blip ships no fonts.** SF Pro is Apple's and its licence forbids
+  redistribution, so it is never carried in this repo — if you want the exact
+  Messages face, get it from [Apple](https://developer.apple.com/fonts/).
 - **Contact photos** from the Mac's Contacts, and **group photos** — a group
   wears its own picture, never whichever member happened to speak last.
 - **Link cards for every URL.** Messages decorates some links and leaves most

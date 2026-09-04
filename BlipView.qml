@@ -48,11 +48,17 @@ FocusScope {
    * for certain rather than guessing (asking for a missing family silently
    * yields a default sans, which would be a worse wrong answer than the
    * theme font).
-   * Falls back to the theme font when SF Pro is absent, so nothing changes for
-   * anyone who has not installed it. `ui_font=theme` in bridge.conf opts out.
+   * Order: SF Pro if the machine has it, then Inter — which is OFL-licensed,
+   * ships in Arch's `extra`, and was drawn for exactly this job — then the
+   * theme font, so nothing changes for anyone who has installed neither.
+   * `ui_font=theme` in bridge.conf opts out.
+   *
+   * Blip will never SHIP a font: SF Pro is Apple's and its licence forbids
+   * redistribution, which is why blip-setup installs Inter and only points at
+   * Apple's own download for SF Pro.
    */
   readonly property string messagesFont: {
-    var want = ["SF Pro Text", "SF Pro Display", "SF Pro"]
+    var want = ["SF Pro Text", "SF Pro Display", "SF Pro", "Inter"]
     var have = Qt.fontFamilies()
     for (var i = 0; i < want.length; i++) if (have.indexOf(want[i]) >= 0) return want[i]
     return ""

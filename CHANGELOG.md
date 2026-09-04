@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- **The font is part of setup now, without shipping one.** Blip picks the first
+  of SF Pro, Inter, then your theme font. `blip-setup` offers to install
+  **Inter** (SIL OFL, in Arch's `extra`, drawn for exactly this job) and only
+  points at Apple's own download page for SF Pro. **No font is carried in this
+  repo:** SF Pro is Apple's and its licence forbids redistribution, which is
+  also why the AUR package fetches it from Apple rather than mirroring it.
+
 ## 2.3.1 — 2026-09-03 — it looks like Messages now
 
 - **Blip uses the font Messages uses.** Omarchy resolves its family to
