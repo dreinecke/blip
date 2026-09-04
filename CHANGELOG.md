@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.3.1 — 2026-09-03 — it looks like Messages now
 
 - **Blip uses the font Messages uses.** Omarchy resolves its family to
   JetBrainsMono system-wide, so every label in the panel was monospace — the
