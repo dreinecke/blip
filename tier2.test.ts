@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 
 import { CACHE_DIR, bakeOrientation, cacheFileName, exifOrientation, fetchAttachment, imageMetrics, isImageMime, jpegtranArgs, lruEvictions, sanitizeName, wantsJpeg } from "./fetch";
-import { extFor, pickImageType } from "./paste";
+import { extFor, existingLocalFile, firstFileUri, pickImageType, snapshotClipboard } from "./paste";
 import { resolveTarget, sendFile } from "./send-file";
 import { linkHost, linkify, normalizeLink, selectThread } from "./thread";
 import {
@@ -15,8 +15,9 @@ import {
   sniffImage,
 } from "./linkpreview";
 import { AVATAR_DIR, AVATAR_NONE_TTL_MS, AVATAR_TTL_MS, avatarArgs, avatarKey, fetchAvatar } from "./avatar";
-import { readFileSync, writeFileSync, unlinkSync, utimesSync } from "node:fs";
+import { readFileSync, writeFileSync, unlinkSync, utimesSync, mkdtempSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 // A real 16×8 baseline JPEG (ImageMagick, -strip): no APP1 at all.
@@ -490,6 +491,29 @@ describe("paste type picking", () => {
   test("extensions map sanely", () => {
     expect(extFor("image/png")).toBe("png");
     expect(extFor("image/tiff")).toBe("img");
+  });
+  test("uri-list yields the first local file", () => {
+    expect(firstFileUri("file:///tmp/photo.png\n")).toBe("/tmp/photo.png");
+    expect(firstFileUri("copy\nfile:///tmp/a%20b.png")).toBe("/tmp/a b.png");
+    expect(firstFileUri("https://example.com/x.png")).toBe("");
+  });
+  test("a copied file path attaches instead of pasting as text", () => {
+    const dir = mkdtempSync(join(tmpdir(), "blip-paste-"));
+    const file = join(dir, "shot.png");
+    writeFileSync(file, "x");
+    expect(existingLocalFile("file://" + file)).toBe(file);
+    expect(existingLocalFile(file)).toBe(file);
+    expect(existingLocalFile("not a path")).toBe("");
+    const uri = "file://" + file;
+    const runner = ((_cmd: string, args: string[]) => {
+      if (args.includes("--list-types")) return { status: 0, stdout: "text/uri-list\ntext/plain\n", stderr: "" };
+      if (args.includes("text/uri-list")) return { status: 0, stdout: uri + "\n", stderr: "" };
+      return { status: 1, stdout: "", stderr: "" };
+    }) as never;
+    const snap = snapshotClipboard(runner);
+    expect(snap.kind).toBe("file");
+    expect(snap.path).toBe(file);
+    unlinkSync(file);
   });
 });
 

@@ -1150,7 +1150,7 @@ FocusScope {
         if (!root.inThread || String(root.active.chat) !== root.pasteChat) return
         try {
           var d = JSON.parse(text.trim())
-          if (d.kind === "image") root.setDraft(String(d.path || ""))
+          if (d.kind === "image" || d.kind === "file") root.setDraft(String(d.path || ""))
           else if (d.kind === "text") {
             composeField.insert(composeField.cursorPosition, String(d.text || ""))
           }
@@ -2625,40 +2625,81 @@ FocusScope {
 
         RowLayout {
           Layout.fillWidth: true
+          Layout.maximumWidth: parent.width
           visible: root.inThread
           spacing: Style.space(6)
 
-          TextField {
-            id: composeField
+          // Width must be assigned by the layout *before* wrap can happen.
+          // A bare TextArea's implicitWidth is the unwrapped line, so RowLayout
+          // otherwise grows with the text and the caret scrolls sideways.
+          Item {
+            id: composeSlot
             Layout.fillWidth: true
-            // NEVER disabled: this field is the panel's exclusive keyboard-focus
-            // holder, and disabling the focused editor dismisses the whole
-            // panel (0.7.2 postmortem; Codex design review #8). readOnly
-            // instead; send() is the authoritative online/sendability guard.
-            enabled: true
-            readOnly: !root.online || !root.isSendable(root.active)
-            placeholderText: root.draftPath !== ""
-              ? "caption (optional) — Enter sends the file"
-              : root.isSendable(root.active) ? "iMessage" : "Read-only — group id unknown"
-            foreground: root.foreground
-            accent: root.mineFill
-            font.family: root.fontFamily
-            font.pixelSize: Style.font.bodySmall
-            onAccepted: root.send()
-            Keys.onEscapePressed: root.back()
-            // Ctrl+V goes through paste.ts: an image on the clipboard becomes
-            // a draft chip; text falls through to a manual insert. One process
-            // snapshots types AND data — probing then re-reading races.
-            Keys.onPressed: (event) => {
-              if (event.matches(StandardKey.Paste)) {
-                event.accepted = true
-                root.startPaste()
+            Layout.preferredWidth: 0
+            Layout.minimumWidth: 0
+            Layout.alignment: Qt.AlignBottom
+            Layout.preferredHeight: {
+              var line = Math.ceil(composeField.font.pixelSize * 1.35)
+              var pad = composeField.topPadding + composeField.bottomPadding
+              var h = composeField.contentHeight + pad
+              return Math.round(Math.min(Math.max(h, line + pad), line * 5 + pad))
+            }
+            clip: true
+
+            TextArea {
+              id: composeField
+              anchors.fill: parent
+              wrapMode: TextEdit.Wrap
+              // NEVER disabled: this field is the panel's exclusive keyboard-focus
+              // holder, and disabling the focused editor dismisses the whole
+              // panel (0.7.2 postmortem; Codex design review #8). readOnly
+              // instead; send() is the authoritative online/sendability guard.
+              enabled: true
+              readOnly: !root.online || !root.isSendable(root.active)
+              placeholderText: root.draftPath !== ""
+                ? "caption (optional) — Enter sends the file"
+                : root.isSendable(root.active) ? "iMessage" : "Read-only — group id unknown"
+              color: root.foreground
+              placeholderTextColor: Qt.darker(root.foreground, 1.6)
+              selectionColor: Style.selectionFillFor(root.foreground, root.mineFill)
+              selectedTextColor: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: Style.font.bodySmall
+              readonly property var _composeBorder: Border.controlSpec(
+                activeFocus ? "focus" : (hovered ? "hover-cursor" : "normal"),
+                root.foreground, root.mineFill)
+              leftPadding: Style.spacing.controlPaddingX + Border.left(_composeBorder)
+              rightPadding: Style.spacing.controlPaddingX + Border.right(_composeBorder)
+              topPadding: Style.spacing.inputPaddingY + Border.top(_composeBorder)
+              bottomPadding: Style.spacing.inputPaddingY + Border.bottom(_composeBorder)
+              background: BorderSurface {
+                color: Style.controlFill(composeField.activeFocus, composeField.hovered, root.foreground, root.mineFill)
+                borderSpec: composeField._composeBorder
+                radius: Style.cornerRadius
+              }
+              Keys.onEscapePressed: root.back()
+              // Ctrl+V goes through paste.ts: an image on the clipboard becomes
+              // a draft chip; text falls through to a manual insert. One process
+              // snapshots types AND data — probing then re-reading races.
+              // Enter sends (iMessage); Shift+Enter inserts a newline.
+              Keys.onPressed: (event) => {
+                if (event.matches(StandardKey.Paste)) {
+                  event.accepted = true
+                  root.startPaste()
+                  return
+                }
+                if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+                    && !(event.modifiers & Qt.ShiftModifier)) {
+                  event.accepted = true
+                  root.send()
+                }
               }
             }
           }
 
           // send button — the blue arrow circle (lit when text OR a file is queued)
           Rectangle {
+            Layout.alignment: Qt.AlignBottom
             readonly property bool armed: composeField.text.trim() !== "" || root.draftPath !== ""
             width: Style.space(28); height: width; radius: width / 2
             color: armed ? root.mineFill : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.15)
