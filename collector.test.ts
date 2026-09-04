@@ -504,6 +504,18 @@ describe("fetchMessages", () => {
     expect(r.msgs).toHaveLength(1);
   });
 
+  test("drops rows with neither chat nor handle, keeps handle-only rows", () => {
+    // Leftovers of deleted conversations arrive with no chat and no handle;
+    // one-off SMS senders arrive with no chat but a handle, and must stay.
+    const r = fetchMessages(10, fake({ status: 0, stdout: JSON.stringify([
+      msg(),
+      msg({ chat: null as unknown as string, handle: "31614" }),
+      msg({ chat: null as unknown as string, handle: null as unknown as string }),
+    ]) }));
+    expect(r.ok).toBe(true);
+    expect(r.msgs.map((m) => m.handle)).toEqual(["+15551234567", "31614"]);
+  });
+
   test("exit 69 reports the Mac offline, not a crash", () => {
     // 69 = EX_UNAVAILABLE, the documented code from the imsg shim's reachability guard.
     const r = fetchMessages(10, fake({ status: 69 }));

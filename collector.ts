@@ -400,6 +400,18 @@ export function chatKey(m: ImsgMessage | undefined): string {
 }
 
 /**
+ * A row with neither a chat nor a handle is a leftover of a conversation that
+ * no longer exists: deleting a conversation removes the chat row and the join,
+ * and Messages in iCloud keeps the message rows in sync regardless. Messages
+ * shows such rows nowhere; grouped by their empty identity they became one
+ * nameless, unopenable thread here. Rows WITH a handle stay — some SMS
+ * senders only ever exist that way (see chatKey).
+ */
+export function hasIdentity(m: ImsgMessage): boolean {
+  return chatKey(m) !== "";
+}
+
+/**
  * Group a flat message window into threads, newest-first.
  *
  * `unread` counts inbound messages strictly newer than the thread's read mark:
@@ -879,7 +891,7 @@ export function fetchMessages(limit: number, runner = spawnSync): FetchResult {
   try {
     const parsed = JSON.parse(res.stdout as string);
     if (!Array.isArray(parsed)) throw new Error("not an array");
-    return { ok: true, online: true, error: "", msgs: parsed as ImsgMessage[] };
+    return { ok: true, online: true, error: "", msgs: (parsed as ImsgMessage[]).filter(hasIdentity) };
   } catch (e) {
     return { ok: false, online: true, error: `bad JSON from imsg: ${e}`, msgs: [] };
   }

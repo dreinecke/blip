@@ -136,7 +136,11 @@ what it is handed. Keep it that way.
   true, which would have silently hidden the GA Power SMS from 99123 that took
   a day to make arrive at all. A default that hides messages is not a
   preference.
-- **`chat:null` exists.** Use `chatKey()`; never `String(m.chat)`.
+- **`chat:null` exists.** Use `chatKey()`; never `String(m.chat)`. A row with
+  neither chat nor handle is a leftover of a deleted conversation (iCloud keeps
+  the row, the chat and the join are gone); `fetchMessages` drops it
+  (`hasIdentity`), or it becomes a nameless, unopenable thread. Rows with a
+  handle stay — some SMS senders only ever exist that way.
 - **Group ids come in two shapes**: 32 hex, or `chat<digits>`. `isGroupChat()` is
   "not a phone/email" — never a positive regex on one shape.
 - **Deleted messages stay in chat.db for 30 days** (`chat_recoverable_message_join`).
