@@ -102,14 +102,24 @@ what it is handed. Keep it that way.
 - **One person lives in several Contacts sources** (iCloud, Exchange, On My
   Mac) under slightly different spellings. That is NOT ambiguity — names
   (`name_for`) and photos (`cmd_avatar`) treat a collision only WITHIN one
-  source as ambiguous; across sources the most common spelling wins. Got
-  this wrong twice (2.0.0 photos, 1.9.4 names → "Rob T shows as a number").
-  EXCEPTION: a Family Sharing child's address book (Screen Time ▸ Manage
-  Contacts) is mirrored to the parent's Mac as its OWN CardDAV store under
-  `AddressBook/Sources/<id>/`, flagged `isChildDelegate` in
-  `~/Library/Accounts/Accounts4.sqlite`. Contacts.app hides those from All
-  Contacts; `_ab_sources()` drops them before the vote, or two sons' "Mom"
-  cards outvote your own "Monica Gamble" for the same number.
+  source as ambiguous. Got this wrong twice (2.0.0 photos, 1.9.4 names →
+  "Rob T shows as a number").
+  **Sources are RANKED, never counted** (`_source_ranks`, read from
+  `~/Library/Accounts/Accounts4.sqlite`): `0` the local "On My Mac" store,
+  which has no backing account and is what the owner typed; `1` the owner's
+  own iCloud (CardDAV owned by Apple ID settings); `2` every other synced
+  source. The lowest rank offering a name wins outright, and the most common
+  spelling only breaks ties WITHIN a rank. Counting sources equally let a
+  synced directory of thousands rename people by sheer volume. An unreadable
+  Accounts db ranks everything the same, i.e. the old behaviour.
+  `_ab_sources()` returns paths IN RANK ORDER, which is also what makes
+  `cmd_avatar` — "first source with a photo wins" — prefer the owner's
+  picture over a corporate headshot.
+  EXCEPTION on top of that: a Family Sharing child's address book (Screen
+  Time ▸ Manage Contacts) is mirrored to the parent's Mac as its OWN CardDAV
+  store, flagged `isChildDelegate` in the same Accounts db. Contacts.app hides
+  those from All Contacts; `_ab_sources()` drops them entirely, or two sons'
+  "Mom" cards outvote your own "Monica Gamble" for the same number.
 - **`chat:null` exists.** Use `chatKey()`; never `String(m.chat)`.
 - **Group ids come in two shapes**: 32 hex, or `chat<digits>`. `isGroupChat()` is
   "not a phone/email" — never a positive regex on one shape.

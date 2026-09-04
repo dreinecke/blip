@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **Your own address book decides who someone is.** Contact names were
+  resolved by counting sources and taking the most common spelling, so a work
+  Exchange account or a synced company directory holding thousands of rows
+  could outvote the single card you typed yourself. Sources are now ranked
+  rather than tallied — your local "On My Mac" store first, then your own
+  iCloud, then anything synced — and the most common spelling only breaks ties
+  within a rank. The same order now decides contact PHOTOS, which took
+  whichever source came first alphabetically. Mac side: re-run the install
+  one-liner.
 - **The font is part of setup now, without shipping one.** Blip picks the first
   of SF Pro, Inter, then your theme font. `blip-setup` offers to install
   **Inter** (SIL OFL, in Arch's `extra`, drawn for exactly this job) and only
