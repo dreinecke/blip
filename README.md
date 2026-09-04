@@ -375,6 +375,12 @@ forwarding "another ActBlue text, unbelievable" to a friend never mutes the
 friend. Nothing is deleted: the messages are untouched on the Mac and in
 Messages, Blip simply stops showing them.
 
+> **Pick phrases a person would not send you.** The test is on inbound text,
+> so if a *friend* writes "I got another ActBlue text today", that mutes your
+> friend's whole conversation until you edit the list. Platform names and
+> opt-out footers are safe because nobody types them at you; a common word is
+> not.
+
 **Outside North America:** set `country_code=44` (etc.) in
 `~/.config/blip/bridge.conf` so a number typed without a country code in
 "New message" resolves correctly. Green-bubble (SMS/RCS) conversations

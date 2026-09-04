@@ -1223,3 +1223,29 @@ describe("mute list", () => {
     expect(selectToasts(kept, "2026-08-30 10:00:00", ["78462"], [])).toEqual([]);
   });
 });
+
+describe("the mute list can catch a person (documented caveat, #27)", () => {
+  const { matchesMute, mutedChats } = require("./collector") as typeof import("./collector");
+
+  test("an inbound message from a PERSON containing the phrase mutes them too", () => {
+    // Not a bug — it is what phrase matching means, and why the README says to
+    // pick phrases nobody would type at you. Locked so the behaviour is a
+    // decision rather than a surprise.
+    const friend = msg({ chat: "+15550100011", handle: "+15550100011", from_me: false,
+                         text: "I got another ActBlue text today, unbelievable" });
+    expect(matchesMute(friend, ["ActBlue"])).toBe(true);
+    expect(mutedChats([friend], ["ActBlue"])).toEqual(["+15550100011"]);
+  });
+
+  test("quoting it OUTBOUND never mutes the person you said it to", () => {
+    const mine = msg({ chat: "+15550100011", handle: "+15550100011", from_me: true,
+                       text: "another ActBlue text, unbelievable" });
+    expect(mutedChats([mine], ["ActBlue"])).toEqual([]);
+  });
+
+  test("an empty or absent list changes nothing at all", () => {
+    const m = msg({ from_me: false, text: "rush $25 — Reply STOP2END" });
+    expect(mutedChats([m], [])).toEqual([]);
+    expect(matchesMute(m, [])).toBe(false);
+  });
+});
