@@ -1,5 +1,28 @@
 # Changelog
 
+## Unreleased
+
+- **Blip uses the font Messages uses.** Omarchy resolves its family to
+  JetBrainsMono system-wide, so every label in the panel was monospace — the
+  loudest remaining difference from Messages, more than any spacing. When this
+  machine has **SF Pro Text** (the family Messages ships with, and one a Mac-
+  themed Linux box usually already has), Blip now uses it for the sidebar,
+  bubbles and compose box. `Qt.fontFamilies()` decides, so a missing family
+  falls back to your theme font rather than to some arbitrary sans. Nothing
+  changes for anyone without it. `ui_font=theme` in `bridge.conf` opts out.
+- **The popout is 20% narrower** (440 → 352). Messages' sidebar is a narrow
+  column.
+- **Sidebar rows read like Messages**: previews wrap to two lines instead of
+  eliding at one, the name is semibold always (unread is carried by the blue
+  dot and blue timestamp), a slightly larger avatar, and row stamps follow
+  Apple's rule — a clock today, "Yesterday", then the weekday for the past
+  week, then a date. It was printing date-plus-clock for everything older than
+  today, which is a mail-client habit.
+- **No numbers under the pinned tiles**, and conversation rows are
+  left-justified again: the 1–9 hint reserved a fixed-width column at the head
+  of every row that stayed blank once nine pins owned the digits. `1`–`9` still
+  jumps.
+
 ## 2.3.0 — 2026-09-03 — the contributors' release
 
 - **Photos in a message stopped arriving once they were full-size.** Someone

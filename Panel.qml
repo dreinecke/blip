@@ -93,7 +93,7 @@ Panel {
         surfaceOpen: root.opened
         foreground: root.bar ? root.bar.foreground : Color.foreground
         urgent: root.bar ? root.bar.urgent : Color.urgent
-        fontFamily: root.bar ? root.bar.fontFamily : Style.font.family
+        themeFont: root.bar ? root.bar.fontFamily : Style.font.family
         onNavigationFocusRequested: keyCatcher.forceActiveFocus()
       }
     }

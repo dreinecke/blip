@@ -36,7 +36,30 @@ FocusScope {
   property bool readActive: true
   property color foreground: Color.foreground
   property color urgent: Color.urgent
-  property string fontFamily: Style.font.family
+  /** The theme's font, injected by whichever surface hosts this view. */
+  property string themeFont: Style.font.family
+  /**
+   * The font Messages actually uses, when this machine has it.
+   *
+   * Omarchy resolves its family to JetBrainsMono system-wide, so every label
+   * here was monospace — the loudest remaining difference from Messages, more
+   * than any spacing. Apple ships SF Pro Text with Messages; a machine themed
+   * to look like a Mac usually already has it, and Qt.fontFamilies() says so
+   * for certain rather than guessing (asking for a missing family silently
+   * yields a default sans, which would be a worse wrong answer than the
+   * theme font).
+   * Falls back to the theme font when SF Pro is absent, so nothing changes for
+   * anyone who has not installed it. `ui_font=theme` in bridge.conf opts out.
+   */
+  readonly property string messagesFont: {
+    var want = ["SF Pro Text", "SF Pro Display", "SF Pro"]
+    var have = Qt.fontFamilies()
+    for (var i = 0; i < want.length; i++) if (have.indexOf(want[i]) >= 0) return want[i]
+    return ""
+  }
+  readonly property bool themeFontForced: !!hostWidget && hostWidget.uiFontTheme === true
+  readonly property string fontFamily:
+    (messagesFont !== "" && !themeFontForced) ? messagesFont : themeFont
   readonly property color dim: Qt.darker(foreground, 1.45)
   /** An editor owns the keyboard — the host's key catcher must stand down. */
   readonly property bool editorActive:

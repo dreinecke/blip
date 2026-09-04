@@ -124,7 +124,7 @@ FloatingWindow {
         readActive: win.focused
         foreground: Color.foreground
         urgent: Color.urgent
-        fontFamily: Style.font.family
+        themeFont: Style.font.family
         onNavigationFocusRequested: navCatcher.forceActiveFocus()
       }
     }

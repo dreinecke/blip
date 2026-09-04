@@ -611,6 +611,8 @@ BarWidget {
   // process (Codex audit #3). It is opt-in: automation=on in bridge.conf.
   // status/open/close/toggle/window/app stay available — they expose nothing.
   property bool automationOn: false
+  /** `ui_font=theme` in bridge.conf: never use SF Pro even when it is present. */
+  property bool uiFontTheme: false
   readonly property string automationOff: "blip: automation=off — set automation=on in ~/.config/blip/bridge.conf to allow ipc send/read"
   FileView {
     id: bridgeConf
@@ -618,8 +620,12 @@ BarWidget {
     watchChanges: true
     printErrors: false
     onFileChanged: reload()
-    onLoaded: root.automationOn = /^\s*automation\s*=\s*['"]?(on|true|1|yes)\b/mi.test(text())
-    onLoadFailed: root.automationOn = false
+    onLoaded: {
+      root.automationOn = /^\s*automation\s*=\s*['"]?(on|true|1|yes)\b/mi.test(text())
+      // ui_font=theme keeps Omarchy's family even where SF Pro is installed.
+      root.uiFontTheme = /^\s*ui_font\s*=\s*['"]?theme\b/mi.test(text())
+    }
+    onLoadFailed: { root.automationOn = false; root.uiFontTheme = false }
   }
   IpcHandler {
     target: root.moduleName
