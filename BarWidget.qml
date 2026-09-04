@@ -632,6 +632,8 @@ BarWidget {
   property bool automationOn: false
   /** `ui_font=theme` in bridge.conf: never use SF Pro even when it is present. */
   property bool uiFontTheme: false
+  /** `ui_font_size=N` in bridge.conf: bubble text in px (9–24). 0 = Omarchy default. */
+  property int uiFontSize: 0
   readonly property string automationOff: "blip: automation=off — set automation=on in ~/.config/blip/bridge.conf to allow ipc send/read"
   FileView {
     id: bridgeConf
@@ -640,11 +642,15 @@ BarWidget {
     printErrors: false
     onFileChanged: reload()
     onLoaded: {
-      root.automationOn = /^\s*automation\s*=\s*['"]?(on|true|1|yes)\b/mi.test(text())
+      var t = text()
+      root.automationOn = /^\s*automation\s*=\s*['"]?(on|true|1|yes)\b/mi.test(t)
       // ui_font=theme keeps Omarchy's family even where SF Pro is installed.
-      root.uiFontTheme = /^\s*ui_font\s*=\s*['"]?theme\b/mi.test(text())
+      root.uiFontTheme = /^\s*ui_font\s*=\s*['"]?theme\b/mi.test(t)
+      var sm = t.match(/^\s*ui_font_size\s*=\s*['"]?(\d+)/mi)
+      var n = sm ? parseInt(sm[1], 10) : 0
+      root.uiFontSize = (!isFinite(n) || n <= 0) ? 0 : Math.min(24, Math.max(9, n))
     }
-    onLoadFailed: { root.automationOn = false; root.uiFontTheme = false }
+    onLoadFailed: { root.automationOn = false; root.uiFontTheme = false; root.uiFontSize = 0 }
   }
   IpcHandler {
     target: root.moduleName

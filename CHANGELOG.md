@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- **Blip text can be larger than the rest of the shell.** `ui_font_size=14`
+  in `bridge.conf` is bubble text in pixels (9–24). Caption and labels keep
+  the same proportions. Unset, Blip still follows Omarchy's type tokens.
+  This does not change the bar, GTK apps, or terminals.
+
 ## 2.3.2 — 2026-09-04
 
 - **A mute list, for the texts nobody opted into.** Political fundraising

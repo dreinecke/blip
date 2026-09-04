@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
+import { parseUiFontSize, scaleFontPx } from "./ui-font";
 
 // The renderer moved from Panel.qml into BlipView.qml in 1.8.0 (shared with the app window).
 const panel = readFileSync(new URL("./BlipView.qml", import.meta.url), "utf8");
@@ -71,6 +72,22 @@ describe("QML safety invariants", () => {
     expect(panel.split(bind).length - 1).toBe(2);   // list row + pinned tile
     expect(panel).not.toContain('if (!root.isGroupId(String(modelData.chat || ""))) root.requestAvatar(avatarHandle)');
     expect(panel).not.toContain('if (handle === "" || isGroupId(handle)) return');
+  });
+
+  test("ui_font_size scales Blip text without touching Omarchy", () => {
+    expect(widget).toContain("ui_font_size");
+    expect(widget).toContain("root.uiFontSize");
+    expect(panel).toContain("readonly property int fontBodySmall");
+    expect(panel).toContain("uiFontScale");
+    expect(panel).not.toContain("font.pixelSize: Style.font.");
+    expect(parseUiFontSize("")).toBe(0);
+    expect(parseUiFontSize("ui_font_size=14\n")).toBe(14);
+    expect(parseUiFontSize("ui_font=theme\nui_font_size=14")).toBe(14);
+    expect(parseUiFontSize("ui_font_size=3")).toBe(9);
+    expect(parseUiFontSize("ui_font_size=99")).toBe(24);
+    expect(scaleFontPx(11, 0, 11)).toBe(11);
+    expect(scaleFontPx(11, 14, 11)).toBe(14);
+    expect(scaleFontPx(10, 14, 11)).toBe(13);
   });
 
   test("share sheet: right-click a link, URL on stdin, never argv", () => {
