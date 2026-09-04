@@ -29,6 +29,15 @@ describe("QML safety invariants", () => {
     expect(panel).not.toContain("!sendProc.running");
   });
 
+  test("compose wraps at the box edge instead of scrolling sideways", () => {
+    const start = panel.indexOf("id: composeField");
+    expect(start).toBeGreaterThan(-1);
+    const compose = panel.slice(Math.max(0, start - 80), start + 2800);
+    expect(compose).toContain("TextArea {");
+    expect(compose).toContain("wrapMode: TextEdit.Wrap");
+    expect(compose).toContain("anchors.fill: parent");
+  });
+
   test("send completion owns immutable chat and draft context", () => {
     expect(panel).toContain("var completedChat = root.sendChat");
     expect(panel).toContain("if (composeField.text === completedText) composeField.text = \"\"");

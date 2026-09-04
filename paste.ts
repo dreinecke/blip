@@ -3,7 +3,7 @@
  * Blip clipboard paste helper — snapshots the Wayland clipboard ONCE and
  * reports what it held: an image (staged as a draft file) or text.
  *
- *   bun paste.ts   →  {kind:"image", path, url} | {kind:"text", text} | {kind:"none"}
+ *   bun paste.ts   →  {kind:"image", path, url} | {kind:"file", path, url} | {kind:"text", text} | {kind:"none"}
  *
  * QML intercepts Ctrl+V and calls this instead of letting TextEdit paste,
  * because the decision (attach vs insert) needs the mime types, and probing
@@ -31,6 +31,41 @@ export function extFor(mime: string): string {
   return { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" }[mime] ?? "img";
 }
 
+/** First local file:// path in a uri-list or GNOME copied-files dump. */
+export function firstFileUri(raw: string): string {
+  for (const line of raw.split(/\r?\n/)) {
+    const t = line.trim();
+    if (!t || t.startsWith("#") || t === "copy" || t === "cut") continue;
+    if (!t.startsWith("file://")) continue;
+    let path = "";
+    try {
+      path = decodeURIComponent(t.slice("file://".length));
+    } catch {
+      continue;
+    }
+    if (path.startsWith("localhost/")) path = path.slice("localhost".length);
+    if (path.startsWith("/")) return path;
+  }
+  return "";
+}
+
+/** A single absolute path or file:// URI that names an existing regular file. */
+export function existingLocalFile(text: string): string {
+  const t = text.trim();
+  if (t === "" || /[\r\n]/.test(t) || t.includes("\0")) return "";
+  const path = t.startsWith("file://") ? firstFileUri(t)
+    : (t.startsWith("/") && !t.startsWith("//") ? t : "");
+  if (path === "") return "";
+  try {
+    if (statSync(path).isFile()) return path;
+  } catch { /* not a file */ }
+  return "";
+}
+
+function asFile(path: string): Record<string, string> {
+  return { kind: "file", path, url: pathToFileURL(path).href };
+}
+
 function gcDrafts(): void {
   const now = Date.now();
   try {
@@ -47,6 +82,8 @@ export function snapshotClipboard(runner = spawnSync): Record<string, string> {
   const types = runner("wl-paste", ["--list-types"], { encoding: "utf8", timeout: 4000 });
   if (types.status !== 0) return { kind: "none" };
   const offered = (types.stdout as string).trim().split("\n").filter(Boolean);
+  const paste = (mime: string, extra: Record<string, unknown> = {}) =>
+    runner("wl-paste", ["-t", mime], { encoding: "utf8", timeout: 4000, ...extra });
 
   const imageMime = pickImageType(offered);
   if (imageMime !== "") {
@@ -65,8 +102,23 @@ export function snapshotClipboard(runner = spawnSync): Record<string, string> {
     }
   }
 
+  // File managers put the path as text/uri-list (and often text/plain), not
+  // image/*. Treat that as an attachment, matching drag-and-drop.
+  for (const mime of ["text/uri-list", "x-special/gnome-copied-files"]) {
+    if (!offered.includes(mime)) continue;
+    const dump = paste(mime);
+    if (dump.status !== 0) continue;
+    const decoded = firstFileUri(String(dump.stdout || ""));
+    const path = decoded !== "" ? existingLocalFile(decoded) : "";
+    if (path !== "") return asFile(path);
+  }
+
   const text = runner("wl-paste", ["--no-newline", "-t", "text"], { encoding: "utf8", timeout: 4000 });
-  if (text.status === 0 && (text.stdout as string) !== "") return { kind: "text", text: text.stdout as string };
+  if (text.status === 0 && (text.stdout as string) !== "") {
+    const path = existingLocalFile(text.stdout as string);
+    if (path !== "") return asFile(path);
+    return { kind: "text", text: text.stdout as string };
+  }
   return { kind: "none" };
 }
 
