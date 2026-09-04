@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- **No more nameless conversation at the top of the list.** Deleting a
+  conversation removes its chat row, but Messages in iCloud keeps the message
+  rows, and some arrive with no handle either. Grouped by their empty identity
+  they became one thread with no name and no number that could not be opened.
+  Rows with neither a chat nor a handle are now dropped where messages enter
+  the collector; rows with a handle are untouched, since some SMS senders only
+  ever exist that way.
 - **Group photos show up as photos again.** Messages stores a group's picture
   on an announcement row (`item_type = 3`). The bridge hides those rows so
   they never become empty unread bubbles, and the photo lookup joined through
