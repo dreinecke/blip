@@ -356,6 +356,9 @@ export function dedupeSelfEcho(msgs: ImsgMessage[], knownSelfChats: string[] = [
   const emptySent = new Set(
     msgs.filter((m) => selfChats.has(chatKey(m)) && m.from_me && m.text === "").map(contextKey),
   );
+  const retractedSent = new Set(
+    msgs.filter((m) => selfChats.has(chatKey(m)) && m.from_me && m.retracted === true).map(contextKey),
+  );
   const selfText = new Map<string, number>();
   const seenIds = new Set<string>();
   const out: ImsgMessage[] = [];
@@ -368,7 +371,12 @@ export function dedupeSelfEcho(msgs: ImsgMessage[], knownSelfChats: string[] = [
     const context = contextKey(m);
     // The empty outbound half of a known self echo is transport noise. Keep
     // empty inbound rows: they can represent an attachment and are unread.
-    if (selfChats.has(chatKey(m)) && m.from_me && m.text === "") continue;
+    // An unsend leaves the same shape with the opposite truth — the empty
+    // outbound row IS the message (the tombstone) and the echo is what Undo
+    // Send never reached — so there the echo goes and the row stays.
+    if (retractedSent.has(context)) {
+      if (!m.from_me) continue;
+    } else if (selfChats.has(chatKey(m)) && m.from_me && m.text === "") continue;
 
     if (selfContexts.has(context) && m.text !== "") {
       const key = contentKey(m);

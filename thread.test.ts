@@ -313,6 +313,20 @@ describe("dedupeSelfEcho", () => {
     expect(b[0]!.from_me).toBe(true);
   });
 
+  test("an unsent message keeps its tombstone: the retracted twin wins, the echo goes", () => {
+    // Undo Send in the self-thread withdraws only the sent copy; the echo still
+    // carries the text. Same shape as the echo case, opposite truth.
+    const self = msg().chat;
+    const out = dedupeSelfEcho([
+      msg({ ts: "2026-08-30 21:08:22", from_me: true, text: "", retracted: true }),
+      msg({ ts: "2026-08-30 21:08:22", from_me: false, text: "taken back" }),
+    ], [self]);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.retracted).toBe(true);
+    expect(out[0]!.from_me).toBe(true);
+    expect(out[0]!.text).toBe("");
+  });
+
   test("a genuine inbound with no empty twin stays theirs", () => {
     const out = dedupeSelfEcho([msg({ ts: "2026-08-30 21:08:22", from_me: false, text: "theirs" })]);
     expect(out[0]!.from_me).toBe(false);

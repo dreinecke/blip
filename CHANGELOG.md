@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+- **Unsent messages are tombstones again, not empty bubbles.** On macOS 26 an
+  Undo Send no longer sets `date_retracted`; Apple records it as an edit —
+  `date_edited` stamped, body cleared, the withdrawn parts listed as `rp` in
+  `message_summary_info`. The bridge read only the date columns, so every
+  unsend since January arrived as an empty bubble tagged "Edited". It now
+  reads the summary blob too: `rp` means unsent (and not edited), `ec` means
+  a real edit as before, and the old `date_retracted` path still works on
+  older Macs. In the conversation with yourself, where every message lands
+  twice, the withdrawn copy now wins over its echo instead of being folded
+  away as transport noise. Mac side: re-run the install one-liner so
+  `~/.blip/bin/imsg` picks it up.
 - **No more nameless conversation at the top of the list.** Deleting a
   conversation removes its chat row, but Messages in iCloud keeps the message
   rows, and some arrive with no handle either. Grouped by their empty identity

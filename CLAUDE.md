@@ -143,6 +143,14 @@ what it is handed. Keep it that way.
   handle stay — some SMS senders only ever exist that way.
 - **Group ids come in two shapes**: 32 hex, or `chat<digits>`. `isGroupChat()` is
   "not a phone/email" — never a positive regex on one shape.
+- **An unsend is not an edit, and on macOS 26 it never sets `date_retracted`.**
+  Undo Send stamps `date_edited`, clears the body, and records the withdrawn
+  parts as `rp` in `message_summary_info`; a real edit carries `ec` and keeps
+  its body. `_edit_flags` reads both, retracted wins, so the tombstone shows
+  instead of an empty bubble marked "Edited". In the SELF-THREAD an unsend
+  withdraws only the sent copy and the echo keeps its text — the echo shape
+  inverted — so `dedupeSelfEcho` keeps the retracted outbound row and drops
+  the echo, instead of the other way round.
 - **Deleted messages stay in chat.db for 30 days** (`chat_recoverable_message_join`).
   claude-on-mac's `imsg` hides them (1.4.0+); Blip assumes that.
 - **Announcements are not messages.** Joins, leaves, renames and location-sharing

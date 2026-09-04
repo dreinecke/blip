@@ -514,6 +514,26 @@ def _parse_rich_link(blob: bytes) -> dict | None:
     }
 
 
+def _unsent(summary_info) -> bool:
+    """True when message_summary_info lists withdrawn parts (`rp`).
+
+    macOS 26 records an Undo Send as an edit: date_edited is stamped, the body
+    is cleared, and date_retracted stays 0 — `rp` in this plist is the only
+    trace. A real edit carries `ec` (the history) and no `rp`. Anything
+    unreadable is not an unsend."""
+    try:
+        return bool(plistlib.loads(bytes(summary_info)).get("rp"))
+    except (plistlib.InvalidFileException, ValueError, TypeError, AttributeError):
+        return False
+
+
+def _edit_flags(date_edited, date_retracted, summary_info) -> dict:
+    """An unsend is not an edit, whatever date_edited says."""
+    if date_retracted or _unsent(summary_info):
+        return {"retracted": True}
+    return {"edited": True} if date_edited else {}
+
+
 def enrich(con, rows, with_names: bool):
     """Per-ROWID extras for --rich JSON. Returns (kept_rows, extras) where
     tapback rows are folded onto their targets and dropped from kept_rows."""
@@ -614,10 +634,8 @@ def enrich(con, rows, with_names: bool):
         e = extras[r["ROWID"]]
         if r["is_from_me"] and r["date_read"]:
             e["read_at"] = fmt_ts(r["date_read"])
-        if has_edit and r["date_edited"]:
-            e["edited"] = True
-        if has_edit and r["date_retracted"]:
-            e["retracted"] = True
+        if has_edit:
+            e.update(_edit_flags(r["date_edited"], r["date_retracted"], r["message_summary_info"]))
         if r["orig_guid"] and r["orig_guid"] in osnip:
             e["reply_to"] = osnip[r["orig_guid"]]
         fx = _effect_name(r["style_id"])
@@ -706,9 +724,9 @@ def base_select(con) -> str:
     global _BASE_SELECT_CACHE
     if _BASE_SELECT_CACHE is None:
         edit_cols = (
-            "m.date_edited, m.date_retracted,"
+            "m.date_edited, m.date_retracted, m.message_summary_info,"
             if _has_col(con, "date_edited")
-            else "0 AS date_edited, 0 AS date_retracted,"
+            else "0 AS date_edited, 0 AS date_retracted, NULL AS message_summary_info,"
         )
         _BASE_SELECT_CACHE = f"""
             SELECT m.ROWID, m.date, m.is_from_me, m.text, m.attributedBody,
