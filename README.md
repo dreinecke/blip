@@ -11,11 +11,11 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-2.3.1-0a84ff?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-2.3.2-0a84ff?style=flat-square">
   <img alt="Omarchy" src="https://img.shields.io/badge/Omarchy-plugin-5fd7ff?style=flat-square">
   <img alt="QuickShell" src="https://img.shields.io/badge/QuickShell-QML-0a84ff?style=flat-square">
   <img alt="bun" src="https://img.shields.io/badge/bun-TypeScript-f9f1e1?style=flat-square">
-  <img alt="tests" src="https://img.shields.io/badge/tests-294%20passing-2ea043?style=flat-square">
+  <img alt="tests" src="https://img.shields.io/badge/tests-312%20passing-2ea043?style=flat-square">
   <img alt="license" src="https://img.shields.io/badge/license-MIT-lightgrey?style=flat-square">
 </p>
 
@@ -478,7 +478,7 @@ The 273,000-message history stays on the Mac where it lives.
 ## Development
 
 ```sh
-bun test                                     # 294 tests, ~120 ms
+bun test                                     # 312 tests, ~110 ms
 bun collector.ts --deep | jq '.unread, (.threads|length)'
 bun thread.ts +15551234567 40 | jq '.bubbles[-1]'
 scripts/demo/blip-shots                      # regenerate docs/img/*.png

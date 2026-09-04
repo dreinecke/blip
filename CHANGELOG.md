@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.3.2 — 2026-09-04
 
 - **A mute list, for the texts nobody opted into.** Political fundraising
   blasts — "the deadline is TONIGHT, rush $25, Reply STOP2END" — arrive from a
