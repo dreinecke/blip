@@ -129,6 +129,14 @@ if ssh -n -o ConnectTimeout=6 -o BatchMode=yes "$host" true 2>/dev/null; then
   # The three grants, checked in the ssh context that matters. The automation
   # check TALKS to Messages.app, which pops the one-time Allow prompt on the
   # Mac's screen when the grant is missing — so give the user a beat to click.
+  # The prompt expires in about two minutes and an EXPIRED prompt is recorded
+  # as a denial that macOS 26's Settings switch may then refuse to flip (#36):
+  # say so before it fires, not after.
+  echo
+  echo "Next: the Mac will ask, ON ITS OWN SCREEN, whether sshd may control Messages."
+  echo "  Be at the Mac (or in Screen Sharing) and click Allow within two minutes — an"
+  echo "  unanswered prompt is recorded as a denial. Ready?"
+  read -r -p "  Press Enter to run the permission check: " _
   for attempt in 1 2 3; do
     echo; echo "Checking Mac permissions (attempt $attempt)…"
     # a grant applies to NEW sessions: drop the multiplexed master so the re-check sees it

@@ -27,8 +27,10 @@ AB_GLOB = os.path.join(AB_DIR, "Sources", "*", "AddressBook-v22.abcddb")
 FIX = {
     "chatdb": "System Settings → Privacy & Security → Full Disk Access → add "
               "/usr/libexec/sshd-keygen-wrapper (⌘⇧G in the picker), then reconnect ssh.",
-    "automation": "Click Allow on the Mac's screen when Messages asks, or: System Settings → "
-                  "Privacy & Security → Automation → sshd-keygen-wrapper → Messages.",
+    "automation": "Click Allow on the Mac's screen when Messages asks (within ~2 minutes), or: "
+                  "System Settings → Privacy & Security → Automation → sshd-keygen-wrapper → Messages. "
+                  "If that switch will not stay on, a timed-out prompt was recorded as a denial: run "
+                  "`tccutil reset AppleEvents` on the Mac, re-run, and click Allow in time.",
     "contacts": "Same Full Disk Access grant as chat.db (names/avatars come from the AddressBook DB).",
     "markread": "System Settings → Privacy & Security → Accessibility → add "
                 "/usr/libexec/sshd-keygen-wrapper. OPTIONAL: without it everything works "
@@ -46,16 +48,27 @@ def check_chatdb() -> tuple[bool, str]:
         return False, str(e)
 
 
+# macOS gives the Allow prompt about two minutes. If nobody clicks, TCC records a
+# DENIAL (auth_reason 9, "Prompt Timeout") — and on macOS 26 the System Settings
+# switch for that record may refuse to flip back on (#36). So this probe waits
+# longer than the prompt does, and says so first: the person running blip-setup
+# is at the LINUX box, and the prompt appears on the Mac's screen.
+PROMPT_WAIT = 150
+
+
 def check_automation() -> tuple[bool, str]:
     # Touching Messages via AppleScript is what needs the grant — and what
     # triggers the prompt when it is missing. Listing services is harmless.
+    print("  … asking Messages (if an Allow prompt appears on the Mac's screen, click it — "
+          "it expires in about two minutes)", file=sys.stderr, flush=True)
     try:
         r = subprocess.run(
             ["osascript", "-e", 'tell application "Messages" to get count of services'],
-            capture_output=True, text=True, timeout=25,
+            capture_output=True, text=True, timeout=PROMPT_WAIT,
         )
     except subprocess.TimeoutExpired:
-        return False, "osascript timed out — the Allow prompt is probably waiting on the Mac's screen"
+        return False, ("no answer from Messages in %ds — the Allow prompt on the Mac's screen was not "
+                       "clicked in time. macOS records that as a denial; see the fix." % PROMPT_WAIT)
     if r.returncode == 0:
         return True, f"Messages responds ({r.stdout.strip()} services)"
     err = r.stderr.strip()

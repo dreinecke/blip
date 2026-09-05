@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **The Messages Automation prompt gets the time it needs.** `blip-check` gave
+  Messages 25 seconds and moved on; macOS gives its Allow prompt about two
+  minutes, and an unanswered prompt is recorded as a *denial* (`auth_reason 9`,
+  Prompt Timeout) — which on macOS 26 the System Settings switch may then
+  refuse to flip back on (#36). The probe now waits 150 s and says beforehand
+  that the prompt will appear on the Mac's screen; `blip-setup` sends you to
+  the Mac before firing it. Recovery for a Mac already in that state is in the
+  README (`tccutil reset AppleEvents`, then re-run at the Mac's screen).
 - **Security codes, the macOS way.** A text that carries a one-time code —
   "Your verification code is 483920", Google's "G-482913", the origin-bound
   `@example.com #493857` line — now toasts the code as it lands. Click the

@@ -77,6 +77,15 @@ what it is handed. Keep it that way.
   dash scrubbing is a claude-on-mac house rule, not Blip's).
 - **`tcc-check` is not reachable through the confined key** (it drives four
   other apps' Automation prompts); `blip-check` is what the wizard runs.
+  **Never cut a consent-triggering probe short.** macOS gives the Automation
+  Allow prompt ~2 minutes; a prompt nobody answers is recorded in TCC as a
+  DENIAL (`auth_value 0, auth_reason 9` = Prompt Timeout), and on macOS 26 the
+  Settings switch for that record may refuse to turn on (#36, 26.5.2 and
+  26.6.2). `blip-check` waits 150 s and warns first; `blip-setup` sends the
+  user to the Mac's screen before the check. Recovery: `tccutil reset
+  AppleEvents` (Apple's tool, SIP intact; it clears every app's Automation
+  grants — a path-identified client like sshd-keygen-wrapper cannot be reset
+  alone), then re-run and click Allow in time.
 - **Cache file extensions follow the gated MIME**, never the sender's name —
   `xdg-open` dispatches on extension (war room #49).
 - **Pass `--` before message text** to `notify-send`.

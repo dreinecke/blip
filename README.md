@@ -323,7 +323,16 @@ wizard pauses here and re-checks when you press Enter)
   Access → add `/usr/libexec/sshd-keygen-wrapper` (⌘⇧G in the file picker).
   That is what lets an ssh session read `chat.db`.
 - *Automation → Messages* → the first send from ssh pops an Allow prompt on
-  the Mac's screen; click it once.
+  the Mac's screen; click it once — **within about two minutes, at the Mac.**
+  An unanswered prompt is recorded by macOS as a *denial* (`auth_reason 9`,
+  "Prompt Timeout"), and on macOS 26 the switch under System Settings →
+  Privacy & Security → Automation → sshd-keygen-wrapper → Messages may then
+  refuse to turn on: you enter the password and it drops back off (#36).
+  Recovery, SIP intact, no database edits: on the Mac run
+  `tccutil reset AppleEvents` — Apple's own tool; it clears *every* app's
+  Automation grants (each simply asks again next time), because a
+  path-identified client like sshd-keygen-wrapper cannot be reset on its own —
+  then re-run `blip-setup` and sit at the Mac's screen for the prompt.
 
 `ssh your-mac python3 ~/.blip/bin/blip-check` shows ✅/❌ per grant at any
 time, with the fix for each ❌.
@@ -500,7 +509,8 @@ window as key events through Hyprland, not a virtual keyboard, so holding
 the hotkey's modifiers cannot turn them into workspace binds. The code lives
 in the widget's memory for five minutes and nowhere else. Needs
 `automation=on`. A binding
-for `~/.config/hypr/bindings.lua`:
+for `~/.config/hypr/bindings.lua` (any free chord works; stock Omarchy leaves
+`SUPER + SHIFT + V` free, your own bindings may not):
 
 ```lua
 o.bind("SUPER + SHIFT + V", "Type security code",
