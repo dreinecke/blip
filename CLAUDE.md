@@ -88,7 +88,9 @@ what it is handed. Keep it that way.
   alone), then re-run and click Allow in time.
 - **Cache file extensions follow the gated MIME**, never the sender's name —
   `xdg-open` dispatches on extension (war room #49).
-- **Pass `--` before message text** to `notify-send`.
+- **Pass `--` before message text** to `notify-send`. Two documented argv
+  exceptions: a toast's preview (the daemon's API) and a link the user CLICKS
+  (`xdg-open` and the browser take it as an argument; nothing else opens one).
 - **A security code lives five minutes in BarWidget memory, nowhere else.**
   `selectCodes()` (collector) spots it; `noteCode()` holds the newest and
   toasts THAT A CODE ARRIVED — never the digits. Omarchy's daemon persists

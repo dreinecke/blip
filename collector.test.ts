@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
   aliasesOf,
+  normalizeGroups,
   pushReadCommand,
   pushReadLogPath,
   buildThreads,
@@ -1387,5 +1388,25 @@ describe("security codes: labelled numbers are not the code (Astra #13)", () => 
   test("an unlabelled code still wins as before", () => {
     expect(extractCode("Use code 4821 to log in")?.code).toBe("4821");
     expect(extractCode("Your Uber code: 8271. Expires in 10 minutes.")?.code).toBe("8271");
+  });
+});
+
+describe("cached groups are normalised on load (Astra B#6)", () => {
+  test("a participants object cannot poison every poll", () => {
+    const g = normalizeGroups({ chat123: { name: "", guid: "", participants: {} }, ok: { name: "Trail", guid: "any;+;x", participants: ["+1", 2, "+3"] }, junk: 5 });
+    expect(g.chat123).toEqual({ name: "", guid: "", participants: [] });
+    expect(g.ok).toEqual({ name: "Trail", guid: "any;+;x", participants: ["+1", "+3"] });
+    expect(g.junk).toBeUndefined();
+    expect(normalizeGroups(null)).toEqual({});
+  });
+});
+
+describe("search stdin payload (Astra B#2)", () => {
+  const { parseStdinPayload } = require("./search") as typeof import("./search");
+  test("legacy array = identities only; object carries the query", () => {
+    expect(parseStdinPayload('[{"chat":"+1"}]', true)).toEqual({ query: "", threads: [{ chat: "+1" }] });
+    expect(parseStdinPayload('{"query":" hello ","threads":[]}', true)).toEqual({ query: "hello", threads: [] });
+    expect(parseStdinPayload('{"query":"x"}', false).query).toBe("");
+    expect(parseStdinPayload("garbage", true)).toEqual({ query: "", threads: [] });
   });
 });

@@ -124,7 +124,7 @@ describe("QML safety invariants", () => {
     expect(widget).toContain("property var refreshQueue: []");
     expect(widget).not.toContain("property var queued: null");
     const success = panel.indexOf("if (d.ok === true)");
-    const mark = panel.indexOf("markThreadRead(root.threadRunningChat)");
+    const mark = panel.indexOf("markThreadRead(root.threadRunningChat, seen)");
     expect(success).toBeGreaterThan(-1);
     expect(mark).toBeGreaterThan(success);
   });
@@ -170,7 +170,7 @@ describe("QML safety invariants", () => {
     expect(panel).toContain("function conversationHits");
     expect(panel).toContain("id: searchWatch");
     expect(panel).toContain("function threadIdentitiesJson");
-    expect(panel).toContain("searchProc.write(threadIdentitiesJson())");
+    expect(panel).toContain("searchProc.write(JSON.stringify({ query: q, threads: JSON.parse(threadIdentitiesJson()) }))");
     expect(panel).toContain("onAccepted: root.acceptSearchField()");
   });
 
@@ -308,4 +308,41 @@ test("link preview URLs never ride argv", () => {
   expect(panel).toContain('["bun", root.previewScript, "--stdin"]');
   expect(panel).toContain("previewProc.write(previewProc.url)");
   expect(panel).not.toContain("root.previewScript, previewProc.url]");
+});
+
+// A conversation is read only after a snapshot RENDERED, and only through
+// the newest ts in that snapshot — never the sidebar's (Astra A#2, A#3).
+test("reads require a rendered snapshot and carry its own timestamp", () => {
+  expect(panel).toContain("property bool rendered: false");
+  expect(panel).toContain("root.hostWidget.markThreadRead(root.threadRunningChat, seen)");
+  expect(widget).toContain("s.rendered === true");
+  expect(widget).toContain('return s ? String(s.seenTs || "") : ""');
+  expect(widget).toContain("function markThreadRead(chat, seen)");
+  for (const host of ["./Panel.qml", "./BlipWindow.qml"]) {
+    const src = readFileSync(new URL(host, import.meta.url), "utf8");
+    expect(src).toContain("readonly property bool rendered: view.rendered");
+    expect(src).toContain("readonly property string seenTs: view.seenTs");
+  }
+});
+
+// The app window counts as focused only when the active toplevel IS it.
+test("window focus is an exact title match, not a prefix", () => {
+  const win = readFileSync(new URL("./BlipWindow.qml", import.meta.url), "utf8");
+  expect(win).toContain('String(Hyprland.activeToplevel.title || "") === win.title');
+  expect(win).not.toContain('.indexOf("Blip") === 0');
+});
+
+// Esc over the share sheet closes the sheet; a stale search never stays clickable;
+// a long sender name never widens the delegate.
+test("share-sheet Escape, search generations, bounded sender labels", () => {
+  expect(panel).toContain('Keys.onEscapePressed: { if (root.shareUrl !== "") root.closeShare(); else root.back() }');
+  expect(panel).toContain("if (q !== newQueryRan) { newResults = []; newCursor = 0 }");
+  expect(panel.split("Layout.maximumWidth: Math.max(1, bubbleRow.width - Style.space(40))").length - 1).toBe(2);
+  expect(widget).toContain('return "code expired"');
+});
+
+// A search query is message text the moment a sentence is pasted in.
+test("search queries never ride argv", () => {
+  expect(panel).toContain('["bun", root.searchScript, "--stdin", "40"]');
+  expect(panel).toContain("searchProc.write(JSON.stringify({ query: q, threads:");
 });

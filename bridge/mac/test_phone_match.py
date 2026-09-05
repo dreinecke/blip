@@ -73,6 +73,7 @@ class Base(unittest.TestCase):
         self.imsg._AB_GLOB = os.path.join(self.tmp.name, "Sources", "*", "AddressBook-v22.abcddb")
         self.imsg._ACCOUNTS_DB = os.path.join(self.tmp.name, "no-such-Accounts4.sqlite")
         self.imsg._NAME_INDEX = None
+        self.imsg._EXACT_SEEN = set()
         self.imsg._home_calling_code = lambda: self.home
 
     def tearDown(self) -> None:
@@ -199,6 +200,21 @@ class Ambiguity(Base):
         for first, last in (("Alice", "One"), ("Bob", "Two"), ("Carol", "Three")):
             self.book.card(first, last, emails=["shared@example.com"])
         self.assertIsNone(self.imsg.name_for("shared@example.com"))
+
+
+class AmbiguousExactNeverFallsThrough(Base):
+    def test_an_ambiguous_exact_card_blocks_the_suffix_match(self) -> None:
+        # Alice and Bob share the exact number; Carol's local-format card would
+        # suffix-match. The answer is "ambiguous", never Carol (Astra C#2).
+        self.book.card("Alice", "One", phones=["+47 123 45 678"])
+        self.book.card("Bob", "Two", phones=["+47 123 45 678"])
+        other = FakeAddressBook(self.tmp.name, "SRC-B")
+        try:
+            carol = other.card("Carol", "Three", phones=["123 45 678"], photo=JPEG)
+            self.assertIsNone(self.imsg.name_for("+4712345678"))
+            self.assertEqual(self.imsg._avatar_candidates("+4712345678"), [])
+        finally:
+            other.con.close()
 
 
 class ExactBeatsSuffixAcrossSources(Base):

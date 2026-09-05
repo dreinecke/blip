@@ -10,7 +10,7 @@
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { closeSync, fsyncSync, lstatSync, mkdirSync, openSync, renameSync, unlinkSync, utimesSync, writeSync } from "node:fs";
+import { closeSync, constants, fsyncSync, lstatSync, mkdirSync, openSync, readdirSync, renameSync, unlinkSync, utimesSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isGroupChat } from "./collector";
@@ -74,8 +74,12 @@ export function fetchAvatar(handle: string, runner = spawnSync, opts: { retry?: 
     return { ok: false, url: "", error: "Mac unreachable" };   // transient: no negative marker
   }
   if (res.status !== 0 || !isImage || bytes.length > AVATAR_MAX_BYTES) {
-    const fd = openSync(none, "w", 0o600); closeSync(fd);
+    // Exclusive create, never following a symlink: "w" truncated whatever a
+    // planted symlink pointed at (Astra B#5).
+    try { unlinkSync(none); } catch { /* absent */ }
+    const fd = openSync(none, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600); closeSync(fd);
     const now = new Date(); utimesSync(none, now, now);
+    sweepStale(AVATAR_DIR, AVATAR_TTL_MS * 2);
     return { ok: false, url: "", error: "no photo" };
   }
   const tmp = `${file}.tmp-${process.pid}`;
@@ -95,4 +99,20 @@ if (import.meta.main) {
   } catch (e) {
     console.log(JSON.stringify({ ok: false, url: "", error: String(e) }));
   }
+}
+
+/** Drop regular files in `dir` older than `maxAgeMs`. Expiry used to mean
+ *  "not reused", never "removed", so the cache only ever grew (Astra B#8). */
+export function sweepStale(dir: string, maxAgeMs: number, now = Date.now()): number {
+  let n = 0;
+  try {
+    for (const name of readdirSync(dir)) {
+      try {
+        const p = join(dir, name);
+        const st = lstatSync(p);
+        if (st.isFile() && now - st.mtimeMs > maxAgeMs) { unlinkSync(p); n++; }
+      } catch { /* vanished */ }
+    }
+  } catch { /* no dir yet */ }
+  return n;
 }

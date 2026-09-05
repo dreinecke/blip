@@ -42,7 +42,9 @@ if [[ -z "${host:-}" ]]; then
   read -r -p "Mac ssh target ([user@]host, Tailscale name works best): " host
 fi
 [[ -n "$host" ]] || { echo "no host given" >&2; exit 64; }
-if ! [[ "$host" =~ ^([A-Za-z0-9._-]+@)?[A-Za-z0-9._:-]+$ ]]; then
+# Neither part may start with "-": `host=-Fssh_config` used to reach ssh as an
+# OPTION and pull a ProxyCommand out of an attacker's file (Astra D#1).
+if ! [[ "$host" =~ ^([A-Za-z0-9][A-Za-z0-9._-]*@)?[A-Za-z0-9][A-Za-z0-9._:-]*$ ]]; then
   echo "✗ '$host' is not a [user@]hostname — no spaces, quotes, or shell characters" >&2; exit 64
 fi
 
@@ -101,10 +103,10 @@ done
 echo "✓ shims installed: ~/bin/imsg ~/bin/imsg-send ~/bin/imsg-read ~/bin/contacts"
 
 # 4. Mac install (needs ssh to already work — key-based)
-if ssh -n -o ConnectTimeout=6 -o BatchMode=yes "$host" true 2>/dev/null; then
-  ssh "$host" 'mkdir -p ~/.blip/src'
+if ssh -n -o ConnectTimeout=6 -o BatchMode=yes -- "$host" true 2>/dev/null; then
+  ssh -- "$host" 'mkdir -p ~/.blip/src'
   scp -q "$here"/bridge/mac/* "$host:~/.blip/src/"
-  ssh "$host" 'bash ~/.blip/src/install.sh --no-check'   # the check runs below, after the "be at the Mac" pause
+  ssh -- "$host" 'bash ~/.blip/src/install.sh --no-check'   # the check runs below, after the "be at the Mac" pause
 
   # python3 on a fresh Mac is a Command Line Tools STUB that exits 1 (and may
   # pop an install dialog). Every bridge tool needs the real thing; say so
@@ -147,7 +149,7 @@ if ssh -n -o ConnectTimeout=6 -o BatchMode=yes "$host" true 2>/dev/null; then
     echo; echo "Checking Mac permissions (attempt $attempt)…"
     # a grant applies to NEW sessions: drop the multiplexed master so the re-check sees it
     ssh -O exit "$host" >/dev/null 2>&1 || true
-    if ssh "$host" 'python3 ~/.blip/bin/blip-check'; then granted=1; break; fi
+    if ssh -- "$host" 'python3 "$HOME/.blip/bin/blip-check"'; then granted=1; break; fi
     if [[ $attempt -lt 3 ]]; then
       read -r -p "Grant what is missing on the Mac (an Allow prompt may be on its screen), then press Enter to re-check (or Ctrl-C): " _
     fi
@@ -156,7 +158,7 @@ if ssh -n -o ConnectTimeout=6 -o BatchMode=yes "$host" true 2>/dev/null; then
     # Reading chat.db works without the Automation grant, so the smoke test
     # below would have said "bridge is up" over a Mac that cannot send (Astra #19).
     echo "✗ The Mac is still missing a permission after 3 checks. Blip can read but cannot send until it is granted." >&2
-    echo "  Fix it on the Mac, then re-run blip-setup — or check any time with: ssh $host python3 ~/.blip/bin/blip-check" >&2
+    echo "  Fix it on the Mac, then re-run blip-setup — or check any time with: ssh $host 'python3 \"\$HOME/.blip/bin/blip-check\"'" >&2
     exit 1
   fi
 else
@@ -178,7 +180,7 @@ if out="$("$HOME/bin/imsg" --json recent 1 2>&1)"; then
   # else the Omarchy theme font. We install Inter (OFL, in Arch's `extra`) and
   # only POINT AT Apple for SF Pro: its licence forbids redistribution, so the
   # font is never carried in this repo and never fetched by us.
-  if fc-list : family 2>/dev/null | grep -qiE '"'"'(^|,)\s*(SF Pro Text|SF Pro Display|Inter)\s*($|,)'"'"'; then
+  if fc-list : family 2>/dev/null | grep -qiE '(^|,)[[:space:]]*(SF Pro Text|SF Pro Display|Inter)[[:space:]]*($|,)'; then
     echo "✓ UI font present — Blip will render like Messages rather than in the theme's monospace"
   else
     echo "Blip looks most like Messages in a UI sans. Omarchy's font is monospace."

@@ -180,6 +180,9 @@ def all_contacts() -> list[dict]:
                     key = (
                         c["name"].lower(),
                         tuple(sorted(normalize_phone(p["number"]) for p in c["phones"])),
+                        # two "Alex Smith" cards with no phones and different
+                        # addresses are two people (Astra C#9)
+                        tuple(sorted(normalize_email(e["address"]) for e in c["emails"])),
                     )
                     # Prefer the more-populated record on collision
                     existing = seen.get(key)
@@ -196,15 +199,24 @@ def build_lookup_index(contacts: Iterable[dict]) -> tuple[dict[str, dict], dict[
     """Return (phone_index, email_index) for fast handle resolution."""
     phones: dict[str, dict] = {}
     emails: dict[str, dict] = {}
+    # A key two DIFFERENT cards share names nobody — the same rule imsg's
+    # name_for applies; first-card-wins named whoever was listed first (Astra C#6).
+    ambiguous: set = set()
     for c in contacts:
         for p in c["phones"]:
             key = normalize_phone(p["number"])
             if key:
+                if key in phones and phones[key] is not c:
+                    ambiguous.add(("p", key))
                 phones.setdefault(key, c)
         for e in c["emails"]:
             key = normalize_email(e["address"])
             if key:
+                if key in emails and emails[key] is not c:
+                    ambiguous.add(("e", key))
                 emails.setdefault(key, c)
+    for kind, key in ambiguous:
+        (phones if kind == "p" else emails).pop(key, None)
     return phones, emails
 
 

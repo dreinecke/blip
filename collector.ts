@@ -192,6 +192,21 @@ export function validPins(raw: unknown): Record<string, number | null> {
   );
 }
 
+export function normalizeGroups(raw: unknown): Record<string, GroupInfo> {
+  const out: Record<string, GroupInfo> = {};
+  if (!raw || typeof raw !== "object") return out;
+  for (const [chat, g] of Object.entries(raw as Record<string, unknown>)) {
+    if (!g || typeof g !== "object") continue;
+    const r = g as Record<string, unknown>;
+    out[chat] = {
+      name: typeof r.name === "string" ? r.name : "",
+      guid: typeof r.guid === "string" ? r.guid : "",
+      participants: Array.isArray(r.participants) ? r.participants.filter((h): h is string => typeof h === "string") : [],
+    };
+  }
+  return out;
+}
+
 export function loadState(path = STATE_PATH): BlipState {
   try {
     const s = JSON.parse(readFileSync(path, "utf8")) as Partial<BlipState>;
@@ -222,7 +237,10 @@ export function loadState(path = STATE_PATH): BlipState {
         ? s.selfChats.filter((chat): chat is string => typeof chat === "string")
         : [],
       readMarks: s.readMarks && typeof s.readMarks === "object" ? { ...s.readMarks } : {},
-      groups: s.groups && typeof s.groups === "object" ? { ...s.groups } : {},
+      // Every cached group goes through the same shape fetchGroups() enforces:
+      // a participants OBJECT in state.json threw inside groupName() on every
+      // poll until the next deep refresh (Astra B#6).
+      groups: normalizeGroups(s.groups),
       chatAliases: s.chatAliases && typeof s.chatAliases === "object"
         ? Object.fromEntries(Object.entries(s.chatAliases).filter(([, v]) => typeof v === "string" && v !== ""))
         : {},
@@ -935,6 +953,9 @@ export interface FetchResult {
    *  count these: one dropped orphan in a full page otherwise reads as
    *  "the bridge ran out", and catch-up stops short of older unread. */
   fetchedCount: number;
+  /** True when catch-up hit CATCHUP_MAX_ROWS before reaching the cutoff: the
+   *  window does NOT cover every outstanding unread (Astra B#3). */
+  capped?: boolean;
 }
 
 /**
@@ -1019,7 +1040,8 @@ export function fetchMessagesAfter(
   while (true) {
     const fetched = fetchMessages(limit, runner);
     // A bridge that keeps returning "full" pages must not grow this forever.
-    if (!fetched.ok || !cutoff || fetched.fetchedCount < limit || limit >= CATCHUP_MAX_ROWS) return fetched;
+    if (!fetched.ok || !cutoff || fetched.fetchedCount < limit) return fetched;
+    if (limit >= CATCHUP_MAX_ROWS) return { ...fetched, capped: minTs(fetched.msgs, "") >= cutoff };
     // Fetch beyond the boundary, not merely to it: several rows can share a
     // one-second timestamp and otherwise straddle the window edge.
     if (minTs(fetched.msgs, "") < cutoff) return fetched;
@@ -1384,6 +1406,18 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   const msgs = dropMuted(deduped, muted);
   let exactCounts = unreadCounts(msgs, state.readMark, state.readMarks, selfChats);
   let exactOldest = unreadOldest(msgs, state.readMark, state.readMarks, selfChats);
+  if (fetched.capped) {
+    // The window stopped short of the oldest outstanding unread: a chat with
+    // NO row in the window keeps its ledger entry instead of being reset to
+    // zero by a rebuild that never saw it (Astra B#3).
+    const inWindow = new Set(msgs.map(chatKey));
+    for (const [c, n] of Object.entries(state.unreadCounts)) {
+      if (n > 0 && !inWindow.has(c) && !(c in exactCounts)) {
+        exactCounts[c] = n;
+        if (state.unreadOldest[c]) exactOldest[c] = state.unreadOldest[c]!;
+      }
+    }
+  }
   if (markRead) {
     exactCounts = {};
     exactOldest = {};
@@ -1426,11 +1460,14 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
 
   // Both marks advance only on a good fetch, so an outage cannot silently
   // swallow the messages that arrived during it.
+  // A row dated tomorrow (tz skew) must not become the mark everything is
+  // measured against — nothing would badge or toast until "tomorrow" (Astra B#4).
+  const highestNow = highest <= nowTs ? highest : nowTs;
   const persisted = saveState({
-    watermark: highest,
+    watermark: highestNow,
     // First ever run: adopt the current high-water rather than reporting the
     // whole preview window as unread the moment the plugin is installed.
-    readMark: state.readMark === "" ? highest : readMark,
+    readMark: state.readMark === "" ? highestNow : readMark,
     unreadCounts: exactCounts,
     unreadOldest: exactOldest,
     unreadInitialized: true,

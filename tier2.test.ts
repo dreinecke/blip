@@ -828,3 +828,15 @@ describe("multi-photo messages and the preview transform (#Crystal/Thatchers)", 
     expect(panelSrc).not.toContain("b <= 5 * 1024 * 1024");
   });
 });
+
+describe("cache file names (Astra B#1)", () => {
+  const { cacheFileName } = require("./fetch") as typeof import("./fetch");
+  test("an unmapped MIME never keeps the sender's extension", () => {
+    expect(cacheFileName("7", "evil.desktop", "image/svg+xml")).toBe("7-orig-evil.bin");
+    expect(cacheFileName("7", "notes.sh", "application/x-shellscript")).toBe("7-orig-notes.bin");
+  });
+  test("a mapped MIME still gets its own extension", () => {
+    expect(cacheFileName("8", "photo.heic", "image/heic")).toBe("8-jpg-photo.jpg");
+    expect(cacheFileName("9", "doc.pdf", "application/pdf")).toBe("9-orig-doc.pdf");
+  });
+});

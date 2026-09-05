@@ -157,12 +157,17 @@ def check_contacts() -> tuple[bool, str]:
 def check_markread() -> tuple[bool, str]:
     """Can we drive Messages' menu bar? That is how a read is pushed back
     (imsg-read). Optional: reading and sending work without it."""
+    # This is the first System Events call this Mac may ever see from sshd: it
+    # can pop an Automation prompt of its own, so it gets the same patience as
+    # the Messages probe (Astra C#8).
+    print("  … asking System Events (an Allow prompt for System Events may appear on the Mac's screen — click it)",
+          file=sys.stderr, flush=True)
     try:
         r = subprocess.run(
             ["osascript", "-e",
              'tell application "System Events" to tell process "Messages" to '
              'name of menu bar item "Conversation" of menu bar 1'],
-            capture_output=True, timeout=20,
+            capture_output=True, timeout=PROMPT_WAIT,
         )
     except subprocess.TimeoutExpired:
         return False, "System Events timed out"

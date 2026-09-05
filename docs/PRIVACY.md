@@ -41,7 +41,7 @@ address is refused. Turn it off with `link_previews=off` in
 Message text lives only in memory while the panel or window is open. Desktop
 toasts show a sender name and a preview through your notification daemon,
 gated by the allowlist — and your notification daemon may keep its own
-history. Blip itself logs nothing; the shell's stderr (journald) sees
+history. Blip itself keeps one log, `~/.local/state/blip/push-read.log` (timestamps, the `imsg-read` arguments — `--all`, or a handle when `push_read=thread` — exit codes and its status line; never message content), and nothing else; the shell's stderr (journald) sees
 recipients and exit codes, never bodies (`imsg-send` prints a byte count).
 Message bodies do pass through process arguments on both machines, visible
 to other processes running as you.
@@ -73,7 +73,7 @@ missing. Blip never asks for Contacts, Camera, Microphone, or Location.
 
 ## What crosses the network
 
-Only ssh between the two machines: message queries and previews, ordered
+Ssh between the two machines, plus — when `link_previews` is on — an HTTPS fetch of a linked page and its preview image, made from the Linux box to that site (see above): message queries and previews, ordered
 conversation-pin metadata, attachment bytes you request, and files you send.
 Push notifications use a
 content-free "something changed" ping — a watcher on the Mac emits a
@@ -81,5 +81,5 @@ timestamp when `chat.db` changes; the client then fetches privately.
 
 ## What Blip cannot do
 
-Send read receipts, send tapbacks, edit or unsend, see typing indicators.
+Send tapbacks, edit or unsend, see typing indicators.
 Those need Apple private APIs that Blip deliberately does not use.

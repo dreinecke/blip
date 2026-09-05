@@ -29,6 +29,8 @@ Panel {
   readonly property bool inThread: view.inThread
   readonly property var active: view.active
   readonly property bool loading: view.loading
+  readonly property bool rendered: view.rendered
+  readonly property string seenTs: view.seenTs
   readonly property string activeLastTs: view.activeLastTs
 
   function open() {

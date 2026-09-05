@@ -318,12 +318,15 @@ BarWidget {
     return out
   }
 
-  function markThreadRead(chat) {
+  /** `seen` = the newest ts the surface actually rendered. Without it the
+   *  mark went through the sidebar's last_ts, which can be a message that
+   *  arrived after the snapshot the user is looking at (Astra A#3). */
+  function markThreadRead(chat, seen) {
     var c = String(chat)
-    var lastTs = ""
+    var lastTs = seen ? String(seen) : ""
     var list = threads.map(function(t) {
       if (String(t.chat) !== c) return t
-      lastTs = String(t.last_ts || "")
+      if (lastTs === "") lastTs = String(t.last_ts || "")
       return t.unread > 0 ? Object.assign({}, t, { unread: 0 }) : t
     })
     noteLocalRead(c, lastTs)
@@ -361,12 +364,14 @@ BarWidget {
   }
   function activeReadChat() {
     var s = readingSurface()
-    // a still-LOADING conversation is not yet read (Codex #4)
-    return (s && s.loading !== true) ? String(s.active.chat) : ""
+    // a still-LOADING conversation is not yet read (Codex #4), and neither is
+    // one whose load FAILED — nothing was seen (Astra A#2)
+    return (s && s.loading !== true && s.rendered === true) ? String(s.active.chat) : ""
   }
   function activeSeenTs() {
     var s = readingSurface()
-    return s ? String(s.activeLastTs || "") : ""
+    // the newest ts that RENDERED, not the sidebar's (Astra A#3)
+    return s ? String(s.seenTs || "") : ""
   }
 
   Process {
@@ -564,6 +569,7 @@ BarWidget {
     }
     property string toastChat: ""
     property string toastCode: ""    // set for a code toast: click = copy, not open
+    property double toastCodeAt: 0   // when that code was toasted — expiry applies here too (Astra A#9)
   }
   property var toastQueue: []
 
@@ -580,12 +586,17 @@ BarWidget {
   function drainToasts() {
     if (notifyProc.running || toastQueue.length === 0) return
     var q = toastQueue.slice()
+    // A code toast that waited out its five minutes in the queue is stale: the
+    // code it would offer has expired (Astra A#9).
+    while (q.length > 0 && q[0].code && Date.now() - Number(q[0].at || 0) > 300000) q.shift()
+    if (q.length === 0) { toastQueue = q; return }
     var t = q.shift()
     toastQueue = q
     var body = String(t.text || "")
     if (body.length > 220) body = body.substring(0, 217) + "…"
     notifyProc.toastChat = String(t.chat || "")
     notifyProc.toastCode = String(t.code || "")
+    notifyProc.toastCodeAt = Number(t.at || 0)
     // Where this toast came from, in a form that outlives it.
     //
     // --action=default lives inside this notify-send process and dies with it
@@ -674,7 +685,7 @@ BarWidget {
     // #1). The toast says a code arrived; click copies it from memory.
     var body = (pendingCode.domain !== "" ? "For " + pendingCode.domain + " · " : "")
              + "Click to copy · Super+Shift+V types it"
-    fireToasts([{ chat: "", name: "Security code from " + who, text: body, ts: pendingCode.ts, key: "", code: pendingCode.code }])
+    fireToasts([{ chat: "", name: "Security code from " + who, text: body, ts: pendingCode.ts, key: "", code: pendingCode.code, at: Date.now() }])
   }
   // sh reads the code from its environment, hands it to the tool on stdin.
   property string copyValue: ""          // what the NEXT copy hands to wl-copy
@@ -689,6 +700,8 @@ BarWidget {
    *  newer one (Astra #14). IPC `copycode` passes nothing: the newest. */
   function copyCode(code) {
     if (!pendingCode) return "no code pending"
+    // An older toast's code is copied only within ITS five minutes (Astra A#9).
+    if (code && String(code) !== pendingCode.code && Date.now() - notifyProc.toastCodeAt > 300000) return "code expired"
     copyValue = String(code || pendingCode.code)
     codeCopyProc.running = true
     return "copied"

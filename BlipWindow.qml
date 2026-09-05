@@ -30,13 +30,18 @@ FloatingWindow {
   visible: false
   // Focused = Hyprland's active toplevel is this window (title prefix "Blip").
   // A visible-but-unfocused window keeps refreshing but does not mark read.
+  // Exact title, not a prefix: a terminal or tab titled "Blip documentation"
+  // used to count as this window being read (Astra A#6). The title is ours
+  // ("Blip" or "Blip (N)"), so equality identifies it.
   readonly property bool focused: visible && Hyprland.activeToplevel !== null
-    && String(Hyprland.activeToplevel.title || "").indexOf("Blip") === 0
+    && String(Hyprland.activeToplevel.title || "") === win.title
 
   // Proxies BarWidget relies on (same names as the popout host).
   readonly property bool inThread: view.inThread
   readonly property var active: view.active
   readonly property bool loading: view.loading
+  readonly property bool rendered: view.rendered
+  readonly property string seenTs: view.seenTs
   readonly property string activeLastTs: view.activeLastTs
   function openThread(t) { view.openThread(t) }
   function shareLink(url) { return view.shareLink(url) }

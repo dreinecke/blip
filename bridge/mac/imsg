@@ -231,6 +231,7 @@ def _vote(local: dict, key, name: str) -> None:
         local[key] = name
 
 
+_EXACT_SEEN: set = set()                             # every exact key ANY source carried, ambiguous or not
 _NAME_INDEX: dict[str, str] | None = None            # exact keys: last-ten digits, lowercased email
 _PHONE_INDEX: dict[Phone, str] | None = None          # every saved number, parsed, for the region-aware fallback
 
@@ -318,6 +319,7 @@ def name_for(handle: str | None) -> str | None:
                         _vote(local, addr, name)
                 con.close()
                 for key, name in local.items():
+                    _EXACT_SEEN.add(key)
                     if name:
                         slot = votes.setdefault(key, {})
                         if name in slot:
@@ -336,6 +338,10 @@ def name_for(handle: str | None) -> str | None:
     hit = _NAME_INDEX.get(_normalize_phone(handle))
     if hit:
         return hit
+    # An exact card EXISTS but was ambiguous: that is the answer — never let a
+    # suffix match name a stranger over it (Astra C#2).
+    if _normalize_phone(handle) in _EXACT_SEEN:
+        return None
     # No exact key: a unique region-aware match names it; two different names do not.
     parsed = _parse_phone(handle)
     near = {n for card, n in _PHONE_INDEX.items() if parsed and _same_number(parsed, card)}
@@ -388,9 +394,13 @@ def decode_attributed_body(blob: bytes | None) -> str | None:
         return None
     first = blob[p]
     if first == 0x81:
+        if p + 3 > len(blob):
+            return None
         length = struct.unpack_from("<H", blob, p + 1)[0]
         p += 3
     elif first == 0x82:
+        if p + 5 > len(blob):
+            return None
         length = struct.unpack_from("<I", blob, p + 1)[0]
         p += 5
     else:
@@ -408,7 +418,15 @@ def fmt_ts(apple_ns: int | None) -> str:
 
 
 def message_text(row: sqlite3.Row) -> str:
-    return _app_card_text(row) or row["text"] or decode_attributed_body(row["attributedBody"]) or ""
+    # One malformed blob is ONE row's text, never a dead JSON response for
+    # every message in the window (Astra C#7).
+    try:
+        return _app_card_text(row) or row["text"] or decode_attributed_body(row["attributedBody"]) or ""
+    except Exception:
+        try:
+            return row["text"] or ""
+        except Exception:
+            return ""
 
 
 def _unarchive(blob) -> dict | None:
@@ -420,22 +438,45 @@ def _unarchive(blob) -> dict | None:
         return None
 
 
-def _deref(objs: list, v, depth: int = 0):
+_DEREF_BUDGET = 20000
+
+
+def _deref(objs: list, v, depth: int = 0, _path=None, _budget=None):
     """Follow archive references: UIDs into the object table, NSURL to its
-    string, NSDictionary to a plain dict. Anything deeper than six hops is
-    a cycle or an object we do not model — None."""
-    if depth > 6:
+    string, NSDictionary to a plain dict. Anything deeper than six hops, any
+    UID already on the current path (a cycle), or more than _DEREF_BUDGET
+    steps in total — None. The payload comes from the SENDER: a 1000x1000
+    self-referencing dictionary cost a billion iterations under a depth
+    limit alone (Astra C#5)."""
+    if _path is None:
+        _path = set()
+    if _budget is None:
+        _budget = [_DEREF_BUDGET]
+    _budget[0] -= 1
+    if _budget[0] < 0 or depth > 6:
         return None
     if isinstance(v, plistlib.UID):
-        if v.data == 0:   # $null
+        if v.data == 0 or v.data >= len(objs) or v.data in _path:   # $null, out of range, cycle
             return None
-        return _deref(objs, objs[v.data], depth + 1) if v.data < len(objs) else None
+        _path.add(v.data)
+        try:
+            return _deref(objs, objs[v.data], depth + 1, _path, _budget)
+        finally:
+            _path.discard(v.data)
     if isinstance(v, dict) and "NS.relative" in v:   # NSURL
-        return _deref(objs, v["NS.relative"], depth + 1)
+        return _deref(objs, v["NS.relative"], depth + 1, _path, _budget)
     if isinstance(v, dict) and "NS.keys" in v and "NS.objects" in v:   # NSDictionary
-        pairs = ((_deref(objs, k, depth + 1), _deref(objs, o, depth + 1))
-                 for k, o in zip(v["NS.keys"], v["NS.objects"]))
-        return {k: o for k, o in pairs if isinstance(k, str)}
+        keys, vals = v["NS.keys"], v["NS.objects"]
+        if not isinstance(keys, list) or not isinstance(vals, list):   # a hostile shape (Astra C#7)
+            return None
+        out = {}
+        for k, o in zip(keys, vals):
+            dk = _deref(objs, k, depth + 1, _path, _budget)
+            if isinstance(dk, str):
+                out[dk] = _deref(objs, o, depth + 1, _path, _budget)
+            if _budget[0] < 0:
+                return None
+        return out
     return v
 
 
@@ -952,6 +993,13 @@ def _search_needles(query: str) -> list[str]:
 
 
 def cmd_search(con, args):
+    if getattr(args, "stdin", False):
+        # `search --stdin N`: the positional slot holds N, the query is on stdin.
+        if args.query and args.query.isdigit():
+            args.n = int(args.query)
+        args.query = sys.stdin.read().strip()
+    if not args.query:
+        sys.exit("error: empty query")
     # text column is null for newer messages; also scan attributedBody as bytes
     needles = _search_needles(args.query)
     blob_or = " OR ".join("instr(m.attributedBody, CAST(? AS BLOB)) > 0" for _ in needles)
@@ -1038,7 +1086,8 @@ def cmd_chats(con, args):
             pin_order = pin_order_for(pin_ids, r["chat_identifier"], r["guid"],
                                       r["group_id"], r["original_group_id"])
             last = con.execute(
-                f"""SELECT m.text, m.attributedBody, m.is_from_me, h.id AS handle
+                f"""SELECT m.text, m.attributedBody, m.is_from_me, h.id AS handle,
+                           m.balloon_bundle_id, m.payload_data
                     FROM chat_message_join cmj
                     JOIN {MESSAGE_SRC} m ON m.ROWID = cmj.message_id
                     LEFT JOIN handle h ON h.ROWID = m.handle_id
@@ -1177,10 +1226,18 @@ def _group_cluster_map(con) -> dict:
     canonical row is the one with the newest message (ties: highest ROWID),
     because that is the row Messages is writing to now.
     """
+    # The same recovered name cmd_groups uses: a re-sync blanks display_name,
+    # and two NAMED groups with the same members then clustered as one (Astra
+    # C#1). Gated like the other optional columns so a minimal schema still works.
+    name_expr = ("COALESCE(NULLIF(c.display_name, ''), (SELECT m2.group_title "
+                 "FROM chat_message_join j2 JOIN message m2 ON m2.ROWID = j2.message_id "
+                 "WHERE j2.chat_id = c.ROWID AND m2.group_title IS NOT NULL "
+                 "ORDER BY m2.ROWID DESC LIMIT 1), '')"
+                 if _has_col(con, "group_title") else "COALESCE(c.display_name, '')")
     rows = con.execute(
         f"""
         SELECT c.ROWID AS rid, c.chat_identifier AS cid,
-               COALESCE(c.display_name, '') AS nm,
+               {name_expr} AS nm,
                (SELECT GROUP_CONCAT(h.id, ',')
                   FROM (SELECT h.id FROM chat_handle_join j JOIN handle h ON h.ROWID = j.handle_id
                          WHERE j.chat_id = c.ROWID ORDER BY h.id) h) AS parts,
@@ -1421,6 +1478,7 @@ def _avatar_candidates(handle: str) -> list[tuple[str, int]]:
     parsed = None if want_email else _parse_phone(handle)
     exact_cands: list[tuple[str, int]] = []
     near_cands: list[tuple[str, int]] = []
+    exact_any = False                      # an exact card exists somewhere, even ambiguously
     for path in _ab_sources():
         try:
             con2 = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
@@ -1442,6 +1500,8 @@ def _avatar_candidates(handle: str) -> list[tuple[str, int]]:
         except sqlite3.DatabaseError:
             continue
         # len > 1 inside ONE source: ambiguous there — skip that source only
+        if exact:
+            exact_any = True
         if len(exact) == 1:
             exact_cands.append((path, exact.pop()))
         elif not exact and len(near) == 1:
@@ -1450,7 +1510,7 @@ def _avatar_candidates(handle: str) -> list[tuple[str, int]]:
     # applies globally. Per-source `exact or near` let a nearer source's
     # suffix card put its photo on a conversation named after another source's
     # exact card (Astra #3). Suffix matches only when nothing is exact.
-    return exact_cands if exact_cands else near_cands
+    return exact_cands if exact_cands else ([] if exact_any else near_cands)
 
 
 def cmd_attachment(con, args):
@@ -1755,7 +1815,8 @@ def main() -> None:
     s = sub.add_parser("recent",   parents=[common]); s.add_argument("n", nargs="?", type=int, default=20); s.set_defaults(func=cmd_recent)
     s = sub.add_parser("from",     parents=[common]); s.add_argument("handle"); s.add_argument("n", nargs="?", type=int, default=50); s.set_defaults(func=cmd_from)
     s = sub.add_parser("thread",   parents=[common]); s.add_argument("handle", nargs="?", default=""); s.add_argument("n", nargs="?", type=int, default=50); s.add_argument("--chat", default="", help="exact chat_identifier (groups: 32-hex / chat<digits>)"); s.set_defaults(func=cmd_thread)
-    s = sub.add_parser("search",   parents=[common]); s.add_argument("query"); s.add_argument("n", nargs="?", type=int, default=50); s.set_defaults(func=cmd_search)
+    s = sub.add_parser("search",   parents=[common]); s.add_argument("query", nargs="?", default=""); s.add_argument("n", nargs="?", type=int, default=50)
+    s.add_argument("--stdin", action="store_true", help="read the query from stdin (it is message text: never argv)"); s.set_defaults(func=cmd_search)
     s = sub.add_parser("contacts", parents=[common]); s.add_argument("n", nargs="?", type=int, default=30); s.set_defaults(func=cmd_contacts)
     s = sub.add_parser("chats",    parents=[common]); s.add_argument("n", nargs="?", type=int, default=30); s.set_defaults(func=cmd_chats)
     s = sub.add_parser("groups",   parents=[common]); s.add_argument("n", nargs="?", type=int, default=2000); s.set_defaults(func=cmd_groups)

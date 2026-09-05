@@ -35,6 +35,7 @@ import {
   renameSync, utimesSync, writeSync,
 } from "node:fs";
 import { join } from "node:path";
+import { sweepStale } from "./avatar";
 import { pathToFileURL } from "node:url";
 
 const HOME = process.env.HOME ?? homedir();
@@ -308,6 +309,7 @@ export async function fetchPreview(url: string): Promise<Preview> {
   // The URL came out of a message; the cache file is named by its hash so the
   // URL itself never lands on disk. The caller re-attaches it (Astra #6).
   writeAtomic(metaFile, JSON.stringify({ ...out, url: "" }));
+  sweepStale(PREVIEW_DIR, PREVIEW_TTL_MS * 2);   // bounded: expired cards, images and markers go (Astra B#8)
   const now = new Date();
   utimesSync(metaFile, now, now);
   return out;

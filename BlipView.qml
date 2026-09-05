@@ -188,6 +188,10 @@ FocusScope {
     if (!/^https?:\/\//i.test(u)) return
     shareUrl = u
     shareQr = ""
+    // A sheet opened over a still-rendering one: the old job's exit would have
+    // published ITS result under the new outFile (Astra A#8). Kill it; the
+    // non-zero exit keeps its result out.
+    if (qrProc.running) qrProc.running = false
     var out = shareDir + "/qr-" + Date.now() + ".png"
     qrProc.outFile = out
     qrProc.command = ["sh", "-c", 'mkdir -p "$1" && chmod 700 "$1" && umask 077 && exec qrencode -o "$2" -s 6 -m 2 -l M', "blip", shareDir, out]
@@ -246,6 +250,14 @@ FocusScope {
   property var active: null          // selected thread object, null = list view
   property var bubbles: []           // decorated messages for `active` (see thread.ts)
   property bool loading: false
+  // A conversation is READ only after a snapshot of it actually rendered.
+  // `rendered` is false from openThread until bubbles land; a failed load
+  // (timeout, bad JSON) leaves it false, so a later refresh cannot mark the
+  // conversation read unseen (Astra A#2). `seenTs` is the newest ts IN that
+  // snapshot — what the eye saw — and is what every read mark carries; the
+  // sidebar's last_ts can be newer than anything on screen (Astra A#3).
+  property bool rendered: false
+  property string seenTs: ""
   property string note: ""           // transient status line (send result, errors)
   property int cursor: -1            // keyboard row selection in list view
   property bool pinToBottom: false   // scroll to the newest bubble once layout settles
@@ -373,6 +385,8 @@ FocusScope {
     activeLastTs = String(t.last_ts || "")
     bubbles = []
     bubblesJson = ""
+    rendered = false
+    seenTs = ""
     firstLoad = true
     pushPending = false
     note = ""
@@ -690,6 +704,7 @@ FocusScope {
     if (!newMode) return
     if (newFieldQuery() === "") {
       newSearchTimer.stop()
+      contactSeq++                      // an in-flight answer must not repopulate an emptied field (Astra A#5)
       newResults = []
       newNote = ""
       newQueryRan = ""
@@ -707,6 +722,10 @@ FocusScope {
     // never shown as clickable rows under the newer query (Codex audit #5).
     if (contactProc.running) { contactSeq++; contactPending = q; return }
     contactSeq++
+    // The previous query's rows are not answers to THIS query: clear them so
+    // nothing stale is clickable — or Enter-able, since acceptNewField gates on
+    // newQueryRan, which is about to become q (Astra A#5).
+    if (q !== newQueryRan) { newResults = []; newCursor = 0 }
     newQueryRan = q
     newNote = "searching…"
     // The recency map names every conversation you have. argv is world-readable
@@ -823,6 +842,7 @@ FocusScope {
     var q = searchFieldQuery()
     if (q === "") {
       searchTimer.stop()
+      searchSeq++                       // same rule as the contact search (Astra A#5)
       searchResults = []
       searchNote = ""
       searchQueryRan = ""
@@ -873,10 +893,12 @@ FocusScope {
     searchSeq++
     searchQueryRan = q
     if (searchResults.length === 0) searchNote = "searching…"
-    searchProc.command = ["bun", root.searchScript, q, "40"]
+    // The query is message text once a sentence is pasted in: it rides the
+    // same stdin payload as the sidebar identities, never argv (Astra B#2).
+    searchProc.command = ["bun", root.searchScript, "--stdin", "40"]
     searchProc.stdinEnabled = true
     searchProc.running = true
-    searchProc.write(threadIdentitiesJson())
+    searchProc.write(JSON.stringify({ query: q, threads: JSON.parse(threadIdentitiesJson()) }))
     searchProc.stdinEnabled = false
   }
 
@@ -1046,28 +1068,38 @@ FocusScope {
           if (d.ok === true) {
             var list = Array.isArray(d.bubbles) ? d.bubbles : []
             var j = JSON.stringify(list)
+            // What the eye can now see: the newest ts in THIS snapshot.
+            var seen = ""
+            for (var k = 0; k < list.length; k++) { var ts = String(list[k].ts || ""); if (ts > seen) seen = ts }
             if (j === root.bubblesJson) {
               // Nothing changed — do NOT rebuild the Repeater (a rebuild
               // resets scroll and re-decodes every image). Push pings mostly
               // produce identical content; this makes them free.
-              if (root.hostWidget && root.readActive) root.hostWidget.markThreadRead(root.threadRunningChat)
+              root.rendered = true
+              root.seenTs = seen
+              if (root.hostWidget && root.readActive) root.hostWidget.markThreadRead(root.threadRunningChat, seen)
               return
             }
             root.bubblesJson = j
             root.bubbles = list
+            root.rendered = true
+            root.seenTs = seen
             // Pin only on the thread's FIRST load or when the user was
             // already at the bottom — never while they read history.
             root.pinToBottom = root.firstLoad || flick.stick
             root.firstLoad = false
             Qt.callLater(root.autoFetchImages)
-            // A dot means "looked at", so clear it only after content loaded.
-            if (root.hostWidget && root.readActive) root.hostWidget.markThreadRead(root.threadRunningChat)
+            // A dot means "looked at", so clear it only after content loaded —
+            // and only through what loaded, never the sidebar's newer ts.
+            if (root.hostWidget && root.readActive) root.hostWidget.markThreadRead(root.threadRunningChat, seen)
           } else {
             root.bubbles = []
+            root.rendered = false
             root.note = String(d.error || "could not load this thread")
           }
         } catch (e) {
           root.bubbles = []
+          root.rendered = false
           root.note = "could not load this thread"
         }
       }
@@ -2174,6 +2206,10 @@ FocusScope {
                   visible: root.activeIsGroup && !bubbleRow.mine && modelData.groupStart === true
                   text: String(modelData.name || "")
                   textFormat: Text.PlainText
+                  // A name is untrusted width: unconstrained, a long one is the
+                  // "delegate wider than the panel" bug (CLAUDE.md) — Astra A#10.
+                  Layout.maximumWidth: Math.max(1, bubbleRow.width - Style.space(40))
+                  elide: Text.ElideRight
                   color: root.dim
                   font.family: root.fontFamily
                   font.pixelSize: root.fontCaption
@@ -2188,6 +2224,8 @@ FocusScope {
                   Text {
                     text: (bubbleRow.mine ? "You" : String(modelData.name || "They")) + " unsent a message"
                     textFormat: Text.PlainText
+                    Layout.maximumWidth: Math.max(1, bubbleRow.width - Style.space(40))
+                    elide: Text.ElideRight
                     color: root.dim
                     font.family: root.fontFamily
                     font.pixelSize: root.fontCaption
@@ -2732,7 +2770,10 @@ FocusScope {
                 borderSpec: composeField._composeBorder
                 radius: Style.cornerRadius
               }
-              Keys.onEscapePressed: root.back()
+              // Esc with the share sheet up (it opens on an ARRIVING link, over
+              // whatever you were typing) closes the sheet — back() would clear
+              // the draft and the queued file underneath it (Astra A#7).
+              Keys.onEscapePressed: { if (root.shareUrl !== "") root.closeShare(); else root.back() }
               // Ctrl+V goes through paste.ts: an image on the clipboard becomes
               // a draft chip; text falls through to a manual insert. One process
               // snapshots types AND data — probing then re-reading races.
