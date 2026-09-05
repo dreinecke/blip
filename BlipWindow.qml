@@ -43,6 +43,7 @@ FloatingWindow {
   readonly property bool loading: view.loading
   readonly property bool rendered: view.rendered
   readonly property string seenTs: view.seenTs
+  readonly property bool peeking: view.peeking
   readonly property string activeLastTs: view.activeLastTs
   function openThread(t) { view.openThread(t) }
   function shareLink(url) { return view.shareLink(url) }

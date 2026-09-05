@@ -219,7 +219,7 @@ describe("QML safety invariants", () => {
     expect(widget).toContain("property var refreshQueue: []");
     expect(widget).not.toContain("property var queued: null");
     const success = panel.indexOf("if (d.ok === true)");
-    const mark = panel.indexOf("markThreadRead(root.threadRunningChat, seen)");
+    const mark = panel.indexOf("markRead(root.threadRunningChat, seen)");
     expect(success).toBeGreaterThan(-1);
     expect(mark).toBeGreaterThan(success);
   });
@@ -403,6 +403,29 @@ describe("QML safety invariants", () => {
     expect(panel).toContain("color: calm ? root.dim : root.urgent");
   });
 
+  test("a peeked thread is not read until the reader commits", () => {
+    // Three read paths, all gated on `peeking`: the two post-load marks in
+    // BlipView and readingSurface() in BarWidget (what the collector is told
+    // is being read). Focus entering the compose field is the commit.
+    expect(qmlFunction("markRead")).toContain("if (hostWidget && readActive && !peeking) hostWidget.markThreadRead(chat, seen)");
+    expect(panel.split("root.markRead(root.threadRunningChat, seen)").length - 1).toBe(2);
+    expect(panel).not.toContain("root.hostWidget.markThreadRead(");
+    expect(panel).toContain("onActiveFocusChanged: if (activeFocus) root.commitPeek()");
+    expect(qmlFunction("commitPeek")).toContain("if (!loading) markRead(String(active.chat), seenTs)");
+    expect(window).toContain("readonly property bool peeking: view.peeking");
+    expect(widget).toContain("w.inThread === true && w.peeking !== true");
+  });
+
+  test("peeking is split-view only, debounced, and cleared on the way out", () => {
+    expect(panel).toContain("Timer { id: peekTimer;");
+    expect(qmlFunction("moveCursor")).toContain("if (splitView) peekTimer.restart()");
+    for (const name of ["back", "resetToList"]) {
+      const fn = qmlFunction(name);
+      expect(fn).toContain("peekTimer.stop()");
+      expect(fn).toContain("peeking = false");
+    }
+  });
+
   test("an old toast can still reopen its conversation (omarchy-exec-argv)", () => {
     // --action=default dies with the notify-send process after eight seconds.
     // The hint is what Omarchy persists, so a row in the notification center
@@ -533,7 +556,7 @@ test("link preview URLs never ride argv", () => {
 // the newest ts in that snapshot — never the sidebar's (Astra A#2, A#3).
 test("reads require a rendered snapshot and carry its own timestamp", () => {
   expect(panel).toContain("property bool rendered: false");
-  expect(panel).toContain("root.hostWidget.markThreadRead(root.threadRunningChat, seen)");
+  expect(panel).toContain("root.markRead(root.threadRunningChat, seen)");   // through the peek gate, same `seen`
   expect(widget).toContain("s.rendered === true");
   expect(widget).toContain('return s ? String(s.seenTs || "") : ""');
   expect(widget).toContain("function markThreadRead(chat, seen)");

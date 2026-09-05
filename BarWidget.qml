@@ -391,8 +391,9 @@ BarWidget {
     var p = panelLoader.item
     if (p && p.opened === true && p.inThread === true) return p
     var w = windowLoader.item
-    // the window must be FOCUSED to count as being read (war room #25)
-    if (w && w.visible === true && w.focused === true && w.inThread === true) return w
+    // the window must be FOCUSED to count as being read (war room #25), and
+    // a thread merely peeked from the sidebar cursor is not being read either
+    if (w && w.visible === true && w.focused === true && w.inThread === true && w.peeking !== true) return w
     return null
   }
   function activeReadChat() {

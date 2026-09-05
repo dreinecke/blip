@@ -315,6 +315,10 @@ FocusScope {
   property string seenTs: ""
   property string note: ""           // transient status line (send result, errors)
   property int cursor: -1            // keyboard row selection in list view
+  // Split view: the thread on screen because the cursor RESTED on its row, not
+  // because the reader chose it. Read marks wait until they commit — Enter, a
+  // click or typing all put focus in the compose field, which clears this.
+  property bool peeking: false
   // Chat of the cursor row, so every row answers "am I the cursor?" with one
   // string compare instead of an O(n) scan of threads per row per keypress.
   readonly property string cursorChat: cursor >= 0 && cursor < threads.length ? String(threads[cursor].chat) : ""
@@ -429,6 +433,8 @@ FocusScope {
   /** Back to the list view, scrolled to top — the host calls this on open. */
   function resetToList() {
     closeShare()   // the sheet belongs to the link you were looking at
+    peekTimer.stop()
+    peeking = false
     active = null
     bubbles = []
     note = ""
@@ -452,6 +458,8 @@ FocusScope {
 
   function back() {
     closeShare()   // ditto: navigating away dismisses the sheet
+    peekTimer.stop()
+    peeking = false
     active = null
     bubbles = []
     note = ""
@@ -468,12 +476,38 @@ FocusScope {
     })
   }
 
+  function isShowing(t) { return inThread && String(active.chat) === String(t.chat) }
   function openThread(t) {
     if (!t) return
     // A sheet opened over the PREVIOUS conversation (an arriving link opens it
     // by itself) otherwise floats over this one, offering a QR for a link that
     // is no longer on screen. Found by driving the live panel, 2026-09-07.
     closeShare()
+    // Enter on the row already peeked commits it (the compose field's focus
+    // handler marks it read) without reloading what is on screen.
+    if (!(peeking && isShowing(t))) { peeking = false; showThread(t) }
+    Qt.callLater(function() { composeField.forceActiveFocus() })
+  }
+  /** peekTimer fired (split view only): show the cursor row's thread the way
+   *  Messages' sidebar does, but leave focus in the list and the dot alone. */
+  function peekCursor() {
+    var t = threads[cursor]
+    if (!t || isShowing(t)) return
+    peeking = true
+    showThread(t)
+  }
+  function commitPeek() {
+    if (!peeking) return
+    peeking = false
+    // A load still running marks it on completion (peeking is false by then).
+    if (!loading) markRead(String(active.chat), seenTs)
+  }
+  /** The one gate for "this thread was looked at": a surface that marks read,
+   *  and not a thread merely peeked. */
+  function markRead(chat, seen) {
+    if (hostWidget && readActive && !peeking) hostWidget.markThreadRead(chat, seen)
+  }
+  function showThread(t) {
     active = t
     activeLastTs = String(t.last_ts || "")
     bubbles = []
@@ -488,7 +522,6 @@ FocusScope {
     composeField.cursorPosition = composeField.length
     clearDraft()   // a queued file must never survive into another thread
     requestThreadLoad(String(t.chat))
-    Qt.callLater(function() { composeField.forceActiveFocus() })
   }
 
   function requestThreadLoad(chat) {
@@ -1390,7 +1423,7 @@ FocusScope {
               // produce identical content; this makes them free.
               root.rendered = true
               root.seenTs = seen
-              if (root.hostWidget && root.readActive) root.hostWidget.markThreadRead(root.threadRunningChat, seen)
+              root.markRead(root.threadRunningChat, seen)
               return
             }
             root.bubblesJson = j
@@ -1404,7 +1437,7 @@ FocusScope {
             Qt.callLater(root.autoFetchImages)
             // A dot means "looked at", so clear it only after content loaded —
             // and only through what loaded, never the sidebar's newer ts.
-            if (root.hostWidget && root.readActive) root.hostWidget.markThreadRead(root.threadRunningChat, seen)
+            root.markRead(root.threadRunningChat, seen)
           } else {
             root.bubbles = []
             root.rendered = false
@@ -1688,6 +1721,11 @@ FocusScope {
       root.runSearch()
     }
   }
+  // A cursor that rests on a row for a beat shows that thread (Messages'
+  // sidebar behaviour). Restarted on every move, so a held arrow key does not
+  // start a load per row; the thread loader's latest-wins queue drops whatever
+  // a fast scroll still managed to start.
+  Timer { id: peekTimer; interval: 250; onTriggered: root.peekCursor() }
   Timer {
     id: reloadTimer
     // Messages usually has the row within a few hundred ms of osascript
@@ -1705,12 +1743,13 @@ FocusScope {
   // press past the last row landing at the top reads as a jump, not a loop
   // (Omarchy's Dropdown clamps the same way).
   function moveCursor(dy) {
-    if (inThread || threads.length === 0 || dy === 0) return
+    if (!listShowing || threads.length === 0 || dy === 0) return
     // Up from the first row hands focus to the search field above the list,
     // and Down in an empty field hands it back (Omarchy's SearchableDropdown).
     if (dy < 0 && cursor <= 0) { startSearch(); return }
     cursor = Math.max(0, Math.min(threads.length - 1, cursor + dy))
     scrollCursorIntoView()
+    if (splitView) peekTimer.restart()
   }
   // Keep the cursor row inside threadFlick's viewport. The list is a
   // multi-section Column (pinned grid, headers, three Repeaters), so there is
@@ -1731,7 +1770,7 @@ FocusScope {
       threadFlick.contentY = Math.min(maxY, bottom + margin - threadFlick.height)
   }
   function activateCursor() {
-    if (!inThread && cursor >= 0) openThread(threads[cursor])
+    if (listShowing && cursor >= 0) openThread(threads[cursor])
   }
   function handleTextKey(text) {
     if (text === "/") { startSearch(); return true }
@@ -3187,6 +3226,7 @@ FocusScope {
 
               TextArea {
                 id: composeField
+              onActiveFocusChanged: if (activeFocus) root.commitPeek()
                 width: composeFlick.width
                 // At least the viewport, so a click in empty space still lands in
                 // the field; taller than it once the text outgrows five lines.
