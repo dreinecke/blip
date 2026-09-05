@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Read-only contact review opens directly from conversations. Inspect matching
+  source cards and open an exact card in Contacts on Mac. A bounded duplicate
+  scan reuses results only while the handle set and Mac fingerprint match.
+  Configuration remains in `bridge.conf`; no preferences system or saved
+  display-name overrides are added.
+
+
 - **Pinned avatars no longer grow on the first cursor move.** The tiles were
   measured before the grid had its width, and the layout kept that small size
   until the next relayout; the size is now a layout hint, so they render at
@@ -277,30 +284,6 @@
   left-justified again: the 1–9 hint reserved a fixed-width column at the head
   of every row that stayed blank once nine pins owned the digits. `1`–`9` still
   jumps.
-
-### Read-only contact review
-
-- **Read-only contact review.** A Contacts page in settings scans every
-  conversation's number or email across all Mac Contacts sources (iCloud,
-  Gmail/CardDAV, Exchange, On My Mac), flags likely duplicates and naming
-  conflicts, and lets each person's source cards be reviewed side by side
-  or opened directly in Contacts on the Mac. Nothing writes to the Mac:
-  the bridge gains only read verbs (candidates, fingerprint, audit, open),
-  and the one Automation helper involved answers which card ids the object
-  layer can address.
-- **The scan answers in ~0.1s when nothing changed.** A per-account store
-  fingerprint (row counts + newest modification per source) is cached with
-  the last scan result, so reopening the page re-scans 19k cards only when
-  the Mac side actually changed.
-- **Optional Blip-local display names.** An ambiguous handle (two people
-  sharing a number across sources) can be pinned to a chosen contact, or
-  given a custom local name, stored owner-only in
-  `~/.config/blip/identities.json` — a display preference, never a contact
-  edit.
-- Conversation and message context menus gain "Review contact", jumping to
-  that person's cards; groups expand into named participant submenus.
-- Paste a file copied from a file manager straight into a conversation as
-  a draft attachment (GNOME file-object and uri-list clipboard payloads).
 
 ## 2.3.0 — 2026-09-03 — the contributors' release
 

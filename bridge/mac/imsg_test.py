@@ -38,7 +38,7 @@ class ChatProjectionTests(unittest.TestCase):
             CREATE TABLE message (
               ROWID INTEGER PRIMARY KEY, date INTEGER, text TEXT,
               attributedBody BLOB, is_from_me INTEGER, handle_id INTEGER,
-              item_type INTEGER DEFAULT 0
+              balloon_bundle_id TEXT, payload_data BLOB, item_type INTEGER DEFAULT 0
             );
             CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER);
             CREATE TABLE chat_handle_join (chat_id INTEGER, handle_id INTEGER);
@@ -81,7 +81,7 @@ class ChatProjectionTests(unittest.TestCase):
             CREATE TABLE message (
               ROWID INTEGER PRIMARY KEY, date INTEGER, text TEXT,
               attributedBody BLOB, is_from_me INTEGER, handle_id INTEGER,
-              item_type INTEGER DEFAULT 0
+              balloon_bundle_id TEXT, payload_data BLOB, item_type INTEGER DEFAULT 0
             );
             CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER);
             CREATE TABLE chat_handle_join (chat_id INTEGER, handle_id INTEGER);
@@ -125,7 +125,7 @@ class ChatProjectionTests(unittest.TestCase):
             CREATE TABLE message (
               ROWID INTEGER PRIMARY KEY, date INTEGER, text TEXT,
               attributedBody BLOB, is_from_me INTEGER, handle_id INTEGER,
-              item_type INTEGER DEFAULT 0
+              balloon_bundle_id TEXT, payload_data BLOB, item_type INTEGER DEFAULT 0
             );
             CREATE TABLE chat_message_join (chat_id INTEGER, message_id INTEGER);
             CREATE TABLE chat_handle_join (chat_id INTEGER, handle_id INTEGER);

@@ -1,67 +1,22 @@
 #!/usr/bin/env bun
-/**
- * Portable, user-chosen identity resolutions for ambiguous Messages handles.
- *
- * QML talks only to this short-lived helper. The helper bounds and validates
- * both ~/.config/blip/identities.json and the candidate response from the Mac,
- * then writes choices atomically with mode 0600. Handles travel to the bridge
- * over bounded stdin rather than argv.
- *
- *   bun identities.ts read
- *   printf '%s' '{"handle":"+1555…"}' | bun identities.ts candidates
- *   printf '%s' '{"handles":["+1555…","person@example.com"]}' | bun identities.ts audit
- *   printf '%s' '{"handle":"…","name":"…","token":"sha256:…"}' | bun identities.ts choose
- *   printf '%s' '{"handle":"…","name":"Family line"}' | bun identities.ts custom
- *   printf '%s' '{"handle":"…"}' | bun identities.ts clear
- *   printf '%s' '{"handle":"…","token":"sha256:…"}' | bun identities.ts open
- */
-
+/** Read-only contact review. Requests and handles cross bounded stdin; the
+ * only stored data is a private, fingerprint-validated scan cache. */
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import { createHash, randomBytes } from "node:crypto";
-import {
-  chmodSync,
-  closeSync,
-  constants,
-  fchmodSync,
-  fstatSync,
-  fsyncSync,
-  lstatSync,
-  mkdirSync,
-  openSync,
-  readSync,
-  renameSync,
-  unlinkSync,
-  writeSync,
-} from "node:fs";
+import { closeSync, constants, fchmodSync, fstatSync, fsyncSync, mkdirSync,
+  openSync, readSync, renameSync, unlinkSync, writeSync } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join } from "node:path";
-
-export const MAX_IDENTITIES_BYTES = 48 * 1024;
+import { basename, dirname, join } from "node:path";
+type Runner = typeof spawnSync;
 export const MAX_IDENTITY_REQUEST_BYTES = 48 * 1024;
 export const MAX_IDENTITY_OUTPUT_BYTES = 48 * 1024;
 export const MAX_BRIDGE_OUTPUT_BYTES = 48 * 1024;
-export const MAX_IDENTITY_ENTRIES = 64;
 export const MAX_IDENTITY_CANDIDATES = 8;
 export const MAX_IDENTITY_CARDS = 64;
 export const MAX_REPAIR_FIELDS = 8;
 export const MAX_CONTACT_AUDIT_HANDLES = 200;
-export const MAX_BRIDGE_CONFIG_BYTES = 16 * 1024;
 export const MAX_HANDLE_CHARS = 320;
 export const MAX_NAME_CHARS = 160;
-
-export type IdentitySource = "contacts" | "custom";
-
-export interface IdentityChoice {
-  name: string;
-  source: IdentitySource;
-  contactToken?: string;
-}
-
-export interface IdentityConfig {
-  schemaVersion: 1;
-  identities: Record<string, IdentityChoice>;
-}
-
 export interface IdentityCandidate {
   token: string;
   name: string;
@@ -92,17 +47,8 @@ export interface ContactAudit {
   conflicts: ContactAuditEntry[];
 }
 
-export const EMPTY_IDENTITIES: Readonly<IdentityConfig> = Object.freeze({
-  schemaVersion: 1,
-  identities: Object.freeze({}),
-});
-
 const UNSAFE_TEXT = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g;
 const CONTACT_TOKEN = /^sha256:[0-9a-f]{64}$/;
-
-function own(value: Record<string, unknown>, key: string): unknown {
-  return Object.prototype.hasOwnProperty.call(value, key) ? value[key] : undefined;
-}
 
 function boundedString(value: unknown, label: string, maximum: number): string {
   if (typeof value !== "string") throw new Error(`${label} must be a string`);
@@ -144,49 +90,6 @@ function normalizeContactToken(value: unknown): string {
   return value;
 }
 
-export function normalizeIdentityConfig(value: unknown): IdentityConfig {
-  if (value === null || typeof value !== "object" || Array.isArray(value))
-    throw new Error("identities must be a JSON object");
-  const input = value as Record<string, unknown>;
-  if (own(input, "schemaVersion") !== 1) throw new Error("schemaVersion must be 1");
-  const rawEntries = own(input, "identities");
-  if (rawEntries === null || typeof rawEntries !== "object" || Array.isArray(rawEntries))
-    throw new Error("identities must be an object keyed by handle");
-  const pairs = Object.entries(rawEntries as Record<string, unknown>);
-  if (pairs.length > MAX_IDENTITY_ENTRIES)
-    throw new Error(`identities may contain at most ${MAX_IDENTITY_ENTRIES} choices`);
-
-  const normalized: Record<string, IdentityChoice> = {};
-  const seen = new Set<string>();
-  for (const [rawHandle, rawChoice] of pairs) {
-    const handle = normalizeHandle(rawHandle);
-    const key = identityKey(handle);
-    if (seen.has(key)) throw new Error("identities contains equivalent duplicate handles");
-    seen.add(key);
-    if (rawChoice === null || typeof rawChoice !== "object" || Array.isArray(rawChoice))
-      throw new Error(`identity for ${handle} must be an object`);
-    const choice = rawChoice as Record<string, unknown>;
-    const name = normalizeIdentityName(own(choice, "name"));
-    const source = own(choice, "source");
-    if (source !== "contacts" && source !== "custom")
-      throw new Error(`identity for ${handle} has an invalid source`);
-    const result: IdentityChoice = { name, source };
-    if (source === "contacts") result.contactToken = normalizeContactToken(own(choice, "contactToken"));
-    normalized[handle] = result;
-  }
-  return { schemaVersion: 1, identities: normalized };
-}
-
-export function parseIdentities(text: string): IdentityConfig {
-  let value: unknown;
-  try {
-    value = JSON.parse(text);
-  } catch {
-    throw new Error("identities.json is not valid JSON");
-  }
-  return normalizeIdentityConfig(value);
-}
-
 function currentUid(): number {
   const uid = typeof process.getuid === "function" ? process.getuid() : -1;
   if (uid < 0) throw new Error("cannot determine the current user");
@@ -216,184 +119,10 @@ function pinnedPath(directoryFd: number, name: string): string {
   return `/proc/self/fd/${directoryFd}/${name}`;
 }
 
-export function readBoundedIdentityFile(path: string): string | null {
-  const directoryFd = openPinnedDirectory(dirname(path), false);
-  let fileFd = -1;
-  try {
-    try {
-      fileFd = openSync(
-        pinnedPath(directoryFd, basename(path)),
-        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-      );
-    } catch (error: any) {
-      if (error?.code === "ENOENT") return null;
-      throw error;
-    }
-    const info = fstatSync(fileFd);
-    if (!info.isFile()) throw new Error("identities.json must be a regular file");
-    if (info.uid !== currentUid()) throw new Error("identities.json is not owned by the current user");
-    if (info.size > MAX_IDENTITIES_BYTES) throw new Error("identities.json is too large");
-
-    const chunks: Buffer[] = [];
-    let total = 0;
-    while (true) {
-      const room = MAX_IDENTITIES_BYTES + 1 - total;
-      const chunk = Buffer.alloc(Math.min(4096, room));
-      const count = readSync(fileFd, chunk, 0, chunk.length, null);
-      if (count === 0) break;
-      total += count;
-      if (total > MAX_IDENTITIES_BYTES) throw new Error("identities.json is too large");
-      chunks.push(chunk.subarray(0, count));
-    }
-    return Buffer.concat(chunks, total).toString("utf8");
-  } finally {
-    if (fileFd >= 0) closeSync(fileFd);
-    closeSync(directoryFd);
-  }
-}
-
-/** Read the small bridge config through one no-follow descriptor. */
-export function readBoundedBridgeConfig(path: string): string | null {
-  let directoryFd = -1;
-  let fileFd = -1;
-  try {
-    try { directoryFd = openPinnedDirectory(dirname(path), false); }
-    catch (error: any) {
-      if (error?.code === "ENOENT") return null;
-      throw error;
-    }
-    try {
-      fileFd = openSync(
-        pinnedPath(directoryFd, basename(path)),
-        constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK,
-      );
-    } catch (error: any) {
-      if (error?.code === "ENOENT") return null;
-      throw error;
-    }
-    const info = fstatSync(fileFd);
-    if (!info.isFile()) throw new Error("bridge.conf must be a regular file");
-    if (info.uid !== currentUid()) throw new Error("bridge.conf is not owned by the current user");
-    if ((info.mode & 0o022) !== 0) throw new Error("bridge.conf is writable by another user");
-    if (info.size > MAX_BRIDGE_CONFIG_BYTES) throw new Error("bridge.conf is too large");
-    const chunks: Buffer[] = [];
-    let total = 0;
-    while (true) {
-      const chunk = Buffer.alloc(Math.min(4096, MAX_BRIDGE_CONFIG_BYTES + 1 - total));
-      const count = readSync(fileFd, chunk, 0, chunk.length, null);
-      if (count === 0) break;
-      total += count;
-      if (total > MAX_BRIDGE_CONFIG_BYTES) throw new Error("bridge.conf is too large");
-      chunks.push(chunk.subarray(0, count));
-    }
-    return Buffer.concat(chunks, total).toString("utf8");
-  } finally {
-    if (fileFd >= 0) closeSync(fileFd);
-    if (directoryFd >= 0) closeSync(directoryFd);
-  }
-}
-
-export function bridgeConfigPath(): string {
-  const overridden = process.env.BLIP_BRIDGE_CONF;
-  if (overridden) {
-    if (!isAbsolute(overridden)) throw new Error("BLIP_BRIDGE_CONF must be absolute");
-    return overridden;
-  }
-  const home = process.env.HOME;
-  if (!home || !isAbsolute(home)) throw new Error("HOME must be an absolute path");
-  return join(home, ".config", "blip", "bridge.conf");
-}
-
-export function readIdentities(path = identitiesPath()): { exists: boolean; config: IdentityConfig } {
-  let text: string | null;
-  try {
-    text = readBoundedIdentityFile(path);
-  } catch (error: any) {
-    if (error?.code === "ENOENT") return { exists: false, config: { schemaVersion: 1, identities: {} } };
-    throw error;
-  }
-  if (text === null) return { exists: false, config: { schemaVersion: 1, identities: {} } };
-  return { exists: true, config: parseIdentities(text) };
-}
-
-function verifyReplaceableTarget(directoryFd: number, name: string): void {
-  try {
-    const info = lstatSync(pinnedPath(directoryFd, name));
-    if (!info.isFile()) throw new Error("identities.json must be a regular file");
-    if (info.uid !== currentUid()) throw new Error("identities.json is not owned by the current user");
-  } catch (error: any) {
-    if (error?.code !== "ENOENT") throw error;
-  }
-}
-
-export function writeIdentities(path: string, value: unknown): IdentityConfig {
-  if (!isAbsolute(path)) throw new Error("identity path must be absolute");
-  const config = normalizeIdentityConfig(value);
-  const sorted = Object.fromEntries(
-    Object.entries(config.identities).sort(([a], [b]) => a.localeCompare(b)),
-  );
-  const normalized: IdentityConfig = { schemaVersion: 1, identities: sorted };
-  const serialized = `${JSON.stringify(normalized, null, 2)}\n`;
-  if (Buffer.byteLength(serialized) > MAX_IDENTITIES_BYTES)
-    throw new Error("normalized identities exceed the size limit");
-
-  const directoryFd = openPinnedDirectory(dirname(path), true);
-  const name = basename(path);
-  const tempName = `.${name}.tmp.${process.pid}.${randomBytes(6).toString("hex")}`;
-  const tempPath = pinnedPath(directoryFd, tempName);
-  let tempFd = -1;
-  let renamed = false;
-  try {
-    verifyReplaceableTarget(directoryFd, name);
-    tempFd = openSync(
-      tempPath,
-      constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW,
-      0o600,
-    );
-    const bytes = Buffer.from(serialized, "utf8");
-    let offset = 0;
-    while (offset < bytes.length) offset += writeSync(tempFd, bytes, offset, bytes.length - offset);
-    fchmodSync(tempFd, 0o600);
-    fsyncSync(tempFd);
-    closeSync(tempFd);
-    tempFd = -1;
-    renameSync(tempPath, pinnedPath(directoryFd, name));
-    renamed = true;
-    chmodSync(pinnedPath(directoryFd, name), 0o600);
-    fsyncSync(directoryFd);
-    return normalized;
-  } finally {
-    if (tempFd >= 0) closeSync(tempFd);
-    if (!renamed) {
-      try { unlinkSync(tempPath); } catch { /* no temporary file */ }
-    }
-    closeSync(directoryFd);
-  }
-}
-
-export function identityNameFor(handle: unknown, config: IdentityConfig): string | null {
-  let key: string;
-  try { key = identityKey(handle); } catch { return null; }
-  for (const [candidateHandle, choice] of Object.entries(config.identities)) {
-    if (identityKey(candidateHandle) === key) return choice.name;
-  }
-  return null;
-}
-
-export function safeReadIdentityConfig(path = identitiesPath()): IdentityConfig {
-  try { return readIdentities(path).config; }
-  catch { return { schemaVersion: 1, identities: {} }; }
-}
-
 function finiteInteger(value: unknown, label: string, low: number, high: number): number {
   if (!Number.isInteger(value) || Number(value) < low || Number(value) > high)
     throw new Error(`${label} is invalid`);
   return Number(value);
-}
-
-function optionalLabel(value: unknown): string {
-  if (typeof value !== "string" || value.length > 80) throw new Error("contact label is invalid");
-  return value.replace(UNSAFE_TEXT, " ").replace(/\s+/g, " ").trim();
 }
 
 function contactSourceName(value: unknown): string {
@@ -524,6 +253,8 @@ export function storeFingerprintOnMac(runner: Runner = spawnSync): string {
       timeout: 15000, maxBuffer: MAX_BRIDGE_OUTPUT_BYTES },
   );
   if (result.error) throw new Error(result.error.message || "Contacts bridge failed");
+  if (Buffer.byteLength(String(result.stdout || "")) > MAX_BRIDGE_OUTPUT_BYTES)
+    throw new Error("Contacts returned too much data");
   let response: unknown;
   try { response = JSON.parse(String(result.stdout || "")); }
   catch { throw new Error("Contacts returned invalid JSON"); }
@@ -538,7 +269,7 @@ export function storeFingerprintOnMac(runner: Runner = spawnSync): string {
 function handleSetFingerprint(handles: string[]): string {
   const keys = handles.map(identityKey).sort();
   return "sha256:" + createHash("sha256")
-    .update(`blip-audit-handles-v1 ${JSON.stringify(keys)}`).digest("hex");
+    .update(`blip-audit-handles-v1\0${JSON.stringify(keys)}`).digest("hex");
 }
 
 type AuditCacheEntry = { storeFingerprint: string; handleFingerprint: string; audit: ContactAudit };
@@ -624,7 +355,7 @@ export function writeAuditCache(entry: AuditCacheEntry, path = auditCachePath())
 }
 
 export function auditContactsOnMac(
-  value: unknown, runner: Runner = spawnSync,
+  value: unknown, runner: Runner = spawnSync, cachePath = auditCachePath(),
 ): { audit: ContactAudit; cached: boolean } {
   if (!Array.isArray(value) || value.length < 1 || value.length > MAX_CONTACT_AUDIT_HANDLES)
     throw new Error("contact audit handle list is invalid");
@@ -638,11 +369,11 @@ export function auditContactsOnMac(
   });
   // Freshness short-circuit: when the conversation set matches the cached
   // scan, one cheap fingerprint round-trip decides whether the Mac's
-  // Contacts stores changed at all â unchanged means the cached cleanup
+  // Contacts stores changed at all — unchanged means the cached cleanup
   // results are still exact, so skip the full scan.
   const handleFingerprint = handleSetFingerprint(handles);
   let cache: AuditCacheEntry | null = null;
-  try { cache = readAuditCache(); } catch { cache = null; }
+  try { cache = readAuditCache(cachePath); } catch { cache = null; }
   if (cache && cache.handleFingerprint === handleFingerprint) {
     try {
       if (storeFingerprintOnMac(runner) === cache.storeFingerprint) {
@@ -651,7 +382,7 @@ export function auditContactsOnMac(
         if (entries.every((entry) => requested.has(identityKey(entry.handle))))
           return { audit: cache.audit, cached: true };
       }
-    } catch { /* fingerprint unavailable â fall through to a full scan */ }
+    } catch { /* fingerprint unavailable — fall through to a full scan */ }
   }
   const home = process.env.HOME ?? homedir();
   const result: SpawnSyncReturns<string> = runner(
@@ -683,7 +414,7 @@ export function auditContactsOnMac(
       throw new Error("Contacts returned an unrequested audited handle");
   }
   if (typeof body.fingerprint === "string" && FINGERPRINT_PATTERN.test(body.fingerprint)) {
-    try { writeAuditCache({ storeFingerprint: body.fingerprint, handleFingerprint, audit }); }
+    try { writeAuditCache({ storeFingerprint: body.fingerprint, handleFingerprint, audit }, cachePath); }
     catch { /* caching is best-effort */ }
   }
   return { audit, cached: false };
@@ -725,6 +456,7 @@ export function resolveOnMac(
   let response: unknown;
   try { response = JSON.parse(stdout); }
   catch { throw new Error("Contacts returned invalid JSON"); }
+  if (result.status !== 0) throw new Error("Contacts bridge failed");
   if (operation === "candidates") {
     const candidates = normalizeBridgeCandidates(response, normalizedHandle);
     return { handle: normalizedHandle, candidates };
@@ -772,21 +504,6 @@ function parseRequest(text: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
-export function identitiesPath(): string {
-  const overridden = process.env.BLIP_IDENTITIES_PATH;
-  if (overridden) {
-    if (!isAbsolute(overridden)) throw new Error("BLIP_IDENTITIES_PATH must be absolute");
-    return overridden;
-  }
-  const home = process.env.HOME;
-  if (!home || !isAbsolute(home)) throw new Error("HOME must be an absolute path");
-  return join(home, ".config", "blip", "identities.json");
-}
-
-function entries(config: IdentityConfig): Array<IdentityChoice & { handle: string }> {
-  return Object.entries(config.identities).map(([handle, choice]) => ({ handle, ...choice }));
-}
-
 function safeError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error || "identity operation failed");
   return message.replace(UNSAFE_TEXT, " ").replace(/\s+/g, " ").trim().slice(0, 180)
@@ -800,102 +517,133 @@ function emit(value: unknown): void {
   process.stdout.write(`${output}\n`);
 }
 
-function withChoice(config: IdentityConfig, handle: string, choice: IdentityChoice): IdentityConfig {
-  const targetKey = identityKey(handle);
-  const next: Record<string, IdentityChoice> = {};
-  for (const [savedHandle, savedChoice] of Object.entries(config.identities)) {
-    if (identityKey(savedHandle) !== targetKey) next[savedHandle] = savedChoice;
-  }
-  next[handle] = choice;
-  return normalizeIdentityConfig({ schemaVersion: 1, identities: next });
+export interface ReviewPerson { handle: string; name: string }
+export interface ReviewRow extends ReviewPerson {
+  detail: string;
+  action: "candidates" | "open";
+  token: string;
+}
+export interface ReviewView {
+  ok: true;
+  view: "people" | "cards" | "scan" | "opened";
+  title: string;
+  detail: string;
+  rows: ReviewRow[];
 }
 
-function withoutChoice(config: IdentityConfig, handle: string): IdentityConfig {
-  const targetKey = identityKey(handle);
-  return normalizeIdentityConfig({
-    schemaVersion: 1,
-    identities: Object.fromEntries(
-      Object.entries(config.identities).filter(([savedHandle]) => identityKey(savedHandle) !== targetKey),
-    ),
-  });
+function person(value: unknown): ReviewPerson | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const raw = value as Record<string, unknown>;
+  try {
+    const handle = normalizeHandle(raw.handle);
+    const name = typeof raw.name === "string" && raw.name.length <= MAX_NAME_CHARS && raw.name.trim() !== ""
+      ? normalizeIdentityName(raw.name) : handle;
+    return { handle, name };
+  } catch { return null; }
+}
+
+/** A group's last speaker is never treated as the whole conversation. */
+export function conversationPeople(value: unknown): ReviewPerson[] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const conversation = value as Record<string, unknown>;
+  let direct = false;
+  try { normalizeHandle(conversation.chat); direct = true; } catch { /* group */ }
+  const source = direct
+    ? [{ handle: conversation.chat, name: conversation.name }]
+    : (Array.isArray(conversation.participants) ? conversation.participants.slice(0, 64) : []);
+  const seen = new Set<string>();
+  const people: ReviewPerson[] = [];
+  for (const raw of source) {
+    const item = person(typeof raw === "string" ? { handle: raw } : raw);
+    if (!item) continue;
+    const key = identityKey(item.handle);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    people.push(item);
+  }
+  return people;
+}
+
+/** Include named conversations and short codes; this never filters messages. */
+export function scanHandles(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > 1000)
+    throw new Error("contact scan conversation list is invalid");
+  const found = new Map<string, string>();
+  for (const raw of value) {
+    for (const item of conversationPeople(raw)) {
+      const key = identityKey(item.handle);
+      if (!found.has(key)) found.set(key, item.handle);
+      if (found.size > MAX_CONTACT_AUDIT_HANDLES)
+        throw new Error("Scan supports up to 200 distinct contacts; review a conversation individually");
+    }
+  }
+  return [...found.values()];
+}
+
+export function cardView(handle: string, candidates: IdentityCandidate[]): ReviewView {
+  return {
+    ok: true, view: "cards", title: "Contact review", detail: handle,
+    rows: candidates.flatMap((candidate) => candidate.cards.map((card) => ({
+      handle, name: candidate.name, token: card.token, action: "open" as const,
+      detail: `${card.sourceName} · Account ${card.accountNumber} · ${card.matchCount} matching field${card.matchCount === 1 ? "" : "s"}${card.hasPhoto ? " · Photo" : ""}`,
+    }))),
+  };
+}
+
+export function auditView(audit: ContactAudit): ReviewView {
+  const rows = (entries: ContactAuditEntry[], label: string): ReviewRow[] => entries.map((entry) => ({
+    handle: entry.handle,
+    name: entry.candidates.map((candidate) => candidate.name).join(" / ").slice(0, 160),
+    detail: `${label} · ${entry.candidates.reduce((n, candidate) => n + candidate.recordCount, 0)} cards`,
+    action: "candidates", token: "",
+  }));
+  return {
+    ok: true, view: "scan", title: "Contact scan",
+    detail: `${audit.handleCount} checked · ${audit.duplicates.length} possible duplicates · ${audit.conflicts.length} name conflicts · ${audit.singleCards.length} single cards · ${audit.noMatchCount} unmatched`,
+    rows: [...rows(audit.conflicts, "Different names share this handle"), ...rows(audit.duplicates, "Possible duplicate")],
+  };
+}
+
+export function runReview(
+  operation: string, request: Record<string, unknown>, runner: Runner = spawnSync,
+  cachePath = auditCachePath(),
+): ReviewView {
+  if (operation === "review") {
+    const people = conversationPeople(request.conversation);
+    if (people.length === 1) return runReview("candidates", { handle: people[0]!.handle }, runner, cachePath);
+    return { ok: true, view: "people", title: "Review contacts",
+      detail: people.length ? "Choose a person in this conversation" : "No contact handles are available for this conversation",
+      rows: people.map((item) => ({ ...item, detail: item.handle, action: "candidates", token: "" })),
+    };
+  }
+  if (operation === "candidates") {
+    const handle = normalizeHandle(request.handle);
+    const result = resolveOnMac("candidates", handle, undefined, runner);
+    return cardView(handle, result.candidates!);
+  }
+  if (operation === "audit") {
+    const handles = scanHandles(request.conversations);
+    if (!handles.length) return { ok: true, view: "scan", title: "Contact scan", detail: "No contact handles to scan", rows: [] };
+    return auditView(auditContactsOnMac(handles, runner, cachePath).audit);
+  }
+  if (operation === "open") {
+    const result = resolveOnMac("open", request.handle, request.token, runner);
+    return { ok: true, view: "opened", title: "Contact review", detail: `Opened ${result.name} in Contacts on Mac`, rows: [] };
+  }
+  throw new Error("operation must be review, candidates, audit, or open");
 }
 
 async function main(): Promise<void> {
-  const operation = process.argv[2] || "read";
-  const path = identitiesPath();
+  const deadline = setTimeout(() => {
+    emit({ ok: false, error: "Contact request timed out" });
+    process.exit(1);
+  }, 5000);
   try {
-    if (operation === "read") {
-      const result = readIdentities(path);
-      emit({
-        ok: true,
-        exists: result.exists,
-        path,
-        identities: entries(result.config),
-      });
-      return;
-    }
     const request = parseRequest(await readStdinBounded());
-    if (operation === "candidates") {
-      const result = resolveOnMac("candidates", request.handle);
-      emit({
-        ok: true,
-        handle: result.handle,
-        ambiguous: (result.candidates?.length ?? 0) > 1,
-        candidates: result.candidates ?? [],
-      });
-      return;
-    }
-    if (operation === "audit") {
-      const result = auditContactsOnMac(request.handles);
-      emit({ ok: true, audit: result.audit, cached: result.cached });
-      return;
-    }
-    if (operation === "choose") {
-      const handle = normalizeHandle(request.handle);
-      const name = normalizeIdentityName(request.name);
-      const token = normalizeContactToken(request.token);
-      const candidateResult = resolveOnMac("candidates", handle);
-      const selected = candidateResult.candidates?.find((c) => c.token === token && c.name === name);
-      if (!selected) throw new Error("the selected contact is no longer a candidate");
-      const current = readIdentities(path).config;
-      const config = writeIdentities(path, withChoice(current, handle, {
-        name: selected.name, source: "contacts", contactToken: selected.token,
-      }));
-      emit({ ok: true, path, identity: { handle, ...config.identities[handle]! } });
-      return;
-    }
-    if (operation === "custom") {
-      const handle = normalizeHandle(request.handle);
-      const name = normalizeIdentityName(request.name);
-      const current = readIdentities(path).config;
-      const config = writeIdentities(path, withChoice(current, handle, { name, source: "custom" }));
-      emit({ ok: true, path, identity: { handle, ...config.identities[handle]! } });
-      return;
-    }
-    if (operation === "clear") {
-      const handle = normalizeHandle(request.handle);
-      const current = readIdentities(path).config;
-      const config = writeIdentities(path, withoutChoice(current, handle));
-      emit({ ok: true, path, cleared: handle, identities: entries(config) });
-      return;
-    }
-    if (operation === "open") {
-      const result = resolveOnMac("open", request.handle, request.token);
-      emit({
-        ok: true,
-        opened: result.opened === true,
-        name: result.name,
-        cardNumber: result.cardNumber,
-        cardCount: result.cardCount,
-        accountNumber: result.accountNumber,
-        sourceName: result.sourceName,
-      });
-      return;
-    }
-    throw new Error(
-      "operation must be read, candidates, audit, choose, custom, clear, or open",
-    );
+    clearTimeout(deadline);
+    emit(runReview(process.argv[2] || "", request));
   } catch (error) {
+    clearTimeout(deadline);
     emit({ ok: false, error: safeError(error) });
     process.exitCode = 1;
   }

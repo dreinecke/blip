@@ -23,11 +23,6 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import {
-  identityNameFor,
-  safeReadIdentityConfig,
-  type IdentityConfig,
-} from "./identities";
 
 const HOME = process.env.HOME ?? homedir();
 
@@ -363,30 +358,6 @@ export function messagePreview(
   if (mime.startsWith("audio/") || /\.(?:aac|m4a|mp3|wav)$/.test(name)) return "Audio message";
   if (mime === "text/vcard" || /\.vcf$/.test(name)) return "Contact card";
   return "Attachment";
-}
-
-/** Apply a user's explicit resolution before any list, toast, or group label is built. */
-export function applyIdentityOverrides(
-  msgs: ImsgMessage[],
-  config: IdentityConfig,
-): ImsgMessage[] {
-  return msgs.map((message) => {
-    const name = identityNameFor(message.handle, config)
-      || identityNameFor(chatKey(message), config);
-    return name && name !== message.name ? { ...message, name } : message;
-  });
-}
-
-/** Complete chat rows may have no message in the preview window, so name DMs again here. */
-export function applyThreadIdentityOverrides(
-  threads: Thread[],
-  config: IdentityConfig,
-): Thread[] {
-  return threads.map((thread) => {
-    if (isGroupChat(thread.chat)) return thread;
-    const name = identityNameFor(thread.chat, config) || identityNameFor(thread.handle, config);
-    return name && name !== thread.name ? { ...thread, name } : thread;
-  });
 }
 
 /**
@@ -1491,13 +1462,7 @@ export function fetchGroups(runner = spawnSync): Record<string, GroupInfo> | nul
 
 // ---------------------------------------------------------------- main
 
-export function collect(
-  deep: boolean,
-  markRead = false,
-  readChat = "",
-  seenTs = "",
-  readAliases: string[] = [],
-): BlipOutput {
+export function collect(deep: boolean, markRead = false, readChat = "", seenTs = ""): BlipOutput {
   const now = new Date().toISOString();
   const state = loadState();
   // On migration, seed the ledger all the way back to what the user last read.
@@ -1527,9 +1492,7 @@ export function collect(
     };
   }
 
-  const identityConfig = safeReadIdentityConfig();
-  const resolvedMessages = applyIdentityOverrides(fetched.msgs, identityConfig);
-  const highest = maxTs(resolvedMessages, state.watermark);
+  const highest = maxTs(fetched.msgs, state.watermark);
   // A message can carry a FUTURE timestamp (timezone skew — a "Sep 1
   // 08:53" birthday text arrived Aug 31 morning). A read mark taken from
   // the GLOBAL max therefore poisoned unrelated threads: anything arriving
@@ -1539,7 +1502,7 @@ export function collect(
   // nothing beyond now leaks onto other threads.
   const nowTs = localNowTs();
   const chatMax: Record<string, string> = {};
-  for (const m of resolvedMessages) {
+  for (const m of fetched.msgs) {
     const c = chatKey(m);
     if (!chatMax[c] || m.ts > chatMax[c]!) chatMax[c] = m.ts;
   }
@@ -1554,34 +1517,26 @@ export function collect(
       if (ts > readMark) readMarks[c] = ts;
     }
   }
-  const readTargets = [...new Set([readChat, ...readAliases])]
-    .filter((chat) => chat !== "" && chat.length <= 512 &&
-      !/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/.test(chat))
-    .slice(0, 16);
   if (readChat) {
     // Mark through what the user actually SAW (the panel passes the newest
     // bubble ts as --seen; it includes a future-dated row when the chat has
     // one on screen). A message arriving between the click and this run has
     // ts > seen and stays unread. Fallback without --seen: through now, or
     // the chat's own future row.
-    for (const target of readTargets) {
-      const own = chatMax[target] ?? "";
-      readMarks[target] = seenTs !== "" ? seenTs : (own > nowTs ? own : nowTs);
-    }
+    const own = chatMax[readChat] ?? "";
+    readMarks[readChat] = seenTs !== "" ? seenTs : (own > nowTs ? own : nowTs);
   }
   const readSeen = readChat ? readMarks[readChat]! : "";
   // Group metadata is ~1000 rows; refresh it only on a deep (panel) fetch and
   // keep the last good copy if the lookup fails.
   const groups = (deep ? fetchGroups() : null) ?? state.groups;
   // persist only on two independent twins; one may be a coincidence (#6)
-  const selfChats = [...new Set([...state.selfChats, ...detectSelfChats(resolvedMessages, 2)])];
+  const selfChats = [...new Set([...state.selfChats, ...detectSelfChats(fetched.msgs, 2)])];
   // The mute list cuts here, upstream of every count: a muted conversation is
   // absent from the ledger, the thread list and the toasts alike, exactly as
   // if the Mac had never received it. Read fresh each poll, like the allowlist.
-  // It sees the identity-resolved messages, so a mute phrase that names a
-  // person catches them under whichever handle the address book resolved.
   const mute = loadMutelist();
-  const deduped = dedupeSelfEcho(resolvedMessages, selfChats);
+  const deduped = dedupeSelfEcho(fetched.msgs, selfChats);
   const muted = mutedChats(deduped, mute);
   const msgs = dropMuted(deduped, muted);
   let exactCounts = unreadCounts(msgs, state.readMark, state.readMarks, selfChats);
@@ -1602,10 +1557,8 @@ export function collect(
     exactCounts = {};
     exactOldest = {};
   } else if (readChat) {
-    for (const target of readTargets) {
-      delete exactCounts[target];
-      delete exactOldest[target];
-    }
+    delete exactCounts[readChat];
+    delete exactOldest[readChat];
   }
   // Prune per-thread marks the global mark has overtaken (Codex finding #13):
   // they no longer affect any count and would otherwise accumulate forever.
@@ -1633,12 +1586,9 @@ export function collect(
   exactCounts = foldChatRecord(exactCounts, chatAliases, (a, b) => a + b);
   exactOldest = foldChatRecord(exactOldest, chatAliases, (a, b) => (a < b ? a : b));
   const foldedWindow = foldThreadAliases(windowThreads, chatAliases);
-  const threads = applyThreadIdentityOverrides(
-    chats ? mergeChats(foldedWindow, chats, groups, exactCounts) : applyPins(foldedWindow, pins),
-    identityConfig,
-  );
+  const threads = chats ? mergeChats(foldedWindow, chats, groups, exactCounts) : applyPins(foldedWindow, pins);
   const toast = selectToasts(msgs, state.watermark, loadAllowlist(), state.toasted);
-  const failures = selectFailures(resolvedMessages, state.toasted, nowTs);
+  const failures = selectFailures(fetched.msgs, state.toasted, nowTs);
   const links = selectIncomingLinks(msgs, state.watermark, state.toasted, selfChats);
   const codes = selectCodes(msgs, state.watermark, state.toasted, selfChats);
   const unread = Object.values(exactCounts).reduce((n, count) => n + count, 0);
@@ -1694,14 +1644,10 @@ if (import.meta.main) {
   const markRead = process.argv.includes("--mark-read");
   const ri = process.argv.indexOf("--read");
   const readChat = ri >= 0 ? String(process.argv[ri + 1] ?? "") : "";
-  const readAliases: string[] = [];
-  for (let i = 0; i < process.argv.length; i++) {
-    if (process.argv[i] === "--read-alias") readAliases.push(String(process.argv[i + 1] ?? ""));
-  }
   const si = process.argv.indexOf("--seen");
   const seenTs = si >= 0 ? String(process.argv[si + 1] ?? "") : "";
   try {
-    console.log(JSON.stringify(collect(deep, markRead, readChat, seenTs, readAliases)));
+    console.log(JSON.stringify(collect(deep, markRead, readChat, seenTs)));
   } catch (e) {
     console.log(
       JSON.stringify({
