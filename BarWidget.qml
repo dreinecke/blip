@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import Quickshell.Hyprland
 
 // blip — iMessage in the bar.
 //
@@ -420,6 +421,8 @@ BarWidget {
             // alert must not throw a panel over full-screen work. When Blip is
             // closed the desktop toast is still the notification.
             if (Array.isArray(d.links) && d.links.length > 0) root.shareArrivingLink(d.links[d.links.length - 1])
+            // A security code that just arrived: hold the newest, toast it.
+            if (Array.isArray(d.codes) && d.codes.length > 0) root.noteCode(d.codes[d.codes.length - 1])
             // A send of YOURS that died — not allowlist-gated, interrupts once.
             if (Array.isArray(d.failures) && d.failures.length > 0)
               root.fireToasts(d.failures.map(function(f) {
@@ -549,11 +552,13 @@ BarWidget {
     stdout: StdioCollector {
       onStreamFinished: {
         var action = text.trim()
+        if (action === "default" && notifyProc.toastCode !== "") { root.copyCode(); return }
         if ((action === "default" || action === "reply") && notifyProc.toastChat !== "")
           root.show(notifyProc.toastChat)
       }
     }
     property string toastChat: ""
+    property string toastCode: ""    // set for a code toast: click = copy, not open
   }
   property var toastQueue: []
 
@@ -575,6 +580,7 @@ BarWidget {
     var body = String(t.text || "")
     if (body.length > 220) body = body.substring(0, 217) + "…"
     notifyProc.toastChat = String(t.chat || "")
+    notifyProc.toastCode = String(t.code || "")
     // Where this toast came from, in a form that outlives it.
     //
     // --action=default lives inside this notify-send process and dies with it
@@ -588,7 +594,12 @@ BarWidget {
     // read it as a flag (show() matches the bare digits as an alias).
     var reopen = []
     var chatArg = notifyProc.toastChat.replace(/^\+/, "")
-    if (chatArg !== "" && /^[A-Za-z0-9._@:;$-]{1,256}$/.test(chatArg))
+    if (notifyProc.toastCode !== "")
+      // popup only: the daemon must not write the code into its on-disk
+      // history (~/.local/state/omarchy/notifications/history). It expires
+      // from memory in five minutes; there is nothing to restore.
+      reopen = ["--hint=boolean:transient:true"]
+    else if (chatArg !== "" && /^[A-Za-z0-9._@:;$-]{1,256}$/.test(chatArg))
       reopen = ["--hint=string:omarchy-exec-argv:" + JSON.stringify(
         ["qs", "-p", "/usr/share/omarchy/shell", "ipc", "call",
          root.moduleName, "goto", chatArg])]
@@ -603,7 +614,7 @@ BarWidget {
       // renders no action BUTTONS and only ever invokes default — an
       // advertised Reply button would be a lie (Codex, read the daemon).
       "--wait",
-      "--action=default=Open",
+      notifyProc.toastCode !== "" ? "--action=default=Copy" : "--action=default=Open",
     ].concat(reopen).concat([
       "--",                                   // a name or text starting with "-" is data, not a flag
       String(t.name || t.chat || "iMessage"),
@@ -623,6 +634,85 @@ BarWidget {
   Connections {
     target: notifyProc
     function onExited(code, status) { toastWatchdog.stop(); Qt.callLater(root.drainToasts) }
+  }
+
+  // ------------------------------------------------------ security codes
+  // macOS reads a 2FA code out of an SMS and offers it to the browser. Blip's
+  // version: the collector spots the code, the widget holds it IN MEMORY for
+  // five minutes (never state.json — it is message text), toasts it, and on
+  // request copies it (click the toast, or `copycode`) or types it into
+  // whatever has keyboard focus (`typecode`, bound to a hotkey). The code
+  // reaches wl-copy through an environment variable and stdin, and the
+  // focused window as key events over Hyprland's socket — never argv, where
+  // any process could read it from /proc.
+  //
+  // NOT wtype. A virtual keyboard's key presses are merged with the physical
+  // keyboard's modifier state, so the digits typed while the user's fingers
+  // are still on Super+Shift became Super+Shift+<digit> — workspace binds.
+  // `send_key_state` (what Omarchy's universal paste uses) hands the key
+  // straight to the focused window without consulting binds.
+  property var pendingCode: null         // {code, name, domain, ts} or null
+  Timer {
+    id: codeExpiry
+    interval: 300000
+    onTriggered: root.pendingCode = null
+  }
+  function noteCode(c) {
+    if (!c || !c.code) return
+    pendingCode = { code: String(c.code), name: String(c.name || c.chat || ""), domain: String(c.domain || ""), ts: String(c.ts || "") }
+    codeExpiry.restart()
+    var who = pendingCode.name !== "" ? pendingCode.name : "a message"
+    var body = pendingCode.code + (pendingCode.domain !== "" ? " for " + pendingCode.domain : "")
+             + "\nClick to copy · Super+Shift+V types it"
+    fireToasts([{ chat: "", name: "Code from " + who, text: body, ts: pendingCode.ts, key: "", code: pendingCode.code }])
+  }
+  // sh reads the code from its environment, hands it to the tool on stdin.
+  Process {
+    id: codeCopyProc
+    environment: ({ BLIP_CODE: root.pendingCode ? root.pendingCode.code : "" })
+    command: ["sh", "-c", "printf %s \"$BLIP_CODE\" | wl-copy"]
+  }
+  function copyCode() {
+    if (!pendingCode) return "no code pending"
+    codeCopyProc.running = true
+    return "copied"
+  }
+  // One key event per tick: down, then up, 20 ms apart (Omarchy's paste
+  // helper uses 50 between the two). A single dispatch per event keeps the
+  // socket write small and the order guaranteed.
+  property var keyQueue: []
+  Timer {
+    id: keyPump
+    interval: 20
+    repeat: true
+    onTriggered: {
+      if (root.keyQueue.length === 0) { stop(); return }
+      var q = root.keyQueue.slice()
+      var k = q.shift()
+      root.keyQueue = q
+      Hyprland.dispatch('hl.dsp.send_key_state({ mods = "' + k.mods + '", key = "' + k.key + '", state = "' + k.state + '" })')
+    }
+  }
+  /** xkb key name + modifiers for one character of a code, or null. */
+  function keyFor(ch) {
+    if (/^[0-9a-z]$/.test(ch)) return { key: ch, mods: "" }
+    if (/^[A-Z]$/.test(ch)) return { key: ch.toLowerCase(), mods: "SHIFT" }
+    if (ch === "-") return { key: "minus", mods: "" }
+    return null
+  }
+  function typeCode() {
+    if (!pendingCode) return "no code pending"
+    var q = []
+    var code = String(pendingCode.code)
+    for (var i = 0; i < code.length; i++) {
+      var k = keyFor(code.charAt(i))
+      if (!k) continue
+      q.push({ key: k.key, mods: k.mods, state: "down" })
+      q.push({ key: k.key, mods: k.mods, state: "up" })
+    }
+    keyQueue = q
+    keyPump.start()
+    return "typed"
   }
 
   // ------------------------------------------------------------ IPC
@@ -670,6 +760,8 @@ BarWidget {
     function close(): void { root.close() }
     function toggle(): void { root.toggle() }
     function goto(chat: string): string { if (!root.automationOn) return root.automationOff; root.show(chat); return "shown" }
+    function copycode(): string { if (!root.automationOn) return root.automationOff; return root.copyCode() }
+    function typecode(): string { if (!root.automationOn) return root.automationOff; return root.typeCode() }
     function share(url: string): string { if (!root.automationOn) return root.automationOff; root.open(); return panelLoader.item ? panelLoader.item.shareLink(url) : "no panel" }
     function compose(text: string): string { if (!root.automationOn) return root.automationOff; return panelLoader.item ? panelLoader.item.composeAndSend(text) : "no panel" }
     function bubbles(): string { if (!root.automationOn) return root.automationOff; return panelLoader.item ? panelLoader.item.bubbleModel() : "[]" }
