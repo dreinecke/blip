@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 2.3.3 — 2026-09-05 — blue bubbles, and reads that reach your phone
+
 - **The Messages Automation prompt gets the time it needs.** `blip-check` gave
   Messages 25 seconds and moved on; macOS gives its Allow prompt about two
   minutes, and an unanswered prompt is recorded as a *denial* (`auth_reason 9`,
