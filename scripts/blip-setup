@@ -46,7 +46,11 @@ if ! [[ "$host" =~ ^([A-Za-z0-9._-]+@)?[A-Za-z0-9._:-]+$ ]]; then
   echo "✗ '$host' is not a [user@]hostname — no spaces, quotes, or shell characters" >&2; exit 64
 fi
 
-# 1. config
+# 1. config. Keys the installer does not own — push_read, link_previews,
+# ui_font, ui_font_size, anything set by hand — must survive a re-run; a
+# wholesale rewrite silently re-enabled what the user had turned off (Astra #18).
+kept=""
+[[ -r "$conf" ]] && kept="$(grep -vE '^[[:space:]]*(#|$|host=|remote_bin=|python=|key=|automation=|country_code=)' "$conf" || true)"
 mkdir -p "$conf_dir"
 {
   echo "# Blip bridge — read (never sourced) by ~/bin/imsg, imsg-send, imsg-read, contacts"
@@ -59,6 +63,7 @@ mkdir -p "$conf_dir"
   echo "automation=${BLIP_AUTOMATION:-${prev_automation:-off}}"   # a re-run keeps a hand-set value
   echo "# country calling code for numbers typed without one (1 = US/Canada, 44 = UK, 49 = DE…)"
   echo "country_code=${prev_country:-1}"
+  if [[ -n "$kept" ]]; then echo "# kept from the previous bridge.conf"; printf '%s\n' "$kept"; fi
 } > "$conf"
 chmod 0600 "$conf"
 echo "✓ $conf"
@@ -99,7 +104,7 @@ echo "✓ shims installed: ~/bin/imsg ~/bin/imsg-send ~/bin/imsg-read ~/bin/cont
 if ssh -n -o ConnectTimeout=6 -o BatchMode=yes "$host" true 2>/dev/null; then
   ssh "$host" 'mkdir -p ~/.blip/src'
   scp -q "$here"/bridge/mac/* "$host:~/.blip/src/"
-  ssh "$host" 'bash ~/.blip/src/install.sh'
+  ssh "$host" 'bash ~/.blip/src/install.sh --no-check'   # the check runs below, after the "be at the Mac" pause
 
   # python3 on a fresh Mac is a Command Line Tools STUB that exits 1 (and may
   # pop an install dialog). Every bridge tool needs the real thing; say so
@@ -137,15 +142,23 @@ if ssh -n -o ConnectTimeout=6 -o BatchMode=yes "$host" true 2>/dev/null; then
   echo "  Be at the Mac (or in Screen Sharing) and click Allow within two minutes — an"
   echo "  unanswered prompt is recorded as a denial. Ready?"
   read -r -p "  Press Enter to run the permission check: " _
+  granted=0
   for attempt in 1 2 3; do
     echo; echo "Checking Mac permissions (attempt $attempt)…"
     # a grant applies to NEW sessions: drop the multiplexed master so the re-check sees it
     ssh -O exit "$host" >/dev/null 2>&1 || true
-    if ssh "$host" 'python3 ~/.blip/bin/blip-check'; then break; fi
+    if ssh "$host" 'python3 ~/.blip/bin/blip-check'; then granted=1; break; fi
     if [[ $attempt -lt 3 ]]; then
       read -r -p "Grant what is missing on the Mac (an Allow prompt may be on its screen), then press Enter to re-check (or Ctrl-C): " _
     fi
   done
+  if [[ $granted != 1 ]]; then
+    # Reading chat.db works without the Automation grant, so the smoke test
+    # below would have said "bridge is up" over a Mac that cannot send (Astra #19).
+    echo "✗ The Mac is still missing a permission after 3 checks. Blip can read but cannot send until it is granted." >&2
+    echo "  Fix it on the Mac, then re-run blip-setup — or check any time with: ssh $host python3 ~/.blip/bin/blip-check" >&2
+    exit 1
+  fi
 else
   echo "✗ cannot ssh to $host non-interactively yet. Set up key auth (ssh-copy-id $host), then re-run blip-setup." >&2
   echo "  On the Mac, you can also run the installer by hand:" >&2

@@ -188,6 +188,33 @@ class NoRegion(Base):
         self.assertEqual(self.imsg.name_for("+4723456789"), "Ada Plus")
 
 
+class Ambiguity(Base):
+    def test_a_third_card_cannot_resurrect_an_ambiguous_number(self) -> None:
+        # Alice and Bob cancel out; a third card used to bring the name back as "Carol".
+        for first, last in (("Alice", "One"), ("Bob", "Two"), ("Carol", "Three")):
+            self.book.card(first, last, phones=["+47 123 45 678"])
+        self.assertIsNone(self.imsg.name_for("+4712345678"))
+
+    def test_ambiguity_is_permanent_for_emails_too(self) -> None:
+        for first, last in (("Alice", "One"), ("Bob", "Two"), ("Carol", "Three")):
+            self.book.card(first, last, emails=["shared@example.com"])
+        self.assertIsNone(self.imsg.name_for("shared@example.com"))
+
+
+class ExactBeatsSuffixAcrossSources(Base):
+    def test_an_exact_card_in_a_later_source_beats_a_nearer_suffix_card(self) -> None:
+        # Source A (first in rank order) only has a suffix card with a photo; source B
+        # has the exact card. The conversation is NAMED after the exact card, so its
+        # photo must come from there too — never a different person's face.
+        self.book.card("Bea", "Suffix", phones=["123 45 678"], photo=JPEG)
+        other = FakeAddressBook(self.tmp.name, "SRC-B")
+        try:
+            exact = other.card("Ada", "Exact", phones=["+47 123 45 678"], photo=JPEG)
+            self.assertEqual(self.imsg._avatar_candidates("+4712345678"), [(other.path, exact)])
+        finally:
+            other.con.close()
+
+
 class Photos(Base):
     def test_the_region_rule_picks_the_card_when_nothing_is_exact(self) -> None:
         pk = self.book.card("Nora", "Berg", phones=["123 45 678"], photo=JPEG)

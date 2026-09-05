@@ -414,7 +414,12 @@ BarWidget {
             }
             root.unread = list.reduce(function(n, t) { return n + (Number(t.unread) || 0) }, 0)
             root.healthy = d.persisted !== false
-            if (Array.isArray(d.toast)) root.fireToasts(d.toast)
+            // A message that carries a security code gets the code toast only:
+            // its ordinary preview would put the digits into the daemon's
+            // on-disk history like any other body (Astra #1).
+            var codeKeys = {}
+            if (Array.isArray(d.codes)) d.codes.forEach(function(c) { codeKeys[String(c.chat) + "\u0000" + String(c.ts)] = true })
+            if (Array.isArray(d.toast)) root.fireToasts(d.toast.filter(function(t) { return !codeKeys[String(t.chat) + "\u0000" + String(t.ts)] }))
             // A link that just arrived opens the share sheet (Fred, 2.3.0).
             // Only onto a surface that is ALREADY open: Omarchy runs
             // focus_on_activate=false and Blip never steals focus, so a bank
@@ -552,7 +557,7 @@ BarWidget {
     stdout: StdioCollector {
       onStreamFinished: {
         var action = text.trim()
-        if (action === "default" && notifyProc.toastCode !== "") { root.copyCode(); return }
+        if (action === "default" && notifyProc.toastCode !== "") { root.copyCode(notifyProc.toastCode); return }
         if ((action === "default" || action === "reply") && notifyProc.toastChat !== "")
           root.show(notifyProc.toastChat)
       }
@@ -662,18 +667,29 @@ BarWidget {
     pendingCode = { code: String(c.code), name: String(c.name || c.chat || ""), domain: String(c.domain || ""), ts: String(c.ts || "") }
     codeExpiry.restart()
     var who = pendingCode.name !== "" ? pendingCode.name : "a message"
-    var body = pendingCode.code + (pendingCode.domain !== "" ? " for " + pendingCode.domain : "")
-             + "\nClick to copy · Super+Shift+V types it"
-    fireToasts([{ chat: "", name: "Code from " + who, text: body, ts: pendingCode.ts, key: "", code: pendingCode.code }])
+    // The digits are NOT in the body. Omarchy's daemon persists every displayed
+    // toast's body to ~/.local/state/omarchy/notifications/history — its own
+    // Service.qml says the transient hint only decides whether a DND-silenced
+    // one is recorded — so a body with the code put the code on disk (Astra
+    // #1). The toast says a code arrived; click copies it from memory.
+    var body = (pendingCode.domain !== "" ? "For " + pendingCode.domain + " · " : "")
+             + "Click to copy · Super+Shift+V types it"
+    fireToasts([{ chat: "", name: "Security code from " + who, text: body, ts: pendingCode.ts, key: "", code: pendingCode.code }])
   }
   // sh reads the code from its environment, hands it to the tool on stdin.
+  property string copyValue: ""          // what the NEXT copy hands to wl-copy
   Process {
     id: codeCopyProc
-    environment: ({ BLIP_CODE: root.pendingCode ? root.pendingCode.code : "" })
+    environment: ({ BLIP_CODE: root.copyValue })
     command: ["sh", "-c", "printf %s \"$BLIP_CODE\" | wl-copy"]
+    onExited: root.copyValue = ""
   }
-  function copyCode() {
+  /** Copy a code. A toast passes the code it DISPLAYED, so clicking an older
+   *  toast after a newer code arrived copies what was on the card, not the
+   *  newer one (Astra #14). IPC `copycode` passes nothing: the newest. */
+  function copyCode(code) {
     if (!pendingCode) return "no code pending"
+    copyValue = String(code || pendingCode.code)
     codeCopyProc.running = true
     return "copied"
   }
@@ -829,6 +845,15 @@ BarWidget {
     useActiveColor: false
     tooltipText: root.tooltip()
     onPressed: function(code) {
+      if (!root.leader && code !== Qt.LeftButton) {
+        // A follower bar (second monitor): only the leader owns the collector.
+        // A refresh or mark-all started HERE was a second collector racing the
+        // leader's over state.json (Astra #10). Ask the leader, like leftClick.
+        // `read` is automation-gated, so with automation=off this is a no-op.
+        Quickshell.execDetached(["qs", "-p", "/usr/share/omarchy/shell", "ipc", "call",
+                                 root.moduleName, code === Qt.RightButton ? "read" : "refresh"])
+        return
+      }
       if (code === Qt.MiddleButton) root.refresh(root.anySurfaceOpen(), false)
       else if (code === Qt.RightButton) root.markAllRead()
       else root.leftClick()

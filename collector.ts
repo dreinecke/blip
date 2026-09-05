@@ -732,6 +732,11 @@ const CODE_TOKEN = /(?<![\d$€£#(+.-])(?<!\d[-.])\b(\d{3}[ -]\d{3}|\d{4,8})\b(
 const CODE_BOUND = /(?:^|\s)@([a-z0-9-]+(?:\.[a-z0-9-]+)+)\s+#([a-z0-9-]{4,12})\b/i;
 /** Google's "G-123456". */
 const CODE_GOOGLE = /\bG-(\d{6,8})\b/;
+/** A number the sender LABELLED as something else, right before the token:
+ *  "for card 1234", "account ending 4821", "ref 20260904". Nearest-trigger
+ *  otherwise picked the card digits in "Your security code for card 1234 is
+ *  987654" — and typecode would have typed them (Astra #13). */
+const CODE_LABELLED = /\b(?:card|account|acct|ending(?:\s+in)?|last|ref(?:erence)?|order|ticket|invoice|case|no\.?|number|#)\s*[:#]?\s*$/i;
 
 /**
  * The one-time code in a message, or null. macOS's rule, roughly: a trigger
@@ -753,6 +758,7 @@ export function extractCode(text: string | null | undefined): { code: string; do
   let best: { code: string; dist: number } | null = null;
   for (const m of t.matchAll(CODE_TOKEN)) {
     const at = m.index ?? 0;
+    if (CODE_LABELLED.test(t.slice(Math.max(0, at - 24), at))) continue;
     const code = m[1]!.replace(/[ -]/g, "");
     const dist = Math.min(...triggers.map((i) => Math.abs(i - at)));
     // nearest trigger wins; on a tie the longer token (6 beats 4)
@@ -925,6 +931,10 @@ export interface FetchResult {
   online: boolean;
   error: string;
   msgs: ImsgMessage[];
+  /** Rows the bridge returned BEFORE hasIdentity filtering. Pagination must
+   *  count these: one dropped orphan in a full page otherwise reads as
+   *  "the bridge ran out", and catch-up stops short of older unread. */
+  fetchedCount: number;
 }
 
 /**
@@ -974,19 +984,19 @@ export function fetchMessages(limit: number, runner = spawnSync): FetchResult {
   }
   if (res.status === null) {
     // killed by our timeout — a Mac asleep behind a live ControlMaster looks exactly like this
-    return { ok: false, online: false, error: "imsg timed out (Mac asleep?)", msgs: [] };
+    return { ok: false, online: false, error: "imsg timed out (Mac asleep?)", msgs: [], fetchedCount: 0 };
   }
   if (res.status === 69 || res.status === 255) {
-    return { ok: false, online: false, error: "Mac unreachable", msgs: [] };
+    return { ok: false, online: false, error: "Mac unreachable", msgs: [], fetchedCount: 0 };
   }
   if (res.status !== 0) {
     const err = explainBridgeError(res.status, (res.stderr || "").toString());
-    return { ok: false, online: true, error: err, msgs: [] };
+    return { ok: false, online: true, error: err, msgs: [], fetchedCount: 0 };
   }
   try {
     const parsed = JSON.parse(res.stdout as string);
     if (!Array.isArray(parsed)) throw new Error("not an array");
-    return { ok: true, online: true, error: "", msgs: (parsed as ImsgMessage[]).filter(hasIdentity) };
+    return { ok: true, online: true, error: "", msgs: (parsed as ImsgMessage[]).filter(hasIdentity), fetchedCount: parsed.length };
   } catch (e) {
     return { ok: false, online: true, error: `bad JSON from imsg: ${e}`, msgs: [] };
   }
@@ -1009,7 +1019,7 @@ export function fetchMessagesAfter(
   while (true) {
     const fetched = fetchMessages(limit, runner);
     // A bridge that keeps returning "full" pages must not grow this forever.
-    if (!fetched.ok || !cutoff || fetched.msgs.length < limit || limit >= CATCHUP_MAX_ROWS) return fetched;
+    if (!fetched.ok || !cutoff || fetched.fetchedCount < limit || limit >= CATCHUP_MAX_ROWS) return fetched;
     // Fetch beyond the boundary, not merely to it: several rows can share a
     // one-second timestamp and otherwise straddle the window edge.
     if (minTs(fetched.msgs, "") < cutoff) return fetched;
@@ -1202,6 +1212,16 @@ export function foldThreadAliases(threads: Thread[], aliases: Record<string, str
 }
 
 /** Same fold for a per-chat ledger (unread counts, oldest-unread stamps). */
+/**
+ * The alias rows folded into one canonical conversation. The unread ledger
+ * counts on ORIGINAL chat keys and the fold happens afterwards, so a read of
+ * the canonical must also mark every alias, or an alias's unread survives the
+ * read and reappears under the conversation the user just finished (Astra #9).
+ */
+export function aliasesOf(chatAliases: Record<string, string>, canonical: string): string[] {
+  return Object.entries(chatAliases).filter(([, c]) => c === canonical).map(([a]) => a);
+}
+
 export function foldChatRecord<T>(
   rec: Record<string, T>,
   aliases: Record<string, string>,
@@ -1349,6 +1369,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     const own = chatMax[readChat] ?? "";
     readMarks[readChat] = seenTs !== "" ? seenTs : (own > nowTs ? own : nowTs);
   }
+  const readSeen = readChat ? readMarks[readChat]! : "";
   // Group metadata is ~1000 rows; refresh it only on a deep (panel) fetch and
   // keep the last good copy if the lookup fails.
   const groups = (deep ? fetchGroups() : null) ?? state.groups;
@@ -1386,6 +1407,13 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   // blink into two between a deep run and the next poll).
   const chatAliases = chats ? aliasesFromChats(chats) : state.chatAliases;
   const pins = chats ? pinsFromChats(chats) : state.pins;
+  if (readChat) {
+    for (const a of aliasesOf(chatAliases, readChat)) {
+      if (readSeen > readMark) readMarks[a] = readSeen;   // same prune rule as the canonical
+      delete exactCounts[a];
+      delete exactOldest[a];
+    }
+  }
   exactCounts = foldChatRecord(exactCounts, chatAliases, (a, b) => a + b);
   exactOldest = foldChatRecord(exactOldest, chatAliases, (a, b) => (a < b ? a : b));
   const foldedWindow = foldThreadAliases(windowThreads, chatAliases);

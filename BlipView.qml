@@ -468,8 +468,12 @@ FocusScope {
   function pumpPreview() {
     if (previewProc.running || previewQueue.length === 0) return
     previewProc.url = previewQueue.shift()
-    previewProc.command = ["bun", root.previewScript, previewProc.url]
+    // The URL is message content: stdin, never argv (Astra #6).
+    previewProc.command = ["bun", root.previewScript, "--stdin"]
+    previewProc.stdinEnabled = true
     previewProc.running = true
+    previewProc.write(previewProc.url)
+    previewProc.stdinEnabled = false
   }
   Process {
     id: previewProc

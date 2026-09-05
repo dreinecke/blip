@@ -350,7 +350,13 @@ export function selectThread(
   // (Codex finding #3).
   // A DM is scoped by CHAT, not by sender: the same handle's messages in a
   // group carry the group's chat id and must stay out of the 1:1 thread.
-  let msgs = raw.filter((m) => chatKey(m) === chat || (!group && m.handle === chat && !isGroupChat(chatKey(m))));
+  // A group request: the bridge already scoped `thread --chat` to the whole
+  // re-key cluster and every row keeps its ORIGINAL chat id, so filtering on
+  // the requested id threw the alias rows' history away (9 rows from the Mac,
+  // 6 bubbles here — Astra #8). Trust the cluster; keep every group row.
+  let msgs = group
+    ? raw.filter((m) => isGroupChat(chatKey(m)))
+    : raw.filter((m) => chatKey(m) === chat || (m.handle === chat && !isGroupChat(chatKey(m))));
   msgs = [...msgs].sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
   msgs = dedupeSelfEcho(msgs, selfChats);
   return msgs.length > limit ? msgs.slice(msgs.length - limit) : msgs;

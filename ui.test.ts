@@ -280,3 +280,32 @@ test("manifest, README badge and CHANGELOG agree on the released version", () =>
   const released = /^## (\d+\.\d+\.\d+)\b/m.exec(changelog);
   expect(released?.[1]).toBe(manifest);
 });
+
+// Omarchy's daemon persists every DISPLAYED toast body to disk; the transient
+// hint only governs DND-silenced ones (Service.qml, its own comment). So the
+// digits never go in a body, and a message that carries a code gets no
+// ordinary preview toast either.
+test("a security code is never put in a notification body", () => {
+  const note = widget.slice(widget.indexOf("function noteCode("), widget.indexOf("function noteCode(") + 1400);
+  expect(note).not.toContain("pendingCode.code +");
+  expect(note).toContain('"Click to copy');
+  expect(widget).toContain("codeKeys[String(t.chat)");
+});
+
+// Clicking a toast copies the code THAT toast showed, not whatever arrived since.
+test("the clicked toast copies its own code", () => {
+  expect(widget).toContain("root.copyCode(notifyProc.toastCode)");
+  expect(widget).toContain("copyValue = String(code || pendingCode.code)");
+});
+
+// A follower bar must never start a collector of its own.
+test("follower bars forward right/middle clicks to the leader", () => {
+  expect(widget).toContain('code === Qt.RightButton ? "read" : "refresh"');
+});
+
+// A URL out of a message is message content: stdin to the preview fetcher, never argv.
+test("link preview URLs never ride argv", () => {
+  expect(panel).toContain('["bun", root.previewScript, "--stdin"]');
+  expect(panel).toContain("previewProc.write(previewProc.url)");
+  expect(panel).not.toContain("root.previewScript, previewProc.url]");
+});

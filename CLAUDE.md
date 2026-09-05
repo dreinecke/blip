@@ -91,7 +91,12 @@ what it is handed. Keep it that way.
 - **Pass `--` before message text** to `notify-send`.
 - **A security code lives five minutes in BarWidget memory, nowhere else.**
   `selectCodes()` (collector) spots it; `noteCode()` holds the newest and
-  toasts it (transient — Omarchy persists toast bodies to disk otherwise);
+  toasts THAT A CODE ARRIVED — never the digits. Omarchy's daemon persists
+  every displayed toast's body to `~/.local/state/omarchy/notifications/
+  history/`; its `transient` hint only decides whether a DND-silenced one is
+  recorded (Service.qml says so itself). 2.3.3 put the code in the body on
+  the strength of that hint and was wrong. The message's ordinary preview
+  toast is dropped for the same reason;
   `copycode` hands it to wl-copy via an env var and stdin, `typecode` sends
   it to the focused window as `send_key_state` events over Hyprland's socket.
   Never argv. NEVER wtype for this: Hyprland merges a virtual keyboard's keys
@@ -172,6 +177,13 @@ what it is handed. Keep it that way.
   sentence Messages itself shows when it cannot render the app, then the
   caption, then the app name (`_app_card_text`). Link cards are the one
   balloon that is not an app; they stay links.
+- **A read of a canonical conversation covers its aliases.** The unread
+  ledger counts on ORIGINAL chat keys and `foldChatRecord` merges afterwards,
+  so `--read <canonical>` also marks every alias (`aliasesOf`), or an alias's
+  unread survives the read and reappears under the conversation just read.
+  Likewise `thread.ts` keeps every group row the bridge returns for a
+  `thread --chat` — the bridge scoped it to the cluster, and the alias rows
+  keep their own ids (9 rows from the Mac, 6 bubbles shown, until 2.3.4).
 - **`chat:null` exists.** Use `chatKey()`; never `String(m.chat)`. A row with
   neither chat nor handle is a leftover of a deleted conversation (iCloud keeps
   the row, the chat and the join are gone); `fetchMessages` drops it

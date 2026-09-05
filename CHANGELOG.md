@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+- **Bug hunt (Codex, gpt-6-astra), fourteen fixes.** A 2FA code was written
+  to Omarchy's on-disk notification history — the daemon persists every
+  displayed toast regardless of the `transient` hint — so the toast now says a
+  code arrived and the digits stay in memory; the message's own preview toast
+  is dropped too; clicking an older code toast copies *that* code, not a
+  newer one; "code for card 1234 is 987654" no longer picks 1234. A third
+  Contacts card with the same number could resurrect a name two cards had
+  already made ambiguous; a nearer source's suffix match could put its photo
+  on a conversation named after another source's exact card. A re-keyed group
+  showed only its newest row's history (9 rows from the Mac, 6 shown), and
+  reading it left the alias rows' unread to reappear. One dropped orphan row
+  in a full page stopped the unread catch-up early. Link-preview URLs rode
+  argv and were stored in the cache; a server that sent headers then stalled
+  the body parked the whole preview queue. The unsend flag never reached the
+  collector's plain poll. A second monitor's right/middle click started a
+  second collector. `install.sh` fired the Automation prompt before the
+  wizard's "be at the Mac" pause; re-running setup wiped hand-set
+  `bridge.conf` keys; setup said "bridge is up" after three failed grants.
 ## 2.3.3 — 2026-09-05 — blue bubbles, and reads that reach your phone
 
 - **The Messages Automation prompt gets the time it needs.** `blip-check` gave

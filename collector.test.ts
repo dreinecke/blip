@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+  aliasesOf,
   pushReadCommand,
   pushReadLogPath,
   buildThreads,
@@ -568,6 +569,29 @@ describe("adaptive unread catch-up", () => {
     expect(result.ok).toBe(true);
     expect(result.msgs).toHaveLength(4);
     expect(limits).toEqual([2, 4]);
+  });
+
+  test("a dropped orphan row in a full page does not end the catch-up early (Astra #7)", () => {
+    // Page 1 (limit 2) is FULL from the bridge's point of view, but one row has
+    // neither chat nor handle and is dropped. Counting survivors read that as
+    // "the bridge ran out" and stopped before the older unread.
+    const all = [
+      msg({ ts: "2026-08-30 12:03:00", handle: "+15550000001" }),
+      msg({ ts: "2026-08-30 12:02:00", chat: null as unknown as string, handle: null as unknown as string }),
+      msg({ ts: "2026-08-30 12:01:00", handle: "+15550000002" }),
+      msg({ ts: "2026-08-30 11:59:00", handle: "+15550000003" }),
+    ];
+    const limits: number[] = [];
+    const fake = ((_cmd: string, args: string[]) => {
+      const limit = Number(args[2]);
+      limits.push(limit);
+      return { status: 0, stdout: JSON.stringify(all.slice(0, limit)), stderr: "" };
+    }) as never;
+    const r = fetchMessagesAfter("2026-08-30 12:00:00", 2, fake);
+    expect(r.ok).toBe(true);
+    expect(limits).toEqual([2, 4]);
+    expect(r.fetchedCount).toBe(4);
+    expect(r.msgs).toHaveLength(3);
   });
 
   test("catch-up stops doubling at CATCHUP_MAX_ROWS even if every page is full (Codex audit #12)", () => {
@@ -1343,5 +1367,25 @@ describe("security codes: detect, hold once, never from a group", () => {
     expect(selectCodes([m], WM, [out[0]!.key])).toEqual([]);           // the ring suppresses a repeat
     expect(selectCodes([m], "", [])).toEqual([]);                        // never the first-run backlog
     expect(selectCodes([m], WM, [], ["77029"])).toEqual([]);            // never the self-thread
+  });
+});
+
+describe("reads and aliases (Astra #9)", () => {
+  test("aliasesOf lists every row folded into a canonical conversation", () => {
+    expect(aliasesOf({ a1: "B", a2: "B", x: "Y" }, "B").sort()).toEqual(["a1", "a2"]);
+    expect(aliasesOf({ a1: "B" }, "Z")).toEqual([]);
+  });
+});
+
+describe("security codes: labelled numbers are not the code (Astra #13)", () => {
+  const { extractCode } = require("./collector") as typeof import("./collector");
+  test("the card number next to the trigger loses to the code", () => {
+    expect(extractCode("Your security code for card 1234 is 987654")?.code).toBe("987654");
+    expect(extractCode("Your account ending 4821 has a new login. Verification code: 556677")?.code).toBe("556677");
+    expect(extractCode("Ref 20260904: your PIN is 5521")?.code).toBe("5521");
+  });
+  test("an unlabelled code still wins as before", () => {
+    expect(extractCode("Use code 4821 to log in")?.code).toBe("4821");
+    expect(extractCode("Your Uber code: 8271. Expires in 10 minutes.")?.code).toBe("8271");
   });
 });

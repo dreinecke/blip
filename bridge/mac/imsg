@@ -219,6 +219,18 @@ def _same_number(handle: Phone, card: Phone) -> bool:
     return False
 
 
+def _vote(local: dict, key, name: str) -> None:
+    """One source's answer for a key: the single name it gives, or None once two
+    names have collided — and None STAYS None. The old one-liner let a third
+    card with the same number resurrect a name after two had cancelled out
+    (Alice, Bob → ambiguous; Carol → "Carol") (Astra #2)."""
+    if key in local:
+        if local[key] != name:
+            local[key] = None
+    else:
+        local[key] = name
+
+
 _NAME_INDEX: dict[str, str] | None = None            # exact keys: last-ten digits, lowercased email
 _PHONE_INDEX: dict[Phone, str] | None = None          # every saved number, parsed, for the region-aware fallback
 
@@ -293,17 +305,17 @@ def name_for(handle: str | None) -> str | None:
                     name = names.get(r["pk"])
                     key = _normalize_phone(r["num"] or "")
                     if name and key:
-                        local[key] = None if (key in local and local[key] not in (None, name)) else (local.get(key) or name)
+                        _vote(local, key, name)
                     parsed = _parse_phone(r["num"] or "")
                     if name and parsed:
-                        local[parsed] = None if (parsed in local and local[parsed] not in (None, name)) else (local.get(parsed) or name)
+                        _vote(local, parsed, name)
                 for r in con.execute(
                     "SELECT ZOWNER AS pk, ZADDRESS AS addr FROM ZABCDEMAILADDRESS"
                 ):
                     name = names.get(r["pk"])
                     addr = (r["addr"] or "").strip().lower()
                     if name and addr:
-                        local[addr] = None if (addr in local and local[addr] not in (None, name)) else (local.get(addr) or name)
+                        _vote(local, addr, name)
                 con.close()
                 for key, name in local.items():
                     if name:
@@ -791,6 +803,10 @@ def render(rows, as_json: bool, with_names: bool = True, con=None, rich: bool = 
                 # via Messages in iCloud, so a client can mirror the phone's
                 # badge. Own messages are trivially "read".
                 "read": bool(r["is_from_me"]) or bool(r["is_read"]),
+                # edited / retracted ride the plain rows as well: the collector
+                # polls without --rich, and its self-thread unsend handling
+                # (dedupeSelfEcho) never saw the flag (Astra #16).
+                **_edit_flags(r["date_edited"], r["date_retracted"], r["message_summary_info"]),
                 # Tapback rows are messages too, but no Apple client counts
                 # them toward a badge — flag them so clients can match.
                 "tapback": bool(r["assoc_type"] and 2000 <= r["assoc_type"] < 4000),
@@ -1403,7 +1419,8 @@ def _avatar_candidates(handle: str) -> list[tuple[str, int]]:
     if not key:
         return []
     parsed = None if want_email else _parse_phone(handle)
-    candidates: list[tuple[str, int]] = []
+    exact_cands: list[tuple[str, int]] = []
+    near_cands: list[tuple[str, int]] = []
     for path in _ab_sources():
         try:
             con2 = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
@@ -1424,11 +1441,16 @@ def _avatar_candidates(handle: str) -> list[tuple[str, int]]:
             con2.close()
         except sqlite3.DatabaseError:
             continue
-        pks = exact or near
-        if len(pks) == 1:
-            candidates.append((path, pks.pop()))
         # len > 1 inside ONE source: ambiguous there — skip that source only
-    return candidates
+        if len(exact) == 1:
+            exact_cands.append((path, exact.pop()))
+        elif not exact and len(near) == 1:
+            near_cands.append((path, near.pop()))
+    # The exact key decides whenever ANY source has it — the rule name_for
+    # applies globally. Per-source `exact or near` let a nearer source's
+    # suffix card put its photo on a conversation named after another source's
+    # exact card (Astra #3). Suffix matches only when nothing is exact.
+    return exact_cands if exact_cands else near_cands
 
 
 def cmd_attachment(con, args):

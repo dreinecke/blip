@@ -419,6 +419,22 @@ describe("selectThread", () => {
     expect(out.map((m) => m.text)).toEqual(["early", "late"]);
   });
 
+  test("a re-keyed group keeps its alias rows' history (Astra #8)", () => {
+    // `thread --chat` on the Mac already expands to the whole cluster; the
+    // alias rows arrive with their OWN chat ids. Filtering on the requested id
+    // threw them away: 9 rows from the Mac, 6 bubbles here.
+    const alias = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
+    const out = selectThread(
+      [
+        msg({ chat: guid, ts: "2026-08-30 12:05:00", text: "new row" }),
+        msg({ chat: alias, ts: "2026-08-30 12:00:00", text: "old row, before the re-key" }),
+        msg({ chat: "+15550000000", ts: "2026-08-30 12:04:00", text: "a DM, never" }),
+      ],
+      guid, true, 80,
+    );
+    expect(out.map((m) => m.text)).toEqual(["old row, before the re-key", "new row"]);
+  });
+
   test("keeps only the newest `limit` messages", () => {
     const raw = Array.from({ length: 5 }, (_, i) => msg({ chat: guid, ts: `2026-08-30 12:0${i}:00`, text: `m${i}` }));
     expect(selectThread(raw, guid, true, 2).map((m) => m.text)).toEqual(["m3", "m4"]);
