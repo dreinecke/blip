@@ -259,3 +259,24 @@ test("outgoing bubbles are always iMessage blue with white text", () => {
   expect(panel).toContain('readonly property color mineText: "#ffffff"');
   expect(panel).not.toContain("themeHasAccent");
 });
+
+// The version shows in the header both surfaces share, read live from
+// manifest.json by the host — one source, one place, never two numbers.
+test("the header shows the version from manifest.json", () => {
+  expect(widget).toContain('Qt.resolvedUrl("manifest.json")');
+  expect(widget).toContain("root.version = String(JSON.parse(text()).version");
+  expect(panel).toContain("trailingControl: Component");
+  expect(panel).toContain("text: root.version");
+});
+
+// A release bumps three files. If one is missed the badge lies, or the
+// changelog does — so CI refuses the drift instead of a reader finding it.
+test("manifest, README badge and CHANGELOG agree on the released version", () => {
+  const manifest = JSON.parse(readFileSync(new URL("./manifest.json", import.meta.url), "utf8")).version as string;
+  const readme = readFileSync(new URL("./README.md", import.meta.url), "utf8");
+  const changelog = readFileSync(new URL("./CHANGELOG.md", import.meta.url), "utf8");
+  expect(manifest).toMatch(/^\d+\.\d+\.\d+$/);
+  expect(readme).toContain(`badge/version-${manifest}-`);
+  const released = /^## (\d+\.\d+\.\d+)\b/m.exec(changelog);
+  expect(released?.[1]).toBe(manifest);
+});

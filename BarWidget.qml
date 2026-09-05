@@ -724,6 +724,22 @@ BarWidget {
   property bool uiFontTheme: false
   /** `ui_font_size=N` in bridge.conf: bubble text in px (9–24). 0 = Omarchy default. */
   property int uiFontSize: 0
+  // The version, read from THIS plugin's manifest.json — the one place it is
+  // written, so a release bump is the only thing that ever updates what the
+  // header shows (Fred, 2.3.3: "keep it there forever updated"). Both surfaces
+  // take it from here through BlipView, so they can never disagree.
+  property string version: ""
+  FileView {
+    id: manifestFile
+    path: Qt.resolvedUrl("manifest.json").toString().replace(/^file:\/\//, "")
+    watchChanges: true
+    printErrors: false
+    onFileChanged: reload()
+    onLoaded: {
+      try { root.version = String(JSON.parse(text()).version || "") } catch (e) { root.version = "" }
+    }
+    onLoadFailed: root.version = ""
+  }
   readonly property string automationOff: "blip: automation=off — set automation=on in ~/.config/blip/bridge.conf to allow ipc send/read"
   FileView {
     id: bridgeConf

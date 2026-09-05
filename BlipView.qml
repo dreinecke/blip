@@ -173,6 +173,8 @@ FocusScope {
   readonly property var unpinnedThreads: root.threads.filter(function(t) { return t.pinned !== true })
   readonly property bool online: hostWidget ? hostWidget.online : false
   readonly property int unread: hostWidget ? hostWidget.unread : 0
+  /** The plugin's version, from the host (manifest.json). "" hides the tag. */
+  readonly property string version: hostWidget && hostWidget.version ? String(hostWidget.version) : ""
 
   // ---- share sheet (right-click a link in a bubble, or a link card)
   property string shareUrl: ""        // "" = closed
@@ -1408,6 +1410,21 @@ FocusScope {
           detail: ""   // Fred: not needed — and it squeezed the title to "B…"
           foreground: root.foreground
           fontFamily: root.fontFamily
+          // The version, pinned to the trailing edge: the hero reserves the
+          // space itself, so unlike `detail` it never squeezes the title. One
+          // header for the popout and the app window, so one place, always the
+          // same number — and that number comes from manifest.json via the host.
+          trailingControl: Component {
+            Text {
+              id: versionTag
+              visible: root.version !== ""
+              text: root.version
+              textFormat: Text.PlainText
+              color: root.dim
+              font.family: root.fontFamily
+              font.pixelSize: root.fontCaption
+            }
+          }
         }
 
         PanelSeparator { Layout.fillWidth: true; foreground: root.foreground }

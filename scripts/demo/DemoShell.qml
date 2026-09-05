@@ -24,6 +24,8 @@ ShellRoot {
     property int unread: 0
     property bool healthy: true
     property string lastError: ""
+    // The version, from the same manifest.json the shipped widget reads.
+    property string version: ""
     // Clock and date patterns, as BarWidget would supply them (README defaults);
     // BLIP_DEMO_TIME_FORMAT etc. override, so a shot can show them configured.
     property string timeFormat: Quickshell.env("BLIP_DEMO_TIME_FORMAT") || "h:mm AP"
@@ -33,6 +35,11 @@ ShellRoot {
     function markAllRead() { }
     function markThreadRead(chat) { }
     function showApp() { }
+  }
+
+  FileView {
+    path: Qt.resolvedUrl("manifest.json").toString().replace(/^file:\/\//, "")
+    onLoaded: { try { host.version = String(JSON.parse(text()).version || "") } catch (e) { host.version = "" } }
   }
 
   Process {
