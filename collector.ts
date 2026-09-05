@@ -169,6 +169,9 @@ export interface BlipOutput {
   failures: Toast[];
   /** Links that just arrived — the surface opens the share sheet on the newest. */
   links: IncomingLink[];
+  /** Security codes that just arrived — the widget holds the newest in memory
+   *  for a few minutes, toasts it, and types or copies it on request. */
+  codes: SecurityCode[];
   /** False means models are fresh but state could not be committed. */
   persisted: boolean;
   /** True when `threads` is the complete list (chat list fetched), not the
@@ -552,9 +555,10 @@ function digest(value: string): string {
 }
 
 function normalizeToastKey(value: string): string {
-  // "fail:" (selectFailures) and "link:" (selectIncomingLinks) are key
-  // namespaces — keep them verbatim or their dedupe rings reset every load.
-  return /^(fail:|link:)?sha256:[0-9a-f]{64}$/.test(value) ? value : digest(value);
+  // "fail:" (selectFailures), "link:" (selectIncomingLinks) and "code:"
+  // (selectCodes) are key namespaces — keep them verbatim or their dedupe
+  // rings reset every load.
+  return /^(fail:|link:|code:)?sha256:[0-9a-f]{64}$/.test(value) ? value : digest(value);
 }
 
 /** Stable opaque key for one message, used to suppress repeat toasts. */
@@ -701,6 +705,89 @@ export function selectIncomingLinks(
     if (seen.has(key)) continue;
     seen.add(key);
     out.push({ chat, url, ts: m.ts, key });
+  }
+  return out.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
+}
+
+// ------------------------------------------------------ security codes
+
+export interface SecurityCode {
+  chat: string;
+  name: string;
+  /** Digits only (a "123 456" or "123-456" code is normalised). */
+  code: string;
+  /** Origin-bound form (`@example.com #123456`): the site the code is for. */
+  domain: string;
+  ts: string;
+  key: string;
+}
+
+/** Words a sender puts next to a one-time code. Deliberately broad: the
+ *  token rules below do the narrowing. */
+const CODE_TRIGGER = /(code|passcode|\bpin\b|\botp\b|one[- ]?time|verif|security|authenticat|\b2fa\b|two[- ]factor|token|confirm|\blog ?in\b|sign[- ]?in|access)/gi;
+/** 4–8 digits, or two groups of three. Not part of a longer number, not money
+ *  (a "$" before, a "%" or ".digit" after), not the tail of a phone number. */
+const CODE_TOKEN = /(?<![\d$€£#(+.-])(?<!\d[-.])\b(\d{3}[ -]\d{3}|\d{4,8})\b(?![\d%])(?!\.\d)(?!-\d)/g;
+/** WebOTP / "origin-bound" line: `@example.com #123456` (may follow other text). */
+const CODE_BOUND = /(?:^|\s)@([a-z0-9-]+(?:\.[a-z0-9-]+)+)\s+#([a-z0-9-]{4,12})\b/i;
+/** Google's "G-123456". */
+const CODE_GOOGLE = /\bG-(\d{6,8})\b/;
+
+/**
+ * The one-time code in a message, or null. macOS's rule, roughly: a trigger
+ * word and a digit token near it. Heuristic by design — a false positive is
+ * a toast nobody clicks; a false negative is a code you read yourself.
+ */
+export function extractCode(text: string | null | undefined): { code: string; domain: string } | null {
+  const raw = String(text ?? "");
+  if (raw === "") return null;
+  const bound = CODE_BOUND.exec(raw);
+  if (bound) return { code: bound[2]!, domain: bound[1]!.toLowerCase() };
+  // digits inside a URL are never the code
+  const t = raw.replace(/https?:\/\/\S+/gi, " ");
+  const google = CODE_GOOGLE.exec(t);
+  if (google) return { code: google[1]!, domain: "" };
+  const triggers: number[] = [];
+  for (const m of t.matchAll(CODE_TRIGGER)) triggers.push(m.index ?? 0);
+  if (triggers.length === 0) return null;
+  let best: { code: string; dist: number } | null = null;
+  for (const m of t.matchAll(CODE_TOKEN)) {
+    const at = m.index ?? 0;
+    const code = m[1]!.replace(/[ -]/g, "");
+    const dist = Math.min(...triggers.map((i) => Math.abs(i - at)));
+    // nearest trigger wins; on a tie the longer token (6 beats 4)
+    if (!best || dist < best.dist || (dist === best.dist && code.length > best.code.length)) best = { code, dist };
+  }
+  return best ? { code: best.code, domain: "" } : null;
+}
+
+/**
+ * Codes that JUST arrived. Same gate as links: inbound, strictly newer than
+ * the watermark, never the self-thread, once per message through the
+ * persisted `code:` ring. Never a group — nobody's 2FA arrives in one, and a
+ * friend quoting a code must not be typed into your login form.
+ */
+export function selectCodes(
+  msgs: ImsgMessage[],
+  watermark: string,
+  toasted: string[],
+  selfChats: string[] = [],
+): SecurityCode[] {
+  if (!watermark) return [];
+  const seen = new Set(toasted);
+  const self = new Set(selfChats);
+  const out: SecurityCode[] = [];
+  for (const m of msgs) {
+    if (m.from_me || m.tapback === true) continue;
+    if (m.ts <= watermark) continue;
+    const chat = chatKey(m);
+    if (self.has(chat) || isGroupChat(chat)) continue;
+    const found = extractCode(m.text);
+    if (!found) continue;
+    const key = "code:" + toastKey(m);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ chat, name: m.name ?? m.handle, code: found.code, domain: found.domain, ts: m.ts, key });
   }
   return out.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
 }
@@ -1306,6 +1393,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   const toast = selectToasts(msgs, state.watermark, loadAllowlist(), state.toasted);
   const failures = selectFailures(fetched.msgs, state.toasted, nowTs);
   const links = selectIncomingLinks(msgs, state.watermark, state.toasted, selfChats);
+  const codes = selectCodes(msgs, state.watermark, state.toasted, selfChats);
   const unread = Object.values(exactCounts).reduce((n, count) => n + count, 0);
 
   // Both marks advance only on a good fetch, so an outage cannot silently
@@ -1324,7 +1412,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     chatAliases,
     pins,
     toasted: [...state.toasted, ...toast.map((t) => t.key), ...failures.map((f) => f.key),
-      ...links.map((l) => l.key)],
+      ...links.map((l) => l.key), ...codes.map((c) => c.key)],
   });
 
   // Only after the local state is committed: if the write failed the user
@@ -1345,6 +1433,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     toast: persisted ? toast : [],
     failures: persisted ? failures : [],
     links: persisted ? links : [],
+    codes: persisted ? codes : [],
     persisted,
     deep: chats !== null,
   };

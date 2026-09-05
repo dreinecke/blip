@@ -1285,3 +1285,63 @@ describe("pushRead breadcrumb", () => {
     expect(pushReadLogPath("/home/u")).toBe("/home/u/.local/state/blip/push-read.log");
   });
 });
+
+describe("security codes: detect, hold once, never from a group", () => {
+  const { extractCode, selectCodes } = require("./collector") as typeof import("./collector");
+  const WM = "2026-09-02 12:00:00";
+  const code = (text: string) => extractCode(text)?.code ?? null;
+
+  test("the usual shapes", () => {
+    expect(code("Your verification code is 483920")).toBe("483920");
+    expect(code("483920 is your Amazon OTP. Don't share it with anyone.")).toBe("483920");
+    expect(code("Your Venmo code: 837-291")).toBe("837291");
+    expect(code("Use 123 456 to sign in to Acme")).toBe("123456");
+    expect(code("Use code 4821 to log in")).toBe("4821");
+    expect(code("Your Uber code: 8271. Expires in 10 minutes.")).toBe("8271");
+    expect(code("Enter 482913 in the next 5 minutes to confirm your number")).toBe("482913");
+    expect(code("G-482913 is your Google verification code.")).toBe("482913");
+    expect(code("Your Apple Account code is: 128 433. Do not share it.")).toBe("128433");
+    expect(code("613400 is your Link verification code.")).toBe("613400");
+  });
+
+  test("origin-bound codes carry their domain and win outright", () => {
+    expect(extractCode("Your code is 111111\n\n@example.com #493857")).toEqual({ code: "493857", domain: "example.com" });
+    expect(extractCode("@login.acme.co #AB12-CD")).toEqual({ code: "AB12-CD", domain: "login.acme.co" });
+  });
+
+  test("no trigger word, no code", () => {
+    expect(code("Order #12345 shipped, arriving 09/04")).toBeNull();
+    expect(code("Thank you for your Taco Bell order! Track it at https://t.co/48291034")).toBeNull();
+    expect(code("Call me at 555-0100")).toBeNull();
+    expect(code("")).toBeNull();
+    expect(code(null)).toBeNull();
+  });
+
+  test("money, percentages, phone numbers and urls are not codes", () => {
+    expect(code("Your security deposit of $1234.56 was charged")).toBeNull();
+    expect(code("Verification complete, 100% done and 12345.67 credited")).toBeNull();
+    expect(code("To confirm call +1 (555) 010-0199")).toBeNull();
+    expect(code("Confirm at https://a.test/verify/48291034")).toBeNull();
+  });
+
+  test("the token nearest the trigger word wins; longer breaks a tie", () => {
+    expect(code("Your code is 1234. Expires in 10 minutes, ref 987654321")).toBe("1234");
+    expect(code("Reservation 20260904: your PIN is 5521")).toBe("5521");
+  });
+
+  test("selectCodes: inbound, new, DM only, once", () => {
+    const m = msg({ ts: "2026-09-02 12:30:00", from_me: false, chat: "77029", handle: "77029", name: null, text: "Your code is 483920" });
+    const out = selectCodes([
+      m,
+      msg({ ts: "2026-09-02 11:00:00", from_me: false, text: "old code 111111" }),                 // before watermark
+      msg({ ts: "2026-09-02 12:40:00", from_me: true, text: "my code is 222222" }),                 // outbound
+      msg({ ts: "2026-09-02 12:45:00", from_me: false, chat: "e98633ecd4e84723b69d142cd721b2b9", text: "code 333333" }), // group
+      msg({ ts: "2026-09-02 12:50:00", from_me: false, chat: "+15550001111", handle: "+15550001111", name: "Eli", text: "Enter passcode 444444" }),
+    ], WM, []);
+    expect(out.map((c) => [c.code, c.name])).toEqual([["483920", "77029"], ["444444", "Eli"]]);
+    expect(out.every((c) => c.key.startsWith("code:"))).toBe(true);
+    expect(selectCodes([m], WM, [out[0]!.key])).toEqual([]);           // the ring suppresses a repeat
+    expect(selectCodes([m], "", [])).toEqual([]);                        // never the first-run backlog
+    expect(selectCodes([m], WM, [], ["77029"])).toEqual([]);            // never the self-thread
+  });
+});

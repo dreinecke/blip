@@ -487,10 +487,25 @@ qs -p /usr/share/omarchy/shell ipc call nixfred.blip status
 qs -p /usr/share/omarchy/shell ipc call nixfred.blip goto 15551234567   # bare digits
 qs -p /usr/share/omarchy/shell ipc call nixfred.blip read               # mark all read
 qs -p /usr/share/omarchy/shell ipc call nixfred.blip share https://example.com   # share sheet for a URL
+qs -p /usr/share/omarchy/shell ipc call nixfred.blip typecode           # type the pending 2FA code into the focused field
+qs -p /usr/share/omarchy/shell ipc call nixfred.blip copycode           # or copy it
+```
+
+**Security codes.** When a text arrives that looks like a one-time code
+("Your verification code is 483920", "G-482913", the origin-bound
+`@example.com #493857` form), Blip toasts it. Click the toast to copy it, or
+bind `typecode` to a key and it is typed into whatever has focus, the way
+macOS offers a code from Messages to Safari. The code lives in the widget's
+memory for five minutes and nowhere else. Needs `automation=on`. A binding
+for `~/.config/hypr/bindings.lua`:
+
+```lua
+o.bind("SUPER + SHIFT + V", "Type security code",
+  "qs -p /usr/share/omarchy/shell ipc call nixfred.blip typecode")
 ```
 
 Everything that sends or reads message content over IPC (`goto`, `compose`,
-`bubbles`, `threads`, `find`, `newchat`, `read`) is **off by default** — any
+`bubbles`, `threads`, `find`, `newchat`, `read`, `typecode`, `copycode`) is **off by default** — any
 local process could otherwise send as you. Turn it on with `automation=on`
 in `~/.config/blip/bridge.conf` (re-read live). `status`, `open`, `close`,
 `toggle`, `window`, `app` are always available.

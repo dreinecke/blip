@@ -80,6 +80,11 @@ what it is handed. Keep it that way.
 - **Cache file extensions follow the gated MIME**, never the sender's name —
   `xdg-open` dispatches on extension (war room #49).
 - **Pass `--` before message text** to `notify-send`.
+- **A security code lives five minutes in BarWidget memory, nowhere else.**
+  `selectCodes()` (collector) spots it; `noteCode()` holds the newest and
+  toasts it; `copycode`/`typecode` hand it to wl-copy / wtype via an env var
+  and stdin, never argv. Never a group, never the self-thread, once per
+  message through the `code:` ring.
 - **No message content in state.json.** `~/.local/state/blip/state.json` holds
   timestamps, counts, opaque SHA-256 toast keys, self-chat ids, and group
   metadata. It is atomic and `0600`; no message bodies are allowed. EXCEPTION

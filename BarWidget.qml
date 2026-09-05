@@ -420,6 +420,8 @@ BarWidget {
             // alert must not throw a panel over full-screen work. When Blip is
             // closed the desktop toast is still the notification.
             if (Array.isArray(d.links) && d.links.length > 0) root.shareArrivingLink(d.links[d.links.length - 1])
+            // A security code that just arrived: hold the newest, toast it.
+            if (Array.isArray(d.codes) && d.codes.length > 0) root.noteCode(d.codes[d.codes.length - 1])
             // A send of YOURS that died — not allowlist-gated, interrupts once.
             if (Array.isArray(d.failures) && d.failures.length > 0)
               root.fireToasts(d.failures.map(function(f) {
@@ -549,11 +551,13 @@ BarWidget {
     stdout: StdioCollector {
       onStreamFinished: {
         var action = text.trim()
+        if (action === "default" && notifyProc.toastCode !== "") { root.copyCode(); return }
         if ((action === "default" || action === "reply") && notifyProc.toastChat !== "")
           root.show(notifyProc.toastChat)
       }
     }
     property string toastChat: ""
+    property string toastCode: ""    // set for a code toast: click = copy, not open
   }
   property var toastQueue: []
 
@@ -575,6 +579,7 @@ BarWidget {
     var body = String(t.text || "")
     if (body.length > 220) body = body.substring(0, 217) + "…"
     notifyProc.toastChat = String(t.chat || "")
+    notifyProc.toastCode = String(t.code || "")
     // Where this toast came from, in a form that outlives it.
     //
     // --action=default lives inside this notify-send process and dies with it
@@ -588,7 +593,13 @@ BarWidget {
     // read it as a flag (show() matches the bare digits as an alias).
     var reopen = []
     var chatArg = notifyProc.toastChat.replace(/^\+/, "")
-    if (chatArg !== "" && /^[A-Za-z0-9._@:;$-]{1,256}$/.test(chatArg))
+    if (notifyProc.toastCode !== "")
+      // a code toast restored from the notification center copies the code
+      // still pending (or nothing, once it has expired) — never the toast's
+      // own text, which is why the hint carries no code
+      reopen = ["--hint=string:omarchy-exec-argv:" + JSON.stringify(
+        ["qs", "-p", "/usr/share/omarchy/shell", "ipc", "call", root.moduleName, "copycode"])]
+    else if (chatArg !== "" && /^[A-Za-z0-9._@:;$-]{1,256}$/.test(chatArg))
       reopen = ["--hint=string:omarchy-exec-argv:" + JSON.stringify(
         ["qs", "-p", "/usr/share/omarchy/shell", "ipc", "call",
          root.moduleName, "goto", chatArg])]
@@ -603,7 +614,7 @@ BarWidget {
       // renders no action BUTTONS and only ever invokes default — an
       // advertised Reply button would be a lie (Codex, read the daemon).
       "--wait",
-      "--action=default=Open",
+      notifyProc.toastCode !== "" ? "--action=default=Copy" : "--action=default=Open",
     ].concat(reopen).concat([
       "--",                                   // a name or text starting with "-" is data, not a flag
       String(t.name || t.chat || "iMessage"),
@@ -623,6 +634,52 @@ BarWidget {
   Connections {
     target: notifyProc
     function onExited(code, status) { toastWatchdog.stop(); Qt.callLater(root.drainToasts) }
+  }
+
+  // ------------------------------------------------------ security codes
+  // macOS reads a 2FA code out of an SMS and offers it to the browser. Blip's
+  // version: the collector spots the code, the widget holds it IN MEMORY for
+  // five minutes (never state.json — it is message text), toasts it, and on
+  // request copies it (click the toast, or `copycode`) or types it into
+  // whatever has keyboard focus (`typecode`, bound to a hotkey). The code
+  // reaches wl-copy and wtype through an environment variable and stdin —
+  // never argv, where any process could read it from /proc.
+  property var pendingCode: null         // {code, name, domain, ts} or null
+  Timer {
+    id: codeExpiry
+    interval: 300000
+    onTriggered: root.pendingCode = null
+  }
+  function noteCode(c) {
+    if (!c || !c.code) return
+    pendingCode = { code: String(c.code), name: String(c.name || c.chat || ""), domain: String(c.domain || ""), ts: String(c.ts || "") }
+    codeExpiry.restart()
+    var who = pendingCode.name !== "" ? pendingCode.name : "a message"
+    var body = pendingCode.code + (pendingCode.domain !== "" ? " for " + pendingCode.domain : "")
+             + "\nClick to copy · Super+Shift+V types it"
+    fireToasts([{ chat: "", name: "Code from " + who, text: body, ts: pendingCode.ts, key: "", code: pendingCode.code }])
+  }
+  // sh reads the code from its environment, hands it to the tool on stdin.
+  Process {
+    id: codeCopyProc
+    environment: ({ BLIP_CODE: root.pendingCode ? root.pendingCode.code : "" })
+    command: ["sh", "-c", "printf %s \"$BLIP_CODE\" | wl-copy"]
+  }
+  Process {
+    id: codeTypeProc
+    environment: ({ BLIP_CODE: root.pendingCode ? root.pendingCode.code : "" })
+    // the pause lets the hotkey's modifiers come up before the digits go down
+    command: ["sh", "-c", "sleep 0.3; printf %s \"$BLIP_CODE\" | wtype -"]
+  }
+  function copyCode() {
+    if (!pendingCode) return "no code pending"
+    codeCopyProc.running = true
+    return "copied"
+  }
+  function typeCode() {
+    if (!pendingCode) return "no code pending"
+    codeTypeProc.running = true
+    return "typed"
   }
 
   // ------------------------------------------------------------ IPC
@@ -670,6 +727,8 @@ BarWidget {
     function close(): void { root.close() }
     function toggle(): void { root.toggle() }
     function goto(chat: string): string { if (!root.automationOn) return root.automationOff; root.show(chat); return "shown" }
+    function copycode(): string { if (!root.automationOn) return root.automationOff; return root.copyCode() }
+    function typecode(): string { if (!root.automationOn) return root.automationOff; return root.typeCode() }
     function share(url: string): string { if (!root.automationOn) return root.automationOff; root.open(); return panelLoader.item ? panelLoader.item.shareLink(url) : "no panel" }
     function compose(text: string): string { if (!root.automationOn) return root.automationOff; return panelLoader.item ? panelLoader.item.composeAndSend(text) : "no panel" }
     function bubbles(): string { if (!root.automationOn) return root.automationOff; return panelLoader.item ? panelLoader.item.bubbleModel() : "[]" }

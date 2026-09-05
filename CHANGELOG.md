@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Security codes, the macOS way.** A text that carries a one-time code —
+  "Your verification code is 483920", Google's "G-482913", the origin-bound
+  `@example.com #493857` line — now toasts the code as it lands. Click the
+  toast to copy it, or press a key (`typecode` over IPC; Super+Shift+V in the
+  README's binding) and Blip types it into whatever has keyboard focus, the
+  way macOS offers a code from Messages to Safari's login form. The detector
+  wants a trigger word (code, passcode, PIN, OTP, verify, confirm, sign in…)
+  and picks the 4–8 digit token nearest it; money, percentages, phone numbers
+  and URLs never qualify, nor does anything from a group or the self-thread.
+  The code is held in the widget's memory for five minutes and nowhere else —
+  not state.json, not argv (wl-copy and wtype read it from stdin). Both verbs
+  sit behind `automation=on`.
 - **Blue bubbles.** Your messages are iMessage blue with white text on every
   theme. They followed the Omarchy accent, which is red on several themes —
   and red bubbles read as failed sends. The unread dot on the bar icon is the
