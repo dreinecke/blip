@@ -594,11 +594,10 @@ BarWidget {
     var reopen = []
     var chatArg = notifyProc.toastChat.replace(/^\+/, "")
     if (notifyProc.toastCode !== "")
-      // a code toast restored from the notification center copies the code
-      // still pending (or nothing, once it has expired) — never the toast's
-      // own text, which is why the hint carries no code
-      reopen = ["--hint=string:omarchy-exec-argv:" + JSON.stringify(
-        ["qs", "-p", "/usr/share/omarchy/shell", "ipc", "call", root.moduleName, "copycode"])]
+      // popup only: the daemon must not write the code into its on-disk
+      // history (~/.local/state/omarchy/notifications/history). It expires
+      // from memory in five minutes; there is nothing to restore.
+      reopen = ["--hint=boolean:transient:true"]
     else if (chatArg !== "" && /^[A-Za-z0-9._@:;$-]{1,256}$/.test(chatArg))
       reopen = ["--hint=string:omarchy-exec-argv:" + JSON.stringify(
         ["qs", "-p", "/usr/share/omarchy/shell", "ipc", "call",
