@@ -1804,6 +1804,9 @@ FocusScope {
     if (key === Qt.Key_Down) { moveCursor(1); return true }
     if (key === Qt.Key_Up) { moveCursor(-1); return true }
     if (key === Qt.Key_Return || key === Qt.Key_Enter) { activateCursor(); return true }
+    // Right = into the right pane: focus the compose field of the thread on
+    // screen (which commits a peek). Left in an EMPTY compose field comes back.
+    if (key === Qt.Key_Right && inThread) { composeField.forceActiveFocus(); return true }
     return false
   }
   function catchEscape() {
@@ -3226,7 +3229,7 @@ FocusScope {
 
               TextArea {
                 id: composeField
-              onActiveFocusChanged: if (activeFocus) root.commitPeek()
+                onActiveFocusChanged: if (activeFocus) root.commitPeek()
                 width: composeFlick.width
                 // At least the viewport, so a click in empty space still lands in
                 // the field; taller than it once the text outgrows five lines.
@@ -3265,6 +3268,15 @@ FocusScope {
                 // Esc drops a bubble selection first (back to the bottom), then
                 // leaves the thread — the two-step Esc a text selection gets.
                 Keys.onEscapePressed: if (root.shareUrl !== "") root.closeShare(); else if (root.bubbleCursor >= 0) root.leaveBubbles(); else root.back()
+                // Left from the START of the text (or an empty field) hands focus
+                // back to the sidebar (split view); anywhere else it moves the
+                // caret as usual — the arrows' edge rule. Not while the share
+                // sheet is up: a specific-key handler runs before Keys.onPressed
+                // and counts as accepted, and there Left is the sheet's.
+                Keys.onLeftPressed: function(event) {
+                  if (root.splitView && cursorPosition === 0 && root.shareUrl === "") root.navigationFocusRequested()
+                  else event.accepted = false
+                }
                 // Ctrl+V goes through paste.ts: an image on the clipboard becomes
                 // a draft chip; text falls through to a manual insert. One process
                 // snapshots types AND data — probing then re-reading races.

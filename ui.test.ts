@@ -329,6 +329,10 @@ describe("QML safety invariants", () => {
     expect(fn).toContain("moveCursor(1)");
     expect(fn).toContain("moveCursor(-1)");
     expect(fn).toContain("activateCursor()");
+    // Right steps into the compose field (committing a peek); Left in an
+    // empty compose field steps back, with text it stays a caret move.
+    expect(fn).toContain("if (key === Qt.Key_Right && inThread) { composeField.forceActiveFocus(); return true }");
+    expect(panel).toContain('if (root.splitView && cursorPosition === 0 && root.shareUrl === "") root.navigationFocusRequested()');
   });
 
   test("Omarchy's shell toggle can find the panel", () => {
