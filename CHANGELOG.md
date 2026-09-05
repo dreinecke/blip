@@ -12,8 +12,11 @@
   and picks the 4–8 digit token nearest it; money, percentages, phone numbers
   and URLs never qualify, nor does anything from a group or the self-thread.
   The code is held in the widget's memory for five minutes and nowhere else —
-  not state.json, not argv (wl-copy and wtype read it from stdin). Both verbs
-  sit behind `automation=on`.
+  not state.json, not argv, not the notification daemon's on-disk history
+  (the toast is transient). Typing goes through Hyprland's `send_key_state`,
+  the same path as Omarchy's universal paste, because a virtual keyboard's
+  digits merge with the modifiers still held from the hotkey and became
+  Super+Shift+<digit>. Both verbs sit behind `automation=on`.
 - **Blue bubbles.** Your messages are iMessage blue with white text on every
   theme. They followed the Omarchy accent, which is red on several themes —
   and red bubbles read as failed sends. The unread dot on the bar icon is the

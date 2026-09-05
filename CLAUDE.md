@@ -82,9 +82,13 @@ what it is handed. Keep it that way.
 - **Pass `--` before message text** to `notify-send`.
 - **A security code lives five minutes in BarWidget memory, nowhere else.**
   `selectCodes()` (collector) spots it; `noteCode()` holds the newest and
-  toasts it; `copycode`/`typecode` hand it to wl-copy / wtype via an env var
-  and stdin, never argv. Never a group, never the self-thread, once per
-  message through the `code:` ring.
+  toasts it (transient — Omarchy persists toast bodies to disk otherwise);
+  `copycode` hands it to wl-copy via an env var and stdin, `typecode` sends
+  it to the focused window as `send_key_state` events over Hyprland's socket.
+  Never argv. NEVER wtype for this: Hyprland merges a virtual keyboard's keys
+  with the physical modifiers still held from the hotkey, and the digits
+  fired Super+Shift+<digit> binds (found the hard way, 2026-09-04). Never a
+  group, never the self-thread, once per message through the `code:` ring.
 - **No message content in state.json.** `~/.local/state/blip/state.json` holds
   timestamps, counts, opaque SHA-256 toast keys, self-chat ids, and group
   metadata. It is atomic and `0600`; no message bodies are allowed. EXCEPTION

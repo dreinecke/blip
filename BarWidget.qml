@@ -3,6 +3,7 @@ import Quickshell
 import Quickshell.Io
 import qs.Commons
 import qs.Ui
+import Quickshell.Hyprland
 
 // blip — iMessage in the bar.
 //
@@ -641,8 +642,15 @@ BarWidget {
   // five minutes (never state.json — it is message text), toasts it, and on
   // request copies it (click the toast, or `copycode`) or types it into
   // whatever has keyboard focus (`typecode`, bound to a hotkey). The code
-  // reaches wl-copy and wtype through an environment variable and stdin —
-  // never argv, where any process could read it from /proc.
+  // reaches wl-copy through an environment variable and stdin, and the
+  // focused window as key events over Hyprland's socket — never argv, where
+  // any process could read it from /proc.
+  //
+  // NOT wtype. A virtual keyboard's key presses are merged with the physical
+  // keyboard's modifier state, so the digits typed while the user's fingers
+  // are still on Super+Shift became Super+Shift+<digit> — workspace binds.
+  // `send_key_state` (what Omarchy's universal paste uses) hands the key
+  // straight to the focused window without consulting binds.
   property var pendingCode: null         // {code, name, domain, ts} or null
   Timer {
     id: codeExpiry
@@ -664,20 +672,46 @@ BarWidget {
     environment: ({ BLIP_CODE: root.pendingCode ? root.pendingCode.code : "" })
     command: ["sh", "-c", "printf %s \"$BLIP_CODE\" | wl-copy"]
   }
-  Process {
-    id: codeTypeProc
-    environment: ({ BLIP_CODE: root.pendingCode ? root.pendingCode.code : "" })
-    // the pause lets the hotkey's modifiers come up before the digits go down
-    command: ["sh", "-c", "sleep 0.3; printf %s \"$BLIP_CODE\" | wtype -"]
-  }
   function copyCode() {
     if (!pendingCode) return "no code pending"
     codeCopyProc.running = true
     return "copied"
   }
+  // One key event per tick: down, then up, 20 ms apart (Omarchy's paste
+  // helper uses 50 between the two). A single dispatch per event keeps the
+  // socket write small and the order guaranteed.
+  property var keyQueue: []
+  Timer {
+    id: keyPump
+    interval: 20
+    repeat: true
+    onTriggered: {
+      if (root.keyQueue.length === 0) { stop(); return }
+      var q = root.keyQueue.slice()
+      var k = q.shift()
+      root.keyQueue = q
+      Hyprland.dispatch('hl.dsp.send_key_state({ mods = "' + k.mods + '", key = "' + k.key + '", state = "' + k.state + '" })')
+    }
+  }
+  /** xkb key name + modifiers for one character of a code, or null. */
+  function keyFor(ch) {
+    if (/^[0-9a-z]$/.test(ch)) return { key: ch, mods: "" }
+    if (/^[A-Z]$/.test(ch)) return { key: ch.toLowerCase(), mods: "SHIFT" }
+    if (ch === "-") return { key: "minus", mods: "" }
+    return null
+  }
   function typeCode() {
     if (!pendingCode) return "no code pending"
-    codeTypeProc.running = true
+    var q = []
+    var code = String(pendingCode.code)
+    for (var i = 0; i < code.length; i++) {
+      var k = keyFor(code.charAt(i))
+      if (!k) continue
+      q.push({ key: k.key, mods: k.mods, state: "down" })
+      q.push({ key: k.key, mods: k.mods, state: "up" })
+    }
+    keyQueue = q
+    keyPump.start()
     return "typed"
   }
 

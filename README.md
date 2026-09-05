@@ -495,8 +495,11 @@ qs -p /usr/share/omarchy/shell ipc call nixfred.blip copycode           # or cop
 ("Your verification code is 483920", "G-482913", the origin-bound
 `@example.com #493857` form), Blip toasts it. Click the toast to copy it, or
 bind `typecode` to a key and it is typed into whatever has focus, the way
-macOS offers a code from Messages to Safari. The code lives in the widget's
-memory for five minutes and nowhere else. Needs `automation=on`. A binding
+macOS offers a code from Messages to Safari. The digits go to the focused
+window as key events through Hyprland, not a virtual keyboard, so holding
+the hotkey's modifiers cannot turn them into workspace binds. The code lives
+in the widget's memory for five minutes and nowhere else. Needs
+`automation=on`. A binding
 for `~/.config/hypr/bindings.lua`:
 
 ```lua
