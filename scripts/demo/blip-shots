@@ -48,8 +48,10 @@ for d in "$SANDBOX" "$SHELLDIR"; do
   fi
 done
 rm -rf "$SANDBOX" "$SHELLDIR"
-mkdir -p "$SANDBOX/bin" "$SANDBOX/.config/blip" "$SANDBOX/.cache" "$SANDBOX/.local/state" "$SHELLDIR" "$OUT"
-touch "$SANDBOX/.blip-demo-scratch" "$SHELLDIR/.blip-demo-scratch"
+mkdir -p "$SANDBOX/bin" "$SANDBOX/.config/blip" "$SANDBOX/.cache" "$SANDBOX/.local/state" "$OUT"
+touch "$SANDBOX/.blip-demo-scratch"
+# ($SHELLDIR is created by the `cp -r` below — pre-creating it made cp nest the
+# shell one level down and qs.Commons vanished; its marker follows the copy.)
 # A PRIVATE runtime dir: the real one holds the contact-search dump, drafts and
 # QR files, and the demo read and swept them (Astra D#3). The compositor and
 # Hyprland sockets are linked in so the shell still reaches the desk.
@@ -71,6 +73,7 @@ CONF
 
 echo "· shell copy $SHELLDIR"
 cp -r /usr/share/omarchy/shell "$SHELLDIR"
+touch "$SHELLDIR/.blip-demo-scratch"
 cp "$REPO"/*.qml "$REPO"/*.ts "$REPO/manifest.json" "$SHELLDIR/"   # manifest: the header's version (Astra D#7)
 cp "$REPO/scripts/demo/DemoShell.qml" "$SHELLDIR/shell.qml"
 
