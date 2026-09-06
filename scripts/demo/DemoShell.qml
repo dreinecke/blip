@@ -25,6 +25,7 @@ ShellRoot {
     property int unread: 0
     property bool healthy: true
     property string lastError: ""
+    property var draftCache: ({})
     // The version, from the same manifest.json the shipped widget reads.
     property string version: ""
     // Clock and date patterns, as BarWidget would supply them (README defaults);

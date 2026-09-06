@@ -344,6 +344,12 @@ FocusScope {
     return /^\+?[0-9]{5,}$/.test(c) || c.indexOf("@") > 0
   }
 
+  // Unsent compose text per chat id. It lives on the host (BarWidget.draftCache)
+  // so the panel and the app window share it, and in memory only: message text
+  // never lands on disk. Written in place: nothing binds to the map, so there
+  // is no copy to make and no change to signal.
+  readonly property var drafts: hostWidget ? hostWidget.draftCache : ({})
+
   /** Back to the list view, scrolled to top — the host calls this on open. */
   function resetToList() {
     active = null
@@ -391,7 +397,8 @@ FocusScope {
     pushPending = false
     note = ""
     loading = true
-    composeField.text = ""
+    composeField.text = drafts[String(t.chat)] || ""   // this conversation's unsent text
+    composeField.cursorPosition = composeField.length
     clearDraft()   // a queued file must never survive into another thread
     requestThreadLoad(String(t.chat))
     Qt.callLater(function() { composeField.forceActiveFocus() })
@@ -2743,6 +2750,12 @@ FocusScope {
               id: composeField
               anchors.fill: parent
               wrapMode: TextEdit.Wrap
+              // Every edit is kept under the open conversation, so switching
+              // threads does not lose it. A send clears the field and with it
+              // the draft; leaving a thread nulls active BEFORE clearing, so the
+              // draft stays. Loading a draft in openThread fires this too and
+              // writes the same text back, which is harmless.
+              onTextChanged: if (root.active) root.drafts[String(root.active.chat)] = text
               // NEVER disabled: this field is the panel's exclusive keyboard-focus
               // holder, and disabling the focused editor dismisses the whole
               // panel (0.7.2 postmortem; Codex design review #8). readOnly

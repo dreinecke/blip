@@ -346,3 +346,23 @@ test("search queries never ride argv", () => {
   expect(panel).toContain('["bun", root.searchScript, "--stdin", "40"]');
   expect(panel).toContain("searchProc.write(JSON.stringify({ query: q, threads:");
 });
+
+// Drafts: text typed but not sent is kept per conversation across a thread
+// switch, shared by the panel and the app window, in memory only — never on
+// disk (the "message text never lands on disk" invariant).
+describe("per-conversation drafts", () => {
+  test("the host owns one draft map for both surfaces", () => {
+    expect(widget).toContain("property var draftCache: ({})");
+    expect(panel).toContain("readonly property var drafts: hostWidget ? hostWidget.draftCache : ({})");
+  });
+
+  test("every edit is kept under the open chat and restored on open", () => {
+    expect(panel).toContain("onTextChanged: if (root.active) root.drafts[String(root.active.chat)] = text");
+    expect(panel).toContain('composeField.text = drafts[String(t.chat)] || ""');
+  });
+
+  test("drafts never touch disk", () => {
+    expect(panel).not.toContain("drafts.json");
+    expect(widget).not.toContain("drafts.json");
+  });
+});

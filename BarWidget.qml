@@ -45,6 +45,9 @@ BarWidget {
   property bool healthy: false       // last collector run parsed cleanly
   property string lastError: ""
   property string lastRun: ""
+  // Unsent compose text per chat id, shared by the panel and the app window.
+  // In memory only: message text never lands on disk.
+  property var draftCache: ({})
 
   readonly property bool hasUnread: unread > 0
 
