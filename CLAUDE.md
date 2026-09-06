@@ -110,9 +110,11 @@ what it is handed. Keep it that way.
   metadata. It is atomic and `0600`; no message bodies are allowed. EXCEPTION
   (Fred, 2026-08-31): fetched MEDIA caches as plain files in
   `~/.cache/blip/att` (0700/0600, 500 MB LRU) — the Linux box's disk is LUKS-encrypted
-  at rest. Message text still never lands on disk. `push-read.log` beside
-  state.json records each read-push's exit code and `imsg-read`'s status
-  line — never content.
+  at rest. Message text still never lands on disk — unsent drafts included:
+  `BarWidget.draftCache` keeps them in memory only, so a shell restart drops
+  them by design; do not persist them. `push-read.log` beside state.json
+  records each read-push's exit code and `imsg-read`'s status line — never
+  content.
 - **The Linux shims' ssh preflight must use `ssh -n`.** A bare
   `ssh <mac> true` connectivity probe EATS STDIN, which silently empties
   `imsg-send --file-stdin` payloads. Fixed 2026-08-31.

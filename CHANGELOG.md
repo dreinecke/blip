@@ -6,6 +6,11 @@
   measured before the grid had its width, and the layout kept that small size
   until the next relayout; the size is now a layout hint, so they render at
   full size from the first frame.
+- **Drafts survive a thread switch.** Text typed but not sent is now kept per
+  conversation as you move between threads and restored when you return; the
+  panel and the app window share the same drafts. In memory only, so no message
+  text lands on disk. Sending, or clearing the field, drops that conversation's
+  draft.
 - **Bug hunt (Codex, gpt-6-astra), fourteen fixes.** A 2FA code was written
   to Omarchy's on-disk notification history — the daemon persists every
   displayed toast regardless of the `transient` hint — so the toast now says a
