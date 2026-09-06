@@ -220,7 +220,6 @@ FocusScope {
   function openApp() {
     closeShare()
     if (!hostWidget) return
-    if (typeof hostWidget.close === "function") hostWidget.close()
     if (typeof hostWidget.showApp === "function") hostWidget.showApp()
   }
   function shareOpen() { var u = shareUrl; closeShare(); openLink(u) }
@@ -1737,7 +1736,7 @@ FocusScope {
               PanelActionButton {
                 visible: !root.newMode && !root.searchShowing && !root.splitView
                 iconText: "⇱"
-                tooltipText: "Open the app window (SUPER+M)"
+                tooltipText: "Open the app window"
                 bordered: true
                 foreground: root.foreground
                 hoverColor: root.accent
