@@ -577,22 +577,31 @@ def _same_chat_id(left: str, right: str) -> bool:
     # Some preference/database versions omit the plus on phone identifiers.
     if re.fullmatch(r"\+?[0-9]{5,}", left) and re.fullmatch(r"\+?[0-9]{5,}", right):
         return left.lstrip("+") == right.lstrip("+")
+    # Pins store a dashed UUID; chat_identifier for newer groups is 32 hex.
+    left_hex = left.replace("-", "")
+    right_hex = right.replace("-", "")
+    if re.fullmatch(r"[0-9a-f]{32}", left_hex) and re.fullmatch(r"[0-9a-f]{32}", right_hex):
+        return left_hex == right_hex
     return False
 
 
-def pin_order_for(pins: list[set[str]], chat_identifier: str, guid: str | None,
-                  group_id: str | None = None, original_group_id: str | None = None) -> int | None:
-    """Return the Messages pin position for one chat, or None.
+def pin_order_for(pins: list[set[str]], *candidates: str | None) -> int | None:
+    """Return the Messages pin position for one conversation, or None.
 
     DMs are pinned by handle (chat_identifier / guid). GROUPS are pinned by
     the chat row's `group_id` (or `original_group_id`) — dashed UUIDs that
     never equal the chat_identifier (chat<digits>) or the guid
     (any;+;chat<digits>), so a pinned group was invisible without them.
+
+    Pass every identifier in the conversation cluster, not just the live
+    row: a re-keyed group's pin stays on a retired row's group_id, and a
+    merged DM (phone + email, same group_id) is pinned by whichever handle
+    was tapped.
     """
-    candidates = [c for c in (chat_identifier, guid, group_id, original_group_id) if c]
-    for index, ids in enumerate(pins):
-        for pin_id in ids:
-            if any(_same_chat_id(pin_id, c) for c in candidates):
+    ids = [c for c in candidates if c]
+    for index, pin_ids in enumerate(pins):
+        for pin_id in pin_ids:
+            if any(_same_chat_id(pin_id, c) for c in ids):
                 return index
     return None
 
@@ -1071,8 +1080,10 @@ def cmd_chats(con, args):
     if args.json:
         pin_ids = pinned_chat_identifiers()
         # One entry per CONVERSATION: a group re-keyed by Messages leaves
-        # several chat rows and used to list once per row.
+        # several chat rows and used to list once per row. A merged DM
+        # (phone + email sharing group_id) is the same shape.
         clusters = _group_cluster_map(con)
+        pin_candidates = _cluster_pin_candidates(con, clusters)
         merged_counts: dict = {}
         for r in rows:
             canon = clusters.get(r["chat_identifier"])
@@ -1083,8 +1094,11 @@ def cmd_chats(con, args):
             canon = clusters.get(r["chat_identifier"])
             if canon and canon != r["chat_identifier"]:
                 continue                 # an older row of a conversation listed under `canon`
-            pin_order = pin_order_for(pin_ids, r["chat_identifier"], r["guid"],
-                                      r["group_id"], r["original_group_id"])
+            extras = pin_candidates.get(r["chat_identifier"], ())
+            pin_order = pin_order_for(
+                pin_ids, r["chat_identifier"], r["guid"],
+                r["group_id"], r["original_group_id"], *extras,
+            )
             last = con.execute(
                 f"""SELECT m.text, m.attributedBody, m.is_from_me, h.id AS handle,
                            m.balloon_bundle_id, m.payload_data
@@ -1225,6 +1239,11 @@ def _group_cluster_map(con) -> dict:
     two different conversations with the same people never collapse. The
     canonical row is the one with the newest message (ties: highest ROWID),
     because that is the row Messages is writing to now.
+
+    1:1 chats that Messages has merged (phone SMS + email iMessage) share a
+    `group_id` while keeping different chat_identifiers. Those are clustered
+    the same way, keyed by group_id, so the sidebar and `thread --chat`
+    agree with Messages.app.
     """
     # The same recovered name cmd_groups uses: a re-sync blanks display_name,
     # and two NAMED groups with the same members then clustered as one (Astra
@@ -1263,6 +1282,36 @@ def _group_cluster_map(con) -> dict:
         canonical = best[key][1]
         for cid in ids:
             out[cid] = canonical
+    # DMs Messages has merged (phone + email, SMS + iMessage) share group_id
+    # across different chat_identifiers. style 43 stays on the name+members
+    # path above — never mix a group with a 1:1.
+    dms = con.execute(
+        f"""
+        SELECT c.ROWID AS rid, c.chat_identifier AS cid, c.group_id AS gid,
+               (SELECT MAX(m.date) FROM chat_message_join j JOIN {MESSAGE_SRC} m ON m.ROWID = j.message_id
+                 WHERE j.chat_id = c.ROWID) AS last_date
+        FROM chat c
+        WHERE c.style != 43 AND c.group_id IS NOT NULL AND TRIM(c.group_id) != ''
+        """
+    ).fetchall()
+    dm_best: dict = {}
+    dm_members: dict = {}
+    for r in dms:
+        if not r["cid"]:
+            continue
+        key = r["gid"]
+        dm_members.setdefault(key, []).append(r["cid"])
+        rank = (r["last_date"] or -1, r["rid"])
+        cur = dm_best.get(key)
+        if cur is None or rank > cur[0]:
+            dm_best[key] = (rank, r["cid"])
+    for key, ids in dm_members.items():
+        uniq = list(dict.fromkeys(ids))
+        if len(uniq) < 2:
+            continue
+        canonical = dm_best[key][1]
+        for cid in uniq:
+            out[cid] = canonical
     return out
 
 
@@ -1270,6 +1319,34 @@ def _group_photo_chat_ids(con, chat_identifier: str) -> tuple[str, ...]:
     clusters = _group_cluster_map(con)
     canon = clusters.get(chat_identifier, chat_identifier)
     return tuple(sorted({c for c, k in clusters.items() if k == canon} | {chat_identifier, canon}))
+
+
+def _cluster_pin_candidates(con, clusters: dict) -> dict:
+    """canon chat_identifier -> identifiers Messages may have stored as a pin.
+
+    A re-keyed group's pin stays on a retired row's group_id. A merged DM is
+    pinned by whichever handle was tapped. Matching only the live row missed
+    both. Look at every chat row, not the sidebar LIMIT, so a quiet alias
+    still donates its ids.
+    """
+    chat_cols = {row[1] for row in con.execute("PRAGMA table_info(chat)")}
+    orig = "original_group_id" if "original_group_id" in chat_cols else "NULL"
+    rows = con.execute(
+        f"SELECT chat_identifier, guid, group_id, {orig} AS original_group_id FROM chat"
+    ).fetchall()
+    seen: dict = {}
+    for r in rows:
+        cid = r["chat_identifier"]
+        if not cid:
+            continue
+        canon = clusters.get(cid, cid)
+        bucket = seen.setdefault(canon, [])
+        have = set(bucket)
+        for v in (cid, r["guid"], r["group_id"], r["original_group_id"]):
+            if v and str(v).strip() and str(v) not in have:
+                have.add(str(v))
+                bucket.append(str(v))
+    return seen
 
 
 def _group_photo_path(con, chat_identifier: str) -> str:
