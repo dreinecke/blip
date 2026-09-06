@@ -186,6 +186,13 @@ what it is handed. Keep it that way.
   Likewise `thread.ts` keeps every group row the bridge returns for a
   `thread --chat` — the bridge scoped it to the cluster, and the alias rows
   keep their own ids (9 rows from the Mac, 6 bubbles shown, until 2.3.4).
+- **Pins and merged 1:1s use the whole conversation cluster.** A re-keyed
+  group's pin stays on a retired row's `group_id`; matching only the live
+  row drops it from Favorites. Messages also merges a phone SMS row with an
+  email iMessage row under one `group_id` while keeping two chat_identifiers.
+  `_group_cluster_map` folds those like re-keyed groups, `pin_order_for`
+  sees every id in the cluster, and `selectThread` keeps alias DM rows the
+  way it already keeps group alias rows.
 - **`chat:null` exists.** Use `chatKey()`; never `String(m.chat)`. A row with
   neither chat nor handle is a leftover of a deleted conversation (iCloud keeps
   the row, the chat and the join are gone); `fetchMessages` drops it

@@ -24,6 +24,14 @@
   second collector. `install.sh` fired the Automation prompt before the
   wizard's "be at the Mac" pause; re-running setup wiped hand-set
   `bridge.conf` keys; setup said "bridge is up" after three failed grants.
+
+- **Pinned groups and merged DMs follow Messages again.** A re-keyed group's
+  pin stays on a retired chat row's `group_id`, so matching only the live row
+  dropped it from Favorites. A merged 1:1 (phone SMS + email iMessage) split
+  into two threads, with the pin stuck on the stale SMS handle. `chats` now
+  matches pins against every id in the cluster, 1:1s that share a `group_id`
+  fold like re-keyed groups, and the thread loader keeps alias rows.
+
 ## 2.3.3 — 2026-09-05 — blue bubbles, and reads that reach your phone
 
 - **The Messages Automation prompt gets the time it needs.** `blip-check` gave

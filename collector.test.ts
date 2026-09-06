@@ -862,6 +862,20 @@ describe("a re-keyed group is ONE conversation", () => {
       (a, b) => (a < b ? a : b),
     )).toEqual({ chat2244: "2026-02-26 22:26:56" });
   });
+
+  test("a merged DM (phone + email) folds onto the live handle", () => {
+    const phone = "+15550100001";
+    const email = "pat@example.com";
+    const out = foldThreadAliases(
+      [
+        thread(phone, "2026-09-04 21:32:29", 40, 0),
+        thread(email, "2026-09-05 17:24:01", 12, 1),
+      ],
+      { [phone]: email },
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({ chat: email, last_ts: "2026-09-05 17:24:01", unread: 1 });
+  });
 });
 
 describe("complete conversation list (mergeChats)", () => {
