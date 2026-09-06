@@ -429,6 +429,8 @@ describe("QML safety invariants", () => {
     expect(qmlFunction("startNew")).toContain("endPeek()");
     expect(qmlFunction("endPeek")).toContain("if (peeking) clearThread()");
     expect(qmlFunction("peekCursor")).toContain("!cursorShown");
+    // The sidebar's spacing must not follow inThread in split view (8px shift).
+    expect(panel).toContain("spacing: root.splitView ? Style.space(10) : (root.inThread ? Style.space(2) : Style.space(6))");
     expect(qmlFunction("moveCursor")).toContain("if (splitView) peekTimer.restart()");
     // one place empties the pane; back() and resetToList() go through it
     expect(qmlFunction("clearThread")).toContain("peekTimer.stop()");

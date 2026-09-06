@@ -1929,7 +1929,9 @@ FocusScope {
           ColumnLayout {
             id: listContent
             width: parent.width
-            spacing: root.inThread ? Style.space(2) : Style.space(root.splitView ? 10 : 6)
+            // One spacing in split view: inThread flips there with every preview,
+            // and the sidebar must not shift. The popout tightens up in a thread.
+            spacing: root.splitView ? Style.space(10) : (root.inThread ? Style.space(2) : Style.space(6))
 
             // ------------------------------------------------- OFFLINE
             Text {
