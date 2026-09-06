@@ -14,7 +14,7 @@
   says why. Post-send reloads no longer flash "loading…".
 - **One card saved twice is one person.** Two Contacts cards in the same
   source sharing a number are still two people when their names differ — but
-  "Wifey ❤️" and "Wifey❤️" (a space, a capital, a compatibility form) are a
+  "Mom ❤️" and "Mom❤️" (a space, a capital, a compatibility form) are a
   duplicate, and the bridge read them as ambiguity: the most talked-to
   conversation in the list was a bare number with no photo. Names now compare
   spelling-insensitively within a source, and every duplicate is a photo
