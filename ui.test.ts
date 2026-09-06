@@ -22,7 +22,7 @@ function qmlFunction(name: string) {
 describe("QML safety invariants", () => {
   test("group sends use the cached AppleScript GUID", () => {
     expect(panel).toContain('["--chat-id", String(root.active.guid)]');
-    expect(panel).toContain('["--to", sendChat]');
+    expect(panel).toContain('["--to", chat]');
   });
 
   test("thread results are accepted only for the active chat", () => {
@@ -47,12 +47,26 @@ describe("QML safety invariants", () => {
 
   test("send completion owns immutable chat and draft context", () => {
     expect(panel).toContain("var completedChat = root.sendChat");
-    expect(panel).toContain("if (composeField.text === completedText) composeField.text = \"\"");
+    expect(panel).toContain("var completedStamp = root.sendStamp");
+    // the field clears as Enter is pressed; a failure puts the words back
+    // only when nothing newer has been typed
+    expect(panel).toContain("if (composeField.text === \"\") composeField.text = completedText");
+  });
+
+  test("a send shows its bubble at once and reloads carry the in-flight ledger on stdin", () => {
+    expect(panel).toContain("root.bubbles = root.appendPendingBubble(root.bubbles, text, stamp)");
+    expect(panel).toContain("root.pendingSends = root.pendingSends.concat([{ chat: chat, text: text, ts: stamp }])");
+    expect(panel).toContain('"--pending-stdin"');
+    expect(panel).toContain("threadProc.write(JSON.stringify(pending))");
+    expect(panel).toContain("root.dropPending(completedChat, completedStamp)");
+    expect(panel).toContain('modelData.pending === true ? "Sending…"');
+    // the read watermark never takes a pending bubble's local-clock stamp
+    expect(panel).toContain("if (list[k].pending === true) continue");
   });
 
   test("message text leaves this machine on stdin, never in argv (audit #4)", () => {
     expect(panel).toContain('"--text-stdin"');
-    expect(panel).toContain("sendProc.write(text)");
+    expect(panel).toContain("sendProc.write(job.text)");
     expect(panel).not.toContain('["--yes", "--", text]');
   });
 

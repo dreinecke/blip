@@ -32,6 +32,7 @@ import re
 import sqlite3
 import struct
 import sys
+import unicodedata
 from glob import glob
 
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
@@ -219,13 +220,45 @@ def _same_number(handle: Phone, card: Phone) -> bool:
     return False
 
 
+def _card_name(first, last, org, nick) -> str:
+    """The name a ZABCDRECORD row shows: first + last, else organisation, else nickname."""
+    return " ".join(filter(None, [first, last])).strip() or org or nick or ""
+
+
+def _name_key(name: str) -> str:
+    """Spelling-insensitive identity of a name WITHIN one source. Two cards in
+    one book sharing a number are two people when their names differ, but
+    "Mom ❤️" and "Mom❤️" — a space, a capital, a compatibility form — are
+    one card saved twice. Treating those as strangers left the most talked-to
+    person in the list as a bare number, with no photo."""
+    return "".join(unicodedata.normalize("NFKC", name or "").casefold().split())
+
+
+def _one_person(con: sqlite3.Connection, pks: set) -> list[int]:
+    """The records in `pks`, oldest first, when they are one person under
+    _name_key; [] when they are two (or nameless). Photos follow the rule
+    names follow: the first of the duplicates carrying a picture wins."""
+    if not pks:
+        return []
+    if len(pks) == 1:
+        return list(pks)
+    marks = ",".join("?" * len(pks))
+    rows = con.execute(
+        f"SELECT Z_PK, ZFIRSTNAME, ZLASTNAME, ZORGANIZATION, ZNICKNAME "
+        f"FROM ZABCDRECORD WHERE Z_PK IN ({marks})", sorted(pks)
+    ).fetchall()
+    keys = {_name_key(_card_name(*r[1:])) for r in rows}
+    return sorted(pks) if len(rows) == len(pks) and len(keys) == 1 and "" not in keys else []
+
+
 def _vote(local: dict, key, name: str) -> None:
     """One source's answer for a key: the single name it gives, or None once two
     names have collided — and None STAYS None. The old one-liner let a third
     card with the same number resurrect a name after two had cancelled out
-    (Alice, Bob → ambiguous; Carol → "Carol") (Astra #2)."""
+    (Alice, Bob → ambiguous; Carol → "Carol") (Astra #2). The same name spelled
+    twice (_name_key) is not a collision; the first spelling stays."""
     if key in local:
-        if local[key] != name:
+        if local[key] is not None and _name_key(local[key]) != _name_key(name):
             local[key] = None
     else:
         local[key] = name
@@ -292,8 +325,7 @@ def name_for(handle: str | None) -> str | None:
                 con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
                 con.row_factory = sqlite3.Row
                 names = {
-                    r["pk"]: " ".join(filter(None, [r["first"], r["last"]])).strip()
-                    or r["org"] or r["nick"] or ""
+                    r["pk"]: _card_name(r["first"], r["last"], r["org"], r["nick"])
                     for r in con.execute(
                         "SELECT Z_PK AS pk, ZFIRSTNAME AS first, ZLASTNAME AS last, "
                         "ZORGANIZATION AS org, ZNICKNAME AS nick FROM ZABCDRECORD"
@@ -1573,16 +1605,19 @@ def _avatar_candidates(handle: str) -> list[tuple[str, int]]:
                     exact.add(pk)
                 elif parsed and (card := _parse_phone(v or "")) and _same_number(parsed, card):
                     near.add(pk)
+            # Several records inside ONE source: ambiguous there — skip that
+            # source only — unless they are one person saved twice (_one_person).
+            exact_pks = _one_person(con2, exact)
+            near_pks = _one_person(con2, near)
             con2.close()
         except sqlite3.DatabaseError:
             continue
-        # len > 1 inside ONE source: ambiguous there — skip that source only
         if exact:
             exact_any = True
-        if len(exact) == 1:
-            exact_cands.append((path, exact.pop()))
-        elif not exact and len(near) == 1:
-            near_cands.append((path, near.pop()))
+        if exact_pks:
+            exact_cands.extend((path, pk) for pk in exact_pks)
+        elif not exact and near_pks:
+            near_cands.extend((path, pk) for pk in near_pks)
     # The exact key decides whenever ANY source has it — the rule name_for
     # applies globally. Per-source `exact or near` let a nearer source's
     # suffix card put its photo on a conversation named after another source's
@@ -1620,8 +1655,15 @@ def cmd_attachment(con, args):
             LIMIT 1""",
         (int(args.id),),
     ).fetchone()
-    if not row or not row["filename"]:
+    if not row:
         sys.exit("error: no such visible attachment")
+    if not row["filename"]:
+        # The row is real but Messages in iCloud has not brought the bytes to
+        # this Mac (filename NULL, transfer_state 0): a headless gateway that
+        # syncs through CloudKit gets metadata first and media only when the
+        # Mac decides to pull it. Say so — "no such attachment" sent people
+        # hunting for a Blip bug.
+        sys.exit("error: attachment not downloaded on the Mac yet (Messages in iCloud)")
 
     raw = os.path.expanduser(row["filename"])
     outbox = os.path.realpath(OUTBOX_ROOT)

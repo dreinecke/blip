@@ -25,6 +25,27 @@
   top too — pressed deep in the list they used to focus a field that was out
   of view. The app window (SUPER+M) had no list navigation at all, so Up/Down
   and Enter walk the list there as well while no editor has focus.
+- **Sending is instant.** Enter used to mean "sending…" under an unchanged
+  compose field for about three seconds: the ssh hop, osascript, a fixed
+  1.5 s wait for Messages to write the row, then a thread reload. Now the
+  bubble is drawn as Enter is pressed, captioned "Sending…", the field clears
+  at once, and a second message can follow without waiting (text sends
+  queue). The in-flight sends ride every reload on stdin (`--pending-stdin`,
+  never argv); `thread.ts` keeps each bubble until its row appears and
+  resolves it by text and time, so an early reload cannot make it blink.
+  A failed send takes its bubble down, puts the words back in the field and
+  says why. Post-send reloads no longer flash "loading…".
+- **One card saved twice is one person.** Two Contacts cards in the same
+  source sharing a number are still two people when their names differ — but
+  "Mom ❤️" and "Mom❤️" (a space, a capital, a compatibility form) are a
+  duplicate, and the bridge read them as ambiguity: the most talked-to
+  conversation in the list was a bare number with no photo. Names now compare
+  spelling-insensitively within a source, and every duplicate is a photo
+  candidate. A stranger's SMS that Messages filed under "Filter Unknown
+  Senders" showed its chat id, `+1818…(filtered)`; the list shows the number.
+  A photo Messages in iCloud has not brought to the Mac yet (`filename` NULL
+  in chat.db) said "no such visible attachment"; the Mac now says it is not
+  downloaded yet, and a clicked chip shows that reason.
 - **Bug hunt (Codex, gpt-6-astra), fourteen fixes.** A 2FA code was written
   to Omarchy's on-disk notification history — the daemon persists every
   displayed toast regardless of the `transient` hint — so the toast now says a

@@ -319,7 +319,15 @@ export function loadMutelist(path = MUTELIST_PATH): string[] {
 /** Display name for a chat, falling back to the raw handle for unknown numbers. */
 export function displayName(msgs: ImsgMessage[]): string {
   for (const m of msgs) if (m.name) return m.name;
-  return chatKey(msgs[0]);
+  return prettyHandle(chatKey(msgs[0]));
+}
+
+/** Messages' "Filter Unknown Senders" files a stranger's SMS under a chat whose
+ *  id is the number with "(filtered)" appended (`any;-;+1818…(filtered)`). The
+ *  id stays the key — sending and reading need it — but the person is the
+ *  number, so the list shows that. */
+export function prettyHandle(id: string): string {
+  return id.replace(/\(filtered\)$/i, "");
 }
 
 /**
@@ -456,7 +464,9 @@ export function hasIdentity(m: ImsgMessage): boolean {
 export function groupName(chat: string, info: GroupInfo | undefined, byHandle: Map<string, string>): string {
   if (info?.name) return info.name;
   const members = (info?.participants ?? []).map((h) => byHandle.get(h) || h);
-  return members.length ? members.join(", ") : chat;
+  // A "(filtered)" stranger is not a phone/email shape, so it lands here (the
+  // never-a-DM-target rule stands: nothing sends to it); its label is the number.
+  return members.length ? members.join(", ") : prettyHandle(chat);
 }
 
 export type SendService = "iMessage" | "SMS" | "RCS";

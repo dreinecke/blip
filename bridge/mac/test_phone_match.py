@@ -202,6 +202,36 @@ class Ambiguity(Base):
         self.assertIsNone(self.imsg.name_for("shared@example.com"))
 
 
+class OneCardSavedTwice(Base):
+    home = "1"
+
+    def test_spellings_that_differ_only_in_spacing_are_one_person(self) -> None:
+        # The same person twice in ONE source, "Mom ❤️" and "Mom❤️" — a
+        # duplicate card, not two people. They were a bare number with no photo.
+        a = self.book.card("Mom ❤️", "", phones=["5550100200"])
+        b = self.book.card("Mom❤️", "", phones=["+15550100200"], photo=JPEG)
+        self.assertEqual(self.imsg.name_for("+15550100200"), "Mom ❤️")
+        # Both records are photo candidates, oldest first; the first with a picture wins.
+        self.assertEqual(self.imsg._avatar_candidates("+15550100200"), [(self.book.path, a), (self.book.path, b)])
+
+    def test_case_and_compatibility_forms_are_one_person_too(self) -> None:
+        self.book.card("ＡLEX", "rivera", phones=["+15550100201"])
+        self.book.card("Alex", "Rivera", phones=["+15550100201"])
+        self.assertEqual(self.imsg.name_for("+15550100201"), "ＡLEX rivera")
+
+    def test_two_different_names_on_one_number_are_still_nobody(self) -> None:
+        # A married name kept beside the old one is two cards Contacts shows separately.
+        self.book.card("Dana", "Park", phones=["+15550100202"], photo=JPEG)
+        self.book.card("Dana", "Reyes", phones=["+15550100202"], photo=JPEG)
+        self.assertIsNone(self.imsg.name_for("+15550100202"))
+        self.assertEqual(self.imsg._avatar_candidates("+15550100202"), [])
+
+    def test_nameless_duplicates_stay_ambiguous(self) -> None:
+        self.book.card("", "", phones=["+15550100202"], photo=JPEG)
+        self.book.card("", "", phones=["+15550100202"], photo=JPEG)
+        self.assertEqual(self.imsg._avatar_candidates("+15550100202"), [])
+
+
 class AmbiguousExactNeverFallsThrough(Base):
     def test_an_ambiguous_exact_card_blocks_the_suffix_match(self) -> None:
         # Alice and Bob share the exact number; Carol's local-format card would

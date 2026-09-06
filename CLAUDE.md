@@ -61,6 +61,14 @@ what it is handed. Keep it that way.
   inbound exists. Refreshes carry `activeReadChat()` so a message landing in
   the conversation being READ is counted read in the same run — never
   flashed. Same-chat read refreshes coalesce in the queue.
+- **Sends are optimistic.** `send()` draws the bubble (`pending: true`,
+  "Sending…") and clears the field BEFORE imsg-send runs; text sends queue.
+  `pendingSends` (BarWidget memory, never disk) rides every thread reload on
+  stdin (`--pending-stdin`) and `withPendingSends()` in thread.ts keeps each
+  bubble until a real from-me row with the same text lands, resolving one
+  send per row. The read watermark (`--seen`) skips pending bubbles: their ts
+  is THIS machine's clock. A failed send drops its bubble and restores the
+  text. Never go back to "wait 1.5 s, then reload".
 - **Unread is ledger-backed.** `unreadCounts` and `unreadOldest` persist per-chat
   metadata without message bodies. Catch-up fetches cover new arrivals and the
   oldest outstanding unread so deletions are reconciled; never derive the total

@@ -12,6 +12,7 @@
 
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import {
   chatKey,
   dedupeSelfEcho,
@@ -87,13 +88,22 @@ export interface Bubble {
   /** A message of yours that Messages could not deliver (chat.db error≠0) —
    *  rendered as a red "Not Delivered" tag. */
   failed: boolean;
+  /** Drawn the moment Enter was pressed, before the Mac has written the row;
+   *  "Sending…" replaces the time. Absent on every real bubble. */
+  pending?: boolean;
 }
+
+/** A send in flight: what was typed, where, and when Enter was pressed
+ *  (local "YYYY-MM-DD HH:MM:SS"). Lives in BarWidget memory only. */
+export interface PendingSend { chat: string; text: string; ts: string }
 
 export interface ThreadOutput {
   ok: boolean;
   online: boolean;
   error: string;
   bubbles: Bubble[];
+  /** Sends for this chat the Mac has not written yet (`--pending-stdin`). */
+  pending?: PendingSend[];
 }
 
 // ---------------------------------------------------------------- formatting
@@ -314,6 +324,102 @@ export function linkify(text: string): string {
   return out.replace(/\n/g, "<br>");
 }
 
+// ------------------------------------------------------------ pending sends
+//
+// A send used to be: osascript on the Mac, a 1.5 s "beat" for Messages to
+// write the row, a thread reload — three seconds of "sending…" under an
+// unchanged compose field. Now the view draws the bubble as Enter is pressed
+// and hands every reload the list of sends still in flight; this is where a
+// provisional bubble is kept until its real row appears, or resolved by it.
+
+/** A send older than this without a row is given up on (never marked failed:
+ *  imsg-send exited 0, so it most likely went; the next real reload shows it). */
+export const PENDING_MAX_AGE_MS = 2 * 60 * 1000;
+/** A real row may carry a Mac timestamp a little BEHIND the Linux clock. */
+const PENDING_SKEW_MS = 5 * 60 * 1000;
+
+function stampMs(ts: string): number {
+  return Date.parse(String(ts).replace(" ", "T"));
+}
+
+/** The bubble for a send in flight, decorated against the bubble before it
+ *  the way decorate() would: same run when it follows one of yours within
+ *  the gap (that bubble then loses its time), a day divider when it starts one. */
+export function pendingBubble(prev: Bubble | undefined, send: PendingSend, today: string, formats = DEFAULT_FORMATS): { bubble: Bubble; prev: Bubble | undefined } {
+  const ts = send.ts;
+  const newDay = !prev || prev.ts.slice(0, 10) !== ts.slice(0, 10);
+  const groupStart = !prev || newDay || !prev.from_me || minutesBetween(prev.ts, ts) > GROUP_GAP_MINUTES;
+  const bubble: Bubble = {
+    ts,
+    from_me: true,
+    name: "",
+    text: send.text.trim(),
+    day: newDay ? dayLabel(ts, today, formats) : "",
+    groupStart,
+    groupEnd: true,
+    time: clockLabel(ts, formats.time),
+    receipt: "",
+    tapbacks: [],
+    attachments: [],
+    replyText: "",
+    replyMine: false,
+    edited: false,
+    link: null,
+    retracted: false,
+    effect: "",
+    audio: false,
+    html: linkify(send.text.trim()),
+    failed: false,
+    pending: true,
+  };
+  return { bubble, prev: prev && !groupStart ? { ...prev, groupEnd: false, time: "" } : prev };
+}
+
+/**
+ * Fold sends in flight into a freshly loaded thread. A pending send is
+ * RESOLVED by a real bubble of yours with the same text that is not older
+ * than the send (minus clock skew) — each real bubble resolves one send, so
+ * "ok" twice waits for two rows. Unresolved sends are appended as pending
+ * bubbles, oldest first; ones older than PENDING_MAX_AGE_MS are dropped.
+ * Returns the merged list and what is still outstanding.
+ */
+export function withPendingSends(bubbles: Bubble[], pending: PendingSend[], today: string, formats = DEFAULT_FORMATS, now = Date.now()): { bubbles: Bubble[]; pending: PendingSend[] } {
+  const live = pending
+    .filter((p) => Number.isFinite(stampMs(p.ts)) && now - stampMs(p.ts) <= PENDING_MAX_AGE_MS)
+    .sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
+  if (live.length === 0) return { bubbles, pending: [] };
+  const taken = new Set<number>();
+  const open: PendingSend[] = [];
+  for (const p of live) {
+    const want = p.text.trim();
+    let hit = -1;
+    for (let i = bubbles.length - 1; i >= 0; i--) {
+      const b = bubbles[i]!;
+      if (taken.has(i) || !b.from_me || b.retracted || b.pending) continue;
+      if (b.text !== want || stampMs(b.ts) < stampMs(p.ts) - PENDING_SKEW_MS) continue;
+      hit = i; break;
+    }
+    if (hit >= 0) taken.add(hit); else open.push(p);
+  }
+  const out = bubbles.slice();
+  for (const p of open) {
+    const { bubble, prev } = pendingBubble(out[out.length - 1], p, today, formats);
+    if (prev && out.length) out[out.length - 1] = prev;
+    out.push(bubble);
+  }
+  return { bubbles: out, pending: open };
+}
+
+/** `--pending-stdin`: the view's in-flight sends, JSON on stdin (message
+ *  text never rides argv). Anything malformed reads as "none". */
+export function parsePendingSends(raw: string): PendingSend[] {
+  try {
+    const v = JSON.parse(raw);
+    if (!Array.isArray(v)) return [];
+    return v.filter((p) => p && typeof p.chat === "string" && typeof p.text === "string" && typeof p.ts === "string");
+  } catch { return []; }
+}
+
 /** "Read 4:42 PM" today, "Read Yesterday 9:03 AM" otherwise. */
 export function receiptLabel(readAt: string, today: string, formats = DEFAULT_FORMATS): string {
   const clock = clockLabel(readAt, formats.time);
@@ -436,7 +542,19 @@ if (import.meta.main) {
   const limit = Number(process.argv[3] ?? 80) || 80;
   const today = localToday();
   try {
-    console.log(JSON.stringify(loadThread(chat, limit, today, formatsFromArgv(process.argv))));
+    const formats = formatsFromArgv(process.argv);
+    const result = loadThread(chat, limit, today, formats);
+    if (process.argv.includes("--pending-stdin")) {
+      const mine = parsePendingSends(readFileSync(0, "utf8")).filter((p) => p.chat === chat);
+      if (result.ok) {
+        const merged = withPendingSends(result.bubbles, mine, today, formats);
+        result.bubbles = merged.bubbles;
+        result.pending = merged.pending;
+      } else {
+        result.pending = mine;
+      }
+    }
+    console.log(JSON.stringify(result));
   } catch (e) {
     console.log(JSON.stringify({ ok: false, online: false, error: String(e), bubbles: [] }));
   }
