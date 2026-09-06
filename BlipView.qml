@@ -268,6 +268,15 @@ FocusScope {
   property string pendingThreadChat: "" // latest chat requested while it runs
   property string sendChat: ""          // immutable context for the current send
   property string sendText: ""
+  property string sendStamp: ""         // local "YYYY-MM-DD HH:mm:ss" the current send was typed at
+  // Text sends queue instead of refusing while one is on the wire; each gets
+  // its bubble the instant Enter is pressed (see pendingSends).
+  property var sendQueue: []
+  // Sends the Mac has not written a row for yet, {chat, text, ts}. Every
+  // thread reload carries them to thread.ts (--pending-stdin, never argv),
+  // which keeps their bubbles until the real row lands. Memory only.
+  property var pendingSends: []
+  property int reloadTries: 0            // post-send reloads still waiting for the row
   property string reloadChat: ""
 
   function threadIndex(thread) {
@@ -406,11 +415,22 @@ FocusScope {
     if (threadProc.running || pendingThreadChat === "") return
     threadRunningChat = pendingThreadChat
     pendingThreadChat = ""
+    var pending = root.pendingSends.filter(function(p) { return p.chat === threadRunningChat })
     threadProc.command = ["bun", root.threadScript, threadRunningChat, "80",
                           "--time-format", root.timeFormat,
                           "--date-format", root.dateFormat,
                           "--date-format-with-year", root.dateFormatWithYear]
-    threadProc.running = true
+                         .concat(pending.length ? ["--pending-stdin"] : [])
+    if (pending.length) {
+      // In-flight sends ride stdin (message text never in argv) so their
+      // bubbles survive the reload until the Mac has the row.
+      threadProc.stdinEnabled = true
+      threadProc.running = true
+      threadProc.write(JSON.stringify(pending))
+      threadProc.stdinEnabled = false
+    } else {
+      threadProc.running = true
+    }
   }
 
   /** IPC test hook: drive the exact user send path minus the keyboard.
@@ -979,19 +999,19 @@ FocusScope {
     }
 
     if (draftPath === "" && trimmed === "") return
-    if (sendProc.running || fileSendProc.running) {
-      note = "a message is already sending"
-      return
-    }
     if (!isSendable(root.active)) {
       note = "Read-only — group id unknown — send from your phone"
       return
     }
-    note = "sending…"
-    sendChat = String(root.active.chat)
-    sendText = text
 
     if (draftPath !== "") {
+      if (sendProc.running || fileSendProc.running) {
+        note = "a message is already sending"
+        return
+      }
+      note = "sending…"
+      sendChat = String(root.active.chat)
+      sendText = text
       // send-file.ts owns target resolution (group guid or DM handle).
       sendDraftPath = draftPath
       // caption on stdin — never in this process's argv (audit #4, war room #1/#13)
@@ -1004,18 +1024,70 @@ FocusScope {
       return
     }
 
-    // Body on STDIN (--text-stdin), never argv: argv is readable by every
-    // process on this machine and travels through ssh into the Mac's ps.
+    // The bubble appears NOW; the Mac round trip (ssh, osascript, Messages
+    // writing the row) happens behind it. The field clears at once, so a
+    // second message can follow without waiting — sends queue in order.
+    var chat = String(root.active.chat)
+    var stamp = root.localStamp()
     var target = root.activeIsGroup
       ? ["--chat-id", String(root.active.guid)]
-      : ["--to", sendChat]
+      : ["--to", chat]
     // green-bubble (SMS/RCS) threads send on their own service (war room #2)
     var svc = String(root.active.service || "")
     if (!root.activeIsGroup && /^(SMS|RCS)$/i.test(svc)) target = target.concat(["--service", svc.toUpperCase()])
-    sendProc.command = [root.home + "/bin/imsg-send"].concat(target).concat(["--yes", "--text-stdin", "--keep-dashes"])
+    root.pendingSends = root.pendingSends.concat([{ chat: chat, text: text, ts: stamp }])
+    root.bubbles = root.appendPendingBubble(root.bubbles, text, stamp)
+    root.pinToBottom = true
+    composeField.text = ""
+    note = ""
+    root.sendQueue = root.sendQueue.concat([{ chat: chat, text: text, stamp: stamp, target: target }])
+    pumpSend()
+  }
+
+  /** Local wall clock as a chat.db-style stamp; the pending bubble's ts. */
+  function localStamp() {
+    return Qt.formatDateTime(new Date(), "yyyy-MM-dd HH:mm:ss")
+  }
+
+  /** The instant echo: thread.ts's pendingBubble() in miniature — enough to
+   *  draw the bubble in the right run with the right clock. Every reload
+   *  replaces it with the TypeScript version until the real row lands. */
+  function appendPendingBubble(list, text, stamp) {
+    var out = (list || []).slice()
+    var prev = out.length ? out[out.length - 1] : null
+    var newDay = !prev || String(prev.ts || "").slice(0, 10) !== stamp.slice(0, 10)
+    var gapMin = prev ? (Date.parse(stamp.replace(" ", "T")) - Date.parse(String(prev.ts || "").replace(" ", "T"))) / 60000 : Infinity
+    var start = !prev || newDay || prev.from_me !== true || !(gapMin <= 15)
+    if (!start) { var p = Object.assign({}, prev); p.groupEnd = false; p.time = ""; out[out.length - 1] = p }
+    out.push({ ts: stamp, from_me: true, name: "", text: String(text).trim(), day: newDay ? "Today" : "",
+               groupStart: start, groupEnd: true, time: Qt.formatTime(new Date(), root.timeFormat),
+               receipt: "", tapbacks: [], attachments: [], replyText: "", replyMine: false, edited: false,
+               link: null, retracted: false, effect: "", audio: false, html: "", failed: false, pending: true })
+    return out
+  }
+
+  /** Drop one in-flight send (by chat + stamp) from the ledger and the view. */
+  function dropPending(chat, stamp) {
+    root.pendingSends = root.pendingSends.filter(function(p) { return !(p.chat === chat && p.ts === stamp) })
+    if (root.inThread && String(root.active.chat) === chat)
+      root.bubbles = root.bubbles.filter(function(b) { return !(b.pending === true && String(b.ts) === stamp) })
+  }
+
+  /** Start the next queued text send when the wire is free. */
+  function pumpSend() {
+    if (sendProc.running || root.sendQueue.length === 0) return
+    var job = root.sendQueue[0]
+    root.sendQueue = root.sendQueue.slice(1)
+    root.sendChat = job.chat
+    root.sendText = job.text
+    root.sendStamp = job.stamp
+    root.reloadTries = 0
+    // Body on STDIN (--text-stdin), never argv: argv is readable by every
+    // process on this machine and travels through ssh into the Mac's ps.
+    sendProc.command = [root.home + "/bin/imsg-send"].concat(job.target).concat(["--yes", "--text-stdin", "--keep-dashes"])
     sendProc.stdinEnabled = true
     sendProc.running = true
-    sendProc.write(text)
+    sendProc.write(job.text)
     sendProc.stdinEnabled = false
   }
 
@@ -1068,9 +1140,27 @@ FocusScope {
           if (d.ok === true) {
             var list = Array.isArray(d.bubbles) ? d.bubbles : []
             var j = JSON.stringify(list)
-            // What the eye can now see: the newest ts in THIS snapshot.
+            // What the eye can now see: the newest ts in THIS snapshot — of
+            // real rows; a pending bubble carries this machine's clock.
             var seen = ""
-            for (var k = 0; k < list.length; k++) { var ts = String(list[k].ts || ""); if (ts > seen) seen = ts }
+            for (var k = 0; k < list.length; k++) {
+              if (list[k].pending === true) continue
+              var ts = String(list[k].ts || ""); if (ts > seen) seen = ts
+            }
+            // thread.ts hands back the sends it is still waiting on for this
+            // chat; keep asking for a few seconds, then leave it to the next
+            // ordinary reload (the bubble stays up either way).
+            if (Array.isArray(d.pending)) {
+              var chat = root.threadRunningChat
+              root.pendingSends = root.pendingSends.filter(function(p) { return p.chat !== chat }).concat(d.pending)
+              if (d.pending.length > 0 && root.reloadTries < 8) {
+                root.reloadTries++
+                root.reloadChat = chat
+                reloadTimer.restart()
+              } else {
+                root.reloadTries = 0
+              }
+            }
             if (j === root.bubblesJson) {
               // Nothing changed — do NOT rebuild the Repeater (a rebuild
               // resets scroll and re-decodes every image). Push pings mostly
@@ -1123,27 +1213,31 @@ FocusScope {
     onExited: function(code, status) {
       var completedChat = root.sendChat
       var completedText = root.sendText
+      var completedStamp = root.sendStamp
       var belongsHere = root.inThread && String(root.active.chat) === completedChat
       root.sendChat = ""
       root.sendText = ""
+      root.sendStamp = ""
       if (code === 0) {
         // A URL you just SHARED opens the sheet too (Fred, 2.3.0): send it,
         // then offer the QR / LocalSend / copy for the same link.
         var sentUrl = root.firstUrl(completedText)
         if (belongsHere && sentUrl !== "") Qt.callLater(function() { root.openShare(sentUrl) })
-        if (belongsHere) {
-          root.note = ""
-          // Never erase a newer draft typed after this send began.
-          if (composeField.text === completedText) composeField.text = ""
-        }
-        // Give Messages.app a beat to write the row, then reload the thread.
+        // The bubble is already up; reload to swap it for the real row.
         root.reloadChat = completedChat
         reloadTimer.restart()
-      } else if (belongsHere) {
-        if (code === 69 || code === 255) root.note = "not sent — Mac unreachable"
-        else root.note = (sendProc.lastErr !== "" ? "send failed: " + sendProc.lastErr : "send failed (exit " + code + ")")
+      } else {
+        // The bubble comes down, the words go back in the field (unless a
+        // newer draft is there), and the reason is on the status line.
+        root.dropPending(completedChat, completedStamp)
+        if (belongsHere) {
+          if (composeField.text === "") composeField.text = completedText
+          if (code === 69 || code === 255) root.note = "not sent — Mac unreachable"
+          else root.note = (sendProc.lastErr !== "" ? "send failed: " + sendProc.lastErr : "send failed (exit " + code + ")")
+        }
       }
       if (belongsHere) composeField.forceActiveFocus()
+      Qt.callLater(root.pumpSend)
     }
   }
 
@@ -1175,6 +1269,11 @@ FocusScope {
             }
           }
           if (d.ok !== true && d.online === false) root.note = "fetch failed — Mac unreachable"
+          // A click deserves the reason (a photo Messages in iCloud has not
+          // brought to the Mac yet reads as "no such attachment" otherwise);
+          // auto-pulls stay quiet so a scroll through old media is not a toast storm.
+          else if (d.ok !== true && root.fetchJobOpen)
+            root.note = "fetch failed — " + String(d.error || "unknown error").replace(/^error:\s*/, "")
         } catch (e) {
           var m2 = Object.assign({}, root.attFiles)
           m2[id] = ""
@@ -1354,9 +1453,12 @@ FocusScope {
   }
   Timer {
     id: reloadTimer
-    interval: 1500
+    // Messages usually has the row within a few hundred ms of osascript
+    // returning; a reload that beats it keeps the pending bubble (thread.ts)
+    // and tries again. No `loading` flag: the bubble is already on screen,
+    // and a "loading…" flash after every send is the thing we are removing.
+    interval: 600
     onTriggered: if (root.inThread && String(root.active.chat) === root.reloadChat) {
-      root.loading = true
       root.requestThreadLoad(root.reloadChat)
     }
   }
@@ -2626,14 +2728,14 @@ FocusScope {
                   Layout.fillWidth: true
                   visible: String(modelData.time || "") !== "" ||
                            modelData.edited === true || String(modelData.effect || "") !== "" ||
-                           modelData.failed === true
+                           modelData.failed === true || modelData.pending === true
                   spacing: 0
                   Item { Layout.fillWidth: true; visible: bubbleRow.mine }
                   Text {
                     Layout.rightMargin: bubbleRow.mine ? Style.space(6) : 0
                     Layout.leftMargin: bubbleRow.mine ? 0 : Style.space(6)
                     text: [modelData.failed === true ? "⚠ Not Delivered" : "",
-                           String(modelData.time || ""),
+                           modelData.pending === true ? "Sending…" : String(modelData.time || ""),
                            modelData.edited === true ? "Edited" : "",
                            String(modelData.effect || "") !== "" ? "sent with " + modelData.effect : ""]
                           .filter(function(s) { return s !== "" }).join(" · ")
