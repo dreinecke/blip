@@ -7,7 +7,9 @@
   does — no Enter needed. Focus stays in the list, so the arrows keep walking,
   and the thread is *not* marked read: only Enter, a click or typing, which put
   focus in the compose field, commit it. `→` steps into the compose field and
-  `←` from the start of the text steps back to the sidebar. The bar panel is unchanged.
+  `←` from the start of the text steps back to the sidebar. Leaving the list for
+  the search or new-message field ends a preview, so the pane is empty again.
+  The bar panel is unchanged.
 - **Reading a conversation can now clear it on your phone.** `push_read` in
   `bridge.conf` gained a documented middle setting and a status surface. The
   default, `all`, pushes to the Mac *only* on the mark-all gesture — so reading

@@ -197,9 +197,11 @@ describe("QML safety invariants", () => {
     // The sheet auto-opens on an ARRIVING link. Without this it survived into
     // the next conversation, and resetToList() (which the host runs on every
     // open) brought a stale sheet back over the list. Found live, 2026-09-07.
-    for (const fn of ["resetToList", "back", "openThread"]) {
-      expect(qmlFunction(fn)).toContain("closeShare()");
-    }
+    // resetToList() and back() empty the pane through clearThread(), which
+    // closes the sheet; openThread() closes it itself before showing the next.
+    expect(qmlFunction("clearThread")).toContain("closeShare()");
+    for (const fn of ["resetToList", "back"]) expect(qmlFunction(fn)).toContain("clearThread()");
+    expect(qmlFunction("openThread")).toContain("closeShare()");
     // Esc still closes the sheet BEFORE it unwinds the view (Astra A#7)
     expect(panel).toContain('if (root.shareUrl !== "") root.closeShare(); else if (root.bubbleCursor >= 0)');
   });
@@ -422,12 +424,16 @@ describe("QML safety invariants", () => {
 
   test("peeking is split-view only, debounced, and cleared on the way out", () => {
     expect(panel).toContain("Timer { id: peekTimer;");
+    // Leaving the list for a field ends a peek; an opened thread stays.
+    expect(qmlFunction("startSearch")).toContain("endPeek()");
+    expect(qmlFunction("startNew")).toContain("endPeek()");
+    expect(qmlFunction("endPeek")).toContain("if (peeking) clearThread()");
+    expect(qmlFunction("peekCursor")).toContain("!cursorShown");
     expect(qmlFunction("moveCursor")).toContain("if (splitView) peekTimer.restart()");
-    for (const name of ["back", "resetToList"]) {
-      const fn = qmlFunction(name);
-      expect(fn).toContain("peekTimer.stop()");
-      expect(fn).toContain("peeking = false");
-    }
+    // one place empties the pane; back() and resetToList() go through it
+    expect(qmlFunction("clearThread")).toContain("peekTimer.stop()");
+    expect(qmlFunction("clearThread")).toContain("peeking = false");
+    for (const name of ["back", "resetToList"]) expect(qmlFunction(name)).toContain("clearThread()");
   });
 
   test("an old toast can still reopen its conversation (omarchy-exec-argv)", () => {

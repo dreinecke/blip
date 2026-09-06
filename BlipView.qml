@@ -430,17 +430,30 @@ FocusScope {
   // is no copy to make and no change to signal.
   readonly property var drafts: hostWidget ? hostWidget.draftCache : ({})
 
-  /** Back to the list view, scrolled to top — the host calls this on open. */
-  function resetToList() {
-    closeShare()   // the sheet belongs to the link you were looking at
+  /** Drop the thread on screen, peeked or opened: the pane is empty again, a
+   *  load still in flight is ignored when it lands, and a share sheet over it
+   *  goes too (it belonged to the link you were looking at). */
+  function clearThread() {
+    closeShare()
     peekTimer.stop()
     peeking = false
     active = null
     bubbles = []
     note = ""
-    cursor = -1
     loading = false
     pendingThreadChat = ""
+  }
+  /** Leaving the list for the search or new-message field: a thread that was
+   *  only peeked goes; one opened on purpose stays. */
+  function endPeek() {
+    peekTimer.stop()
+    if (peeking) clearThread()
+  }
+
+  /** Back to the list view, scrolled to top — the host calls this on open. */
+  function resetToList() {
+    clearThread()
+    cursor = -1
     composeField.text = ""
     searching = false
     searchResults = []
@@ -457,14 +470,7 @@ FocusScope {
   }
 
   function back() {
-    closeShare()   // ditto: navigating away dismisses the sheet
-    peekTimer.stop()
-    peeking = false
-    active = null
-    bubbles = []
-    note = ""
-    loading = false
-    pendingThreadChat = ""
+    clearThread()
     composeField.text = ""
     clearDraft()   // a queued file must never survive into another thread
     pinToBottom = false
@@ -492,7 +498,7 @@ FocusScope {
    *  Messages' sidebar does, but leave focus in the list and the dot alone. */
   function peekCursor() {
     var t = threads[cursor]
-    if (!t || isShowing(t)) return
+    if (!t || !cursorShown || isShowing(t)) return   // no cursor shown, no peek
     peeking = true
     showThread(t)
   }
@@ -913,6 +919,7 @@ FocusScope {
 
   function startNew() {
     if (inThread && !splitView) return   // split view: the list pane is right there
+    endPeek()
     exitSearch()
     threadFlick.contentY = 0   // the field sits above the rows
     newMode = true
@@ -1039,6 +1046,7 @@ FocusScope {
 
   function startSearch() {
     if (inThread && !splitView) return
+    endPeek()
     threadFlick.contentY = 0   // the field sits above the rows
     searching = true
     searchResults = []
