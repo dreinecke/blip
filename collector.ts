@@ -668,9 +668,22 @@ export function firstUrl(text: string | null | undefined): string {
   return m[0].replace(/[.,;:!?)\]}'"]+$/, "");
 }
 
+/** Every http(s) URL in a text, in order, trailing punctuation dropped like firstUrl(). */
+export function allUrls(text: string | null | undefined): string[] {
+  const out: string[] = [];
+  for (const m of String(text ?? "").matchAll(/https?:\/\/[^\s<>"']+/gi)) {
+    const u = m[0].replace(/[.,;:!?)\]}'"]+$/, "");
+    if (u && !out.includes(u)) out.push(u);
+  }
+  return out;
+}
+
 export interface IncomingLink {
   chat: string;
+  /** The first link, `urls[0]`. */
   url: string;
+  /** Every link of the message, first included: the share sheet steps through them. */
+  urls: string[];
   ts: string;
   key: string;
 }
@@ -699,12 +712,13 @@ export function selectIncomingLinks(
     if (m.ts <= watermark) continue;
     const chat = chatKey(m);
     if (self.has(chat)) continue;
-    const url = firstUrl(m.text);
-    if (!url) continue;
+    const urls = allUrls(m.text);
+    if (urls.length === 0) continue;
+    const url = urls[0]!;
     const key = "link:" + toastKey(m);
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push({ chat, url, ts: m.ts, key });
+    out.push({ chat, url, urls, ts: m.ts, key });
   }
   return out.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
 }

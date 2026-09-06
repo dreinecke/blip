@@ -19,7 +19,12 @@
   the compose field as `> …`; iMessage's inline reply is not reachable
   through the bridge, so the quote is a plain one. The status line under the
   compose box keeps its height when empty, so "copied" and "sending…" no
-  longer shove the conversation, and only failures are red.
+  longer shove the conversation, and only failures are red. Enter on a link
+  opens the share sheet, not the browser: the sheet names the host, and it
+  takes the keyboard (1–3, arrows, Enter). A sheet that opened by itself waits
+  a moment before Enter counts, so an Enter meant to send never opens the link
+  that just landed. A message with several links offers them all, whether
+  sent, received or opened with Enter, and ←/→ step through them.
 - **Bug hunt (Codex, gpt-6-astra), fourteen fixes.** A 2FA code was written
   to Omarchy's on-disk notification history — the daemon persists every
   displayed toast regardless of the `transient` hint — so the toast now says a

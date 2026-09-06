@@ -183,11 +183,38 @@ FocusScope {
   /** Open the share sheet for one http(s) URL. Anything else is ignored. The
    *  URL is message content: it reaches qrencode and the LocalSend temp file
    *  on STDIN, never argv (CLAUDE.md: message text never rides argv). */
-  function openShare(u) {
-    u = String(u || "")
-    if (!/^https?:\/\//i.test(u)) return
-    shareUrl = u
+  property var shareUrls: []       // the links the sheet was opened on
+  property int shareIndex: 0       // which of them it shows; ←/→ and ‹ › step
+  property int shareCursor: 0      // highlighted action (mouse and keys agree)
+  property real shareKeysFrom: 0   // Enter and digits act from this time on
+  /** Open the sheet on one URL or a list (a message's links, first showing).
+   *  `auto`: it opened by itself — a link you sent, a link that arrived, IPC.
+   *  The sheet is the warning either way (host, full URL, a button that says
+   *  what Enter does), but for 700 ms after an auto sheet appears Enter and
+   *  digits still belong to the draft, so a link landing as Enter is pressed
+   *  to send is never opened by it. False when nothing in `u` is http(s). */
+  function openShare(u, auto) {
+    var urls = (Array.isArray(u) ? u : [u]).map(function(x) { return String(x || "") })
+      .filter(function(x) { return /^https?:\/\//i.test(x) })
+    if (urls.length === 0) return false
+    shareUrls = urls
+    shareIndex = 0
+    shareCursor = 0
+    shareKeysFrom = Date.now() + (auto === true ? 700 : 0)
     shareQr = ""
+    showShareUrl(urls[0])
+    return true
+  }
+  function shareStep(d) {
+    var n = shareUrls.length
+    if (n < 2) return
+    shareIndex = (shareIndex + d + n) % n
+    showShareUrl(shareUrls[shareIndex])
+  }
+  /** The QR for `u`. The box keeps the previous code until this one is
+   *  written, so stepping swaps the image instead of re-flowing the card. */
+  function showShareUrl(u) {
+    shareUrl = u
     var out = shareDir + "/qr-" + Date.now() + ".png"
     qrProc.outFile = out
     qrProc.command = ["sh", "-c", 'mkdir -p "$1" && chmod 700 "$1" && umask 077 && exec qrencode -o "$2" -s 6 -m 2 -l M', "blip", shareDir, out]
@@ -196,18 +223,29 @@ FocusScope {
     qrProc.write(u)
     qrProc.stdinEnabled = false
   }
-  function closeShare() { shareUrl = ""; shareQr = "" }
+  function closeShare() { shareUrl = ""; shareQr = ""; shareUrls = [] }
   /** First http(s) URL in a string, or "" — mirrors collector.firstUrl. */
   function firstUrl(t) {
     var m = /https?:\/\/[^\s<>"']+/i.exec(String(t || ""))
     return m ? m[0].replace(/[.,;:!?)\]}'"]+$/, "") : ""
   }
-  /** IPC `share <url>` (host gates it behind automation=on). */
+  /** Every link in a message, in order, exactly as linkify() anchors them
+   *  (same pattern, same trailing-punctuation rule, www. gets https://). */
+  function allUrls(t) {
+    var re = /\bhttps?:\/\/[^\s<>"']+|\bwww\.[^\s<>"']+\.[^\s<>"']+/gi, out = [], m
+    while ((m = re.exec(String(t || ""))) !== null) {
+      var u = m[0].replace(/[.,;:!?\]]+$/, "")
+      while (u.endsWith(")") && u.split("(").length < u.split(")").length) u = u.slice(0, -1)
+      u = u.replace(/[.,;:!?\]]+$/, "")
+      if (/^www\./i.test(u)) u = "https://" + u
+      if (out.indexOf(u) < 0) out.push(u)
+    }
+    return out
+  }
+  /** IPC `share <url>` (host gates it behind automation=on), and the host's
+   *  arriving-link path, which hands over every link of the message. */
   function shareLink(u) {
-    u = String(u || "")
-    if (!/^https?:\/\//i.test(u)) return "not an http(s) url"
-    openShare(u)
-    return "share sheet"
+    return openShare(u, true) ? "share sheet" : "not an http(s) url"
   }
   /** The full app window. The host owns creation (Quickshell never re-maps a
    *  hidden FloatingWindow), so this asks the widget, exactly like SUPER+M.
@@ -218,6 +256,23 @@ FocusScope {
     if (!hostWidget) return
     if (typeof hostWidget.close === "function") hostWidget.close()
     if (typeof hostWidget.showApp === "function") hostWidget.showApp()
+  }
+  /** The sheet's keys: Esc closes, ←/→ step links, ↑/↓ move the highlight,
+   *  Enter takes it, 1/2/3 pick directly. Anything else falls through to the
+   *  field (a sheet over a draft never blocks typing); see openShare for
+   *  the grace on an auto sheet. True when the key was the sheet's. */
+  function shareKey(key) {
+    if (shareUrl === "") return false
+    var acts = [shareOpen, shareCopy, shareSend]
+    if (key === Qt.Key_Escape) { closeShare(); return true }
+    // ←/→ are the sheet's only when there is something to step through; a
+    // draft keeps its caret keys otherwise.
+    if ((key === Qt.Key_Left || key === Qt.Key_Right) && shareUrls.length > 1) { shareStep(key === Qt.Key_Right ? 1 : -1); return true }
+    if (key === Qt.Key_Up || key === Qt.Key_Down) { shareCursor = Math.max(0, Math.min(2, shareCursor + (key === Qt.Key_Down ? 1 : -1))); return true }
+    if (Date.now() < shareKeysFrom) return false
+    if (key === Qt.Key_Return || key === Qt.Key_Enter) { acts[shareCursor](); return true }
+    if (key >= Qt.Key_1 && key <= Qt.Key_3) { acts[key - Qt.Key_1](); return true }
+    return false
   }
   function shareOpen() { var u = shareUrl; closeShare(); openLink(u) }
   function shareCopy() { var u = shareUrl; closeShare(); copyText(u) }
@@ -495,8 +550,11 @@ FocusScope {
    *  else the first URL in its text — the same handlers a click reaches. */
   function openBubble(b) {
     if (b.attachments && b.attachments.length > 0) { openAttachment(b.attachments[0]); return }
-    var u = b.link && b.link.url ? String(b.link.url) : firstUrl(b.text)
-    if (u !== "") openLink(u)
+    // A link goes to the share sheet, not straight to the browser: the sheet
+    // shows the host and the URL and makes opening a deliberate second step.
+    var urls = allUrls(b.text)
+    if (b.link && b.link.url && urls.indexOf(String(b.link.url)) < 0) urls.unshift(String(b.link.url))
+    openShare(urls, false)
   }
   /** Ctrl+C on the selected bubble: its text, or — for a bubble that is only
    *  a picture — the first image attachment, as an image. */
@@ -1218,8 +1276,8 @@ FocusScope {
       if (code === 0) {
         // A URL you just SHARED opens the sheet too (Fred, 2.3.0): send it,
         // then offer the QR / LocalSend / copy for the same link.
-        var sentUrl = root.firstUrl(completedText)
-        if (belongsHere && sentUrl !== "") Qt.callLater(function() { root.openShare(sentUrl) })
+        var sentUrls = root.allUrls(completedText)
+        if (belongsHere && sentUrls.length > 0) Qt.callLater(function() { root.openShare(sentUrls, true) })
         if (belongsHere) {
           root.note = ""
           // Never erase a newer draft typed after this send began.
@@ -2885,12 +2943,13 @@ FocusScope {
               }
               // Esc drops a bubble selection first (back to the bottom), then
               // leaves the thread — the two-step Esc a text selection gets.
-              Keys.onEscapePressed: if (root.bubbleCursor >= 0) root.leaveBubbles(); else root.back()
+              Keys.onEscapePressed: if (root.shareUrl !== "") root.closeShare(); else if (root.bubbleCursor >= 0) root.leaveBubbles(); else root.back()
               // Ctrl+V goes through paste.ts: an image on the clipboard becomes
               // a draft chip; text falls through to a manual insert. One process
               // snapshots types AND data — probing then re-reading races.
               // Enter sends (iMessage); Shift+Enter inserts a newline.
               Keys.onPressed: (event) => {
+                if (root.shareKey(event.key)) { event.accepted = true; return }
                 if (event.matches(StandardKey.Paste)) {
                   event.accepted = true
                   root.startPaste()
@@ -3020,7 +3079,9 @@ FocusScope {
     Rectangle {
       anchors.fill: parent
       color: Qt.rgba(0, 0, 0, 0.45)
-      TapHandler { onTapped: root.closeShare() }
+      // ReleaseWithinBounds takes an exclusive grab on press: the tap ends
+      // here instead of also reaching the row, bubble or link underneath.
+      TapHandler { gesturePolicy: TapHandler.ReleaseWithinBounds; onTapped: root.closeShare() }
     }
     Rectangle {
       id: shareCard
@@ -3031,17 +3092,33 @@ FocusScope {
       color: Color.background
       border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.18)
       border.width: 1
-      TapHandler { }   // swallow clicks on the card so they never reach the scrim
+      TapHandler { gesturePolicy: TapHandler.ReleaseWithinBounds }   // clicks on the card stop here
       ColumnLayout {
         id: shareCol
         anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
         anchors.margins: Style.space(14)
         spacing: Style.space(8)
-        Text {
+        RowLayout {
           Layout.fillWidth: true
-          text: "SHARE LINK"
-          color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.6)
-          font.family: root.fontFamily; font.pixelSize: root.fontCaption; font.letterSpacing: 1
+          spacing: Style.space(10)
+          Text {
+            Layout.fillWidth: true
+            text: "SHARE LINK" + (root.shareUrls.length > 1 ? "  ·  " + (root.shareIndex + 1) + " of " + root.shareUrls.length : "")
+            color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.6)
+            font.family: root.fontFamily; font.pixelSize: root.fontCaption; font.letterSpacing: 1
+          }
+          // ‹ › step through the message's links (the keyboard's ←/→)
+          Repeater {
+            model: root.shareUrls.length > 1 ? [-1, 1] : []
+            delegate: Text {
+              required property var modelData
+              text: modelData < 0 ? "‹" : "›"
+              color: root.foreground
+              font.family: root.fontFamily; font.pixelSize: root.fontBody; font.bold: true
+              HoverHandler { cursorShape: Qt.PointingHandCursor }
+              TapHandler { gesturePolicy: TapHandler.ReleaseWithinBounds; onTapped: root.shareStep(modelData) }
+            }
+          }
         }
         Text {
           Layout.fillWidth: true
@@ -3065,7 +3142,8 @@ FocusScope {
           width: Style.space(176); height: width
           radius: Style.cornerRadius
           color: "white"
-          visible: root.shareQr !== ""
+          // shown while a code is being made too; hidden only when qrencode failed
+          visible: root.shareQr !== "" || qrProc.running
           Image {
             anchors.fill: parent; anchors.margins: Style.space(8)
             source: root.shareQr
@@ -3082,10 +3160,11 @@ FocusScope {
           ]
           delegate: Rectangle {
             required property var modelData
+            required property int index
             Layout.fillWidth: true
             height: Style.space(40)
             radius: Style.cornerRadius
-            color: shareHover.hovered
+            color: shareHover.hovered || index === root.shareCursor
               ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
               : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.06)
             Text {
@@ -3094,8 +3173,9 @@ FocusScope {
               color: root.foreground
               font.family: root.fontFamily; font.pixelSize: root.fontBodySmall
             }
-            HoverHandler { id: shareHover; cursorShape: Qt.PointingHandCursor }
+            HoverHandler { id: shareHover; cursorShape: Qt.PointingHandCursor; onHoveredChanged: if (hovered) root.shareCursor = index }
             TapHandler {
+              gesturePolicy: TapHandler.ReleaseWithinBounds
               onTapped: {
                 if (modelData.act === "open") root.shareOpen()
                 else if (modelData.act === "copy") root.shareCopy()
@@ -3107,7 +3187,7 @@ FocusScope {
         Text {
           Layout.fillWidth: true
           horizontalAlignment: Text.AlignHCenter
-          text: "Esc closes"
+          text: (root.shareUrls.length > 1 ? "← → link  ·  " : "") + "1–3 or ↑↓ Enter  ·  Esc closes"
           color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.45)
           font.family: root.fontFamily; font.pixelSize: root.fontCaption
         }

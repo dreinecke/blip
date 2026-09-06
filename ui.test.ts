@@ -68,12 +68,14 @@ describe("QML safety invariants", () => {
   test("an arriving link opens the sheet only on a surface already open", () => {
     expect(widget).toContain("function shareArrivingLink(link)");
     expect(widget).toContain("d.links[d.links.length - 1]");          // newest only, never a queue
+    expect(widget).toContain("link.urls.map(String) : [String(link.url)]");   // all of that message's links
     expect(widget).toContain("p.opened === true");                    // panel must already be open
     expect(widget).toContain("root.windowVisible");                   // or the app window
   });
 
   test("a link you SEND opens the sheet too, and the app button asks the host", () => {
-    expect(panel).toContain("var sentUrl = root.firstUrl(completedText)");
+    expect(panel).toContain("var sentUrls = root.allUrls(completedText)");   // every link of the message
+    expect(panel).toContain("root.openShare(sentUrls, true)");
     expect(panel).toContain("function openApp()");
     expect(panel).toContain('hostWidget.showApp()');
     // the popout gets out of the way, and closes BEFORE the window is shown
@@ -109,7 +111,7 @@ describe("QML safety invariants", () => {
   });
 
   test("share sheet: right-click a link, URL on stdin, never argv", () => {
-    expect(panel).toContain("function openShare(u)");
+    expect(panel).toContain("function openShare(u, auto)");
     expect(panel).toContain("qrProc.write(u)");
     expect(panel).toContain("sendShareProc.write(u)");
     expect(panel).toContain('localsend --headless send "$2"');
@@ -236,7 +238,7 @@ describe("QML safety invariants", () => {
     expect(panel).toContain('var b = empty && root.draftPath === "" ? root.selectedBubble() : null');
     const open = qmlFunction("openBubble");
     expect(open).toContain("openAttachment(b.attachments[0])");
-    expect(open).toContain("openLink(u)");
+    expect(open).toContain("openShare(urls, false)");   // a link goes to the sheet, never straight to the browser
     expect(panel).toContain("root.copyBubble(b)");
     const copy = qmlFunction("copyBubble");
     expect(copy.indexOf("copyText(t)")).toBeLessThan(copy.indexOf("copyAttachment("));  // text wins
@@ -378,4 +380,41 @@ test("link preview URLs never ride argv", () => {
   expect(panel).toContain('["bun", root.previewScript, "--stdin"]');
   expect(panel).toContain("previewProc.write(previewProc.url)");
   expect(panel).not.toContain("root.previewScript, previewProc.url]");
+});
+
+// Enter on a selected link bubble opens the share sheet, never the browser
+// directly; the sheet takes the keyboard, and its keys run before send().
+test("a selected link opens the share sheet, and the sheet has keys", () => {
+  expect(qmlFunction("openBubble")).not.toContain("openLink(u)");
+  expect(qmlFunction("shareKey")).toContain("var acts = [shareOpen, shareCopy, shareSend]");
+  expect(qmlFunction("shareKey")).toContain("if (key === Qt.Key_Return || key === Qt.Key_Enter) { acts[shareCursor](); return true }");
+  // A sheet that opened by itself (sent / arrived / IPC) keeps Enter and digits
+  // with the draft for a short grace: a link landing as Enter is pressed to
+  // send must not be opened by that Enter.
+  expect(qmlFunction("shareKey")).toContain("if (Date.now() < shareKeysFrom) return false");
+  expect(qmlFunction("openShare")).toContain("shareKeysFrom = Date.now() + (auto === true ? 700 : 0)");
+  expect(panel).toContain("root.openShare(sentUrls, true)");
+  expect(qmlFunction("shareLink")).toContain("openShare(u, true)");
+  const compose = panel.slice(panel.indexOf("id: composeField"));
+  expect(compose.indexOf("if (root.shareKey(event.key)) { event.accepted = true; return }")).toBeLessThan(compose.indexOf("root.send()"));
+  expect(compose).toContain('Keys.onEscapePressed: if (root.shareUrl !== "") root.closeShare(); else if (root.bubbleCursor >= 0)');
+});
+
+// A message with several links: Enter offers them all in the sheet, ←/→ step,
+// and the keyboard finds exactly the links linkify() anchors for the mouse.
+test("the share sheet steps through a message's links", () => {
+  expect(qmlFunction("openBubble")).toContain("var urls = allUrls(b.text)");
+  expect(qmlFunction("openBubble")).toContain("openShare(urls, false)");
+  expect(qmlFunction("allUrls")).toContain('if (/^www\\./i.test(u)) u = "https://" + u');
+  expect(qmlFunction("shareKey")).toContain("if ((key === Qt.Key_Left || key === Qt.Key_Right) && shareUrls.length > 1) { shareStep(key === Qt.Key_Right ? 1 : -1); return true }");
+  expect(panel).toContain('" of " + root.shareUrls.length');
+  // The sheet's taps stop in the sheet: an exclusive grab on press, or the
+  // row, bubble or link underneath would act on the same click.
+  const sheet = panel.slice(panel.indexOf("id: shareSheet"), panel.indexOf("id: shareSheet") + 6000);
+  expect(sheet).toContain("TapHandler { gesturePolicy: TapHandler.ReleaseWithinBounds; onTapped: root.closeShare() }");
+  expect(sheet).not.toMatch(/TapHandler \{ onTapped:/);
+  // The QR box keeps its place while a code is being made, so stepping links
+  // swaps the image instead of collapsing and re-growing the card.
+  expect(sheet).toContain('visible: root.shareQr !== "" || qrProc.running');
+  expect(qmlFunction("showShareUrl")).not.toContain('shareQr = ""');
 });
