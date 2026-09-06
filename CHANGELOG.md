@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **Pinned avatars no longer grow on the first cursor move.** The tiles were
+  measured before the grid had its width, and the layout kept that small size
+  until the next relayout; the size is now a layout hint, so they render at
+  full size from the first frame.
 - **Bug hunt (Codex, gpt-6-astra), fourteen fixes.** A 2FA code was written
   to Omarchy's on-disk notification history — the daemon persists every
   displayed toast regardless of the `transient` hint — so the toast now says a

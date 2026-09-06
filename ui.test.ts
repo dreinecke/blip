@@ -346,3 +346,14 @@ test("search queries never ride argv", () => {
   expect(panel).toContain('["bun", root.searchScript, "--stdin", "40"]');
   expect(panel).toContain("searchProc.write(JSON.stringify({ query: q, threads:");
 });
+
+// The pinned avatar sits in a ColumnLayout, which sizes it from Layout hints;
+// a width: binding there is overridden by the layout's first measurement.
+test("pinned avatars size through Layout hints, not width bindings", () => {
+  const start = panel.indexOf("id: pinnedAvatar");
+  expect(start).toBeGreaterThan(-1);
+  const avatar = panel.slice(start, start + 600);
+  expect(avatar).toContain("Layout.preferredWidth: Math.min(88, Math.max(56,");
+  expect(avatar).toContain("Layout.preferredHeight: Layout.preferredWidth");
+  expect(avatar).not.toContain(" width: Math.min(88");
+});

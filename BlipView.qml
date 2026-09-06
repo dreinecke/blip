@@ -1726,9 +1726,11 @@ FocusScope {
                     Rectangle {
                       id: pinnedAvatar
                       Layout.alignment: Qt.AlignHCenter
-                      width: Math.min(88, Math.max(56,
+                      // A layout sizes its children from Layout hints; a width:
+                      // binding here loses to the layout's first measurement.
+                      Layout.preferredWidth: Math.min(88, Math.max(56,
                         (pinnedGrid.width - pinnedGrid.columnSpacing * 2) / 3 * 0.62))
-                      height: width
+                      Layout.preferredHeight: Layout.preferredWidth
                       radius: width / 2
                       color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.18)
                       readonly property string avatarHandle: root.isGroupId(String(modelData.chat || "")) ? String(modelData.chat) : String(modelData.handle || modelData.chat || "")
