@@ -202,9 +202,10 @@ Linux side. If the Mac is asleep, the widget dims and says so.
 
 No server, no telemetry, no accounts. **Everything between the two machines
 travels inside ssh** — message text, attachment bytes, the push ping — on a
-dedicated key the Mac confines to Blip's five tools; nothing is ever sent in
-the clear. The full inventory of what touches
-disk on both machines is in [docs/PRIVACY.md](docs/PRIVACY.md) — short
+dedicated key the Mac confines to Blip's bridge tools — and, over Tailscale,
+to this machine's address; nothing is ever sent in the clear. The full
+inventory of what touches disk on both machines is in
+[docs/PRIVACY.md](docs/PRIVACY.md) — short
 version: message text never lands on disk; only attachments in conversations
 you open are cached (inline images ≤ 5 MB and link previews fetch when the
 thread does). The threat model and the findings of the 2026-08-31 security audit
@@ -320,8 +321,12 @@ It writes `~/.config/blip/bridge.conf`, adds an ssh ControlMaster block
 `~/bin/imsg`, `~/bin/imsg-send`, `~/bin/contacts`, copies the Mac tools to
 `~/.blip/bin` on the Mac and runs `install.sh` there, generates a
 **dedicated ssh key** (`~/.ssh/blip_ed25519`) that the Mac confines to the
-four bridge tools and nothing else, then smoke-tests the bridge without
-printing any message content.
+bridge tools and nothing else, then smoke-tests the bridge without printing
+any message content. Over Tailscale the key is also pinned to this machine's
+addresses (`from=`), so a copy of the key file is useless from anywhere else;
+over a LAN, where an address can change, it is not pinned —
+[docs/SECURITY.md](docs/SECURITY.md) shows the one-line manual pin. Re-run
+`blip-setup` if the machine's Tailscale address ever changes.
 
 **3. Two grants on the Mac** (macOS won't let a script do these — the
 wizard pauses here and re-checks when you press Enter)

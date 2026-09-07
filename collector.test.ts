@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1473,5 +1474,29 @@ describe("the read-push policy is reported, not just applied", () => {
     expect(pushReadArgs("thread", dm)).toEqual(["--chat", "+15550100001"]);
     // mark-all is never gated: it is an explicit gesture, not a side effect
     expect(pushReadArgs("all", { markRead: true, readChat: "", clearedUnread: false })).toEqual(["--all"]);
+  });
+});
+
+// The dedicated key is confined to blip-dispatch AND, over Tailscale, pinned to
+// the enrolling machine's addresses: a leaked private key is useless from
+// anywhere else. blip_key_from() runs for real (PATH without tailscale).
+describe("blip-setup: the key's from= pin", () => {
+  const setup = new URL("./scripts/blip-setup", import.meta.url).pathname;
+  const keyFrom = (seen: string) => spawnSync("bash",
+    ["-c", 'source <(sed -n "/^blip_key_from()/,/^}/p" "$1"); blip_key_from "$2"', "_", setup, seen],
+    { encoding: "utf8", env: { PATH: "/usr/bin:/bin" } }).stdout;
+  test("a Tailscale address is pinned, IPv4 and IPv6", () => {
+    expect(keyFrom("100.64.7.8")).toBe('from="100.64.7.8",');
+    expect(keyFrom("100.127.255.1")).toBe('from="100.127.255.1",');
+    expect(keyFrom("fd7a:115c:a1e0::1")).toBe('from="fd7a:115c:a1e0::1",');
+  });
+  test("anything else is left unpinned rather than stranded", () => {
+    for (const seen of ["192.168.1.5", "100.63.1.1", "100.128.0.1", "10.0.0.2", "", "mac.local"]) expect(keyFrom(seen)).toBe("");
+  });
+  test("a re-run replaces the key's line; the tool count is gone from the prose", () => {
+    const src = readFileSync(setup, "utf8");
+    expect(src).toContain("grep -vF -- '$pub' ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.blip.tmp");
+    expect(src).not.toContain("five bridge tools");
+    expect(src).not.toContain("key_from=");   // no config knob: the pin follows the transport
   });
 });
