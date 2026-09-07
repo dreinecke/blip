@@ -109,10 +109,12 @@ BarWidget {
   /** Newest arriving link → the share sheet on whichever surface is open. */
   function shareArrivingLink(link) {
     if (!link || !link.url) return
+    // Every link of the message: the sheet steps through them.
+    var urls = Array.isArray(link.urls) && link.urls.length > 0 ? link.urls.map(String) : [String(link.url)]
     var w = windowLoader.item
-    if (w && root.windowVisible && typeof w.shareLink === "function") { w.shareLink(String(link.url)); return }
+    if (w && root.windowVisible && typeof w.shareLink === "function") { w.shareLink(urls); return }
     var p = panelLoader.item
-    if (p && p.opened === true && typeof p.shareLink === "function") p.shareLink(String(link.url))
+    if (p && p.opened === true && typeof p.shareLink === "function") p.shareLink(urls)
   }
 
   function injectPanel() {

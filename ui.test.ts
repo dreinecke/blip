@@ -82,12 +82,14 @@ describe("QML safety invariants", () => {
   test("an arriving link opens the sheet only on a surface already open", () => {
     expect(widget).toContain("function shareArrivingLink(link)");
     expect(widget).toContain("d.links[d.links.length - 1]");          // newest only, never a queue
+    expect(widget).toContain("link.urls.map(String) : [String(link.url)]");   // all of that message's links
     expect(widget).toContain("p.opened === true");                    // panel must already be open
     expect(widget).toContain("root.windowVisible");                   // or the app window
   });
 
   test("a link you SEND opens the sheet too, and the app button asks the host", () => {
-    expect(panel).toContain("var sentUrl = root.firstUrl(completedText)");
+    expect(panel).toContain("var sentUrls = root.allUrls(completedText)");   // every link of the message
+    expect(panel).toContain("root.openShare(sentUrls, true)");
     expect(panel).toContain("function openApp()");
     expect(panel).toContain('hostWidget.showApp()');
     // the popout gets out of the way, and closes BEFORE the window is shown —
@@ -128,7 +130,7 @@ describe("QML safety invariants", () => {
   });
 
   test("share sheet: right-click a link, URL on stdin, never argv", () => {
-    expect(panel).toContain("function openShare(u)");
+    expect(panel).toContain("function openShare(u, auto)");
     expect(panel).toContain("qrProc.write(u)");
     expect(panel).toContain("sendShareProc.write(u)");
     expect(panel).toContain('localsend --headless send "$2"');
@@ -267,6 +269,70 @@ describe("QML safety invariants", () => {
     expect(widget).toContain("readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false");
     expect(widget).toContain("function open() {");
     expect(widget).toContain("function close() {");
+  });
+
+  test("keys and wheel scroll the conversation through one stick-aware helper", () => {
+    // Two writers of flick.contentY would drift on the bottom-stick, which
+    // gates the deferred push reload; the wheel handler must go through it.
+    expect(qmlFunction("scrollConversation")).toContain("flick.stick = flick.contentY >= max - 4");
+    expect(panel).toContain("root.scrollConversation(-d)");
+    expect(panel.split("flick.stick = flick.contentY >= max - 4").length - 1).toBe(1);
+    // Home/End select the ends only from an empty field (caret otherwise)
+    expect(panel).toContain("(event.key === Qt.Key_Home && atLineStart) || (event.key === Qt.Key_End && atLineEnd)");
+    expect(panel).toContain("var atLineStart = empty || cursorPosition === 0");
+    expect(panel).toContain("root.bubbleCursor = event.key === Qt.Key_Home ? 0 : root.bubbles.length - 1");
+    expect(panel).not.toContain("conversationStep");
+    // PgUp/PgDn select the edge bubble regardless of text, and page when already there
+    expect(panel).toContain("if (event.modifiers & Qt.ShiftModifier) root.moveBubbleCursor(dir)");
+    expect(panel).toContain("else root.pageBubbles(dir)");
+    const page = qmlFunction("pageBubbles");
+    expect(page.indexOf("if (edge === bubbleCursor && bubbleCursorItem)")).toBeLessThan(page.indexOf("scrollConversation(dy < 0 ?"));
+    // only a WHOLLY visible row counts as the edge, else a sliver of the row above turns paging into single steps
+    expect(qmlFunction("edgeVisibleBubble")).toContain("it.y >= top - 1 : it.y + it.height <= bottom + 1");
+    expect(page).toContain("leaveBubbles()");
+  });
+
+  test("arrows in an empty compose field select bubbles, and the selection clears cleanly", () => {
+    // The selection is a target for actions; it must never outlive the rows
+    // it indexes (a reload renumbers them) and Esc must drop it before leaving.
+    expect(panel).toContain("onBubblesChanged: clearBubbleCursor()");
+    // the band takes the theme's hover-cursor colour/alpha, like Omarchy's own rows
+    expect(panel).toContain("color: Style.hoverFillFor(root.foreground, root.accent)");
+    expect(panel).toContain("onHasCursorChanged: if (hasCursor) root.bubbleCursorItem = bubbleRow");
+    expect(panel).toContain("if (root.bubbleCursor >= 0) root.leaveBubbles(); else root.back()");
+    const move = qmlFunction("moveBubbleCursor");
+    expect(move).toContain("bubbleCursor = n - 1");            // Up from nothing = newest
+    expect(move).toContain("leaveBubbles()");                  // Down past newest = same exit as Esc
+    expect(qmlFunction("leaveBubbles")).toContain("scrollConversation(flick.contentHeight)");
+    expect(panel).toContain("root.moveBubbleCursor(event.key === Qt.Key_Up ? -1 : 1)");
+    // the edge rule: Up leaves a draft only from its first line, Down only from
+    // its last and only while a bubble is selected (otherwise the caret keeps it)
+    expect(panel).toContain("var onFirstLine = empty || caret.y < topPadding + caret.height * 0.5");
+    expect(panel).toContain("(event.key === Qt.Key_Down && onLastLine && root.bubbleCursor >= 0)");
+  });
+
+  test("bubble actions reuse the click handlers and never steal a real send", () => {
+    // Enter/Ctrl+C/Ctrl+R act on the selection only with an empty field and
+    // no queued file — a queued file's Enter is a send, and must stay one.
+    expect(panel).toContain('var b = empty && root.draftPath === "" ? root.selectedBubble() : null');
+    const open = qmlFunction("openBubble");
+    expect(open).toContain("openAttachment(b.attachments[0])");
+    expect(open).toContain("openShare(urls, false)");   // a link goes to the sheet, never straight to the browser
+    expect(panel).toContain("root.copyBubble(b)");
+    const copy = qmlFunction("copyBubble");
+    expect(copy.indexOf("copyText(t)")).toBeLessThan(copy.indexOf("copyAttachment("));  // text wins
+    // the image reaches wl-copy as an argument, never interpolated into the shell script
+    expect(panel).toContain(`'wl-copy --type "$1" < "$2"', "sh", mime, String(d.path || "")`);
+    // HEIC arrives as JPEG (fetch.ts wantsJpeg): the clipboard type must say so
+    expect(panel).toContain('root.fetchJobMime === "image/heic" || root.fetchJobMime === "image/heif" ? "image/jpeg"');
+    // the inline preview stays put while the original is fetched for the clipboard
+    expect(panel).toContain('var keepInline = root.fetchJobAction === "copy" && !!root.attFiles[id]');
+    expect(panel).not.toContain("fetchJobOpen");
+    expect(qmlFunction("quoteBubble")).toContain("leaveBubbles()");
+    // the status line never collapses (no layout shift) and only failures are red
+    expect(panel).toContain('text: root.note === "" ? " " : root.note');
+    expect(panel).not.toContain('visible: root.note !== ""');
+    expect(panel).toContain("color: calm ? root.dim : root.urgent");
   });
 
   test("an old toast can still reopen its conversation (omarchy-exec-argv)", () => {
@@ -420,7 +486,9 @@ test("window focus is an exact title match, not a prefix", () => {
 // Esc over the share sheet closes the sheet; a stale search never stays clickable;
 // a long sender name never widens the delegate.
 test("share-sheet Escape, search generations, bounded sender labels", () => {
-  expect(panel).toContain('Keys.onEscapePressed: { if (root.shareUrl !== "") root.closeShare(); else root.back() }');
+  // Astra A#7: the share sheet must close before back() (which would clear the
+  // draft under it). #39 adds the bubble selection as a middle step.
+  expect(panel).toContain('Keys.onEscapePressed: if (root.shareUrl !== "") root.closeShare(); else if (root.bubbleCursor >= 0) root.leaveBubbles(); else root.back()');
   expect(panel).toContain("if (q !== newQueryRan) { newResults = []; newCursor = 0 }");
   expect(panel.split("Layout.maximumWidth: Math.max(1, bubbleRow.width - Style.space(40))").length - 1).toBe(2);
   expect(widget).toContain('return "code expired"');
@@ -461,4 +529,41 @@ describe("per-conversation drafts", () => {
     expect(panel).not.toContain("drafts.json");
     expect(widget).not.toContain("drafts.json");
   });
+  });
+
+// Enter on a selected link bubble opens the share sheet, never the browser
+// directly; the sheet takes the keyboard, and its keys run before send().
+test("a selected link opens the share sheet, and the sheet has keys", () => {
+  expect(qmlFunction("openBubble")).not.toContain("openLink(u)");
+  expect(qmlFunction("shareKey")).toContain("var acts = [shareOpen, shareCopy, shareSend]");
+  expect(qmlFunction("shareKey")).toContain("if (key === Qt.Key_Return || key === Qt.Key_Enter) { acts[shareCursor](); return true }");
+  // A sheet that opened by itself (sent / arrived / IPC) keeps Enter and digits
+  // with the draft for a short grace: a link landing as Enter is pressed to
+  // send must not be opened by that Enter.
+  expect(qmlFunction("shareKey")).toContain("if (Date.now() < shareKeysFrom) return false");
+  expect(qmlFunction("openShare")).toContain("shareKeysFrom = Date.now() + (auto === true ? 700 : 0)");
+  expect(panel).toContain("root.openShare(sentUrls, true)");
+  expect(qmlFunction("shareLink")).toContain("openShare(u, true)");
+  const compose = panel.slice(panel.indexOf("id: composeField"));
+  expect(compose.indexOf("if (root.shareKey(event.key)) { event.accepted = true; return }")).toBeLessThan(compose.indexOf("root.send()"));
+  expect(compose).toContain('Keys.onEscapePressed: if (root.shareUrl !== "") root.closeShare(); else if (root.bubbleCursor >= 0)');
+});
+
+// A message with several links: Enter offers them all in the sheet, ←/→ step,
+// and the keyboard finds exactly the links linkify() anchors for the mouse.
+test("the share sheet steps through a message's links", () => {
+  expect(qmlFunction("openBubble")).toContain("var urls = allUrls(b.text)");
+  expect(qmlFunction("openBubble")).toContain("openShare(urls, false)");
+  expect(qmlFunction("allUrls")).toContain('if (/^www\\./i.test(u)) u = "https://" + u');
+  expect(qmlFunction("shareKey")).toContain("if ((key === Qt.Key_Left || key === Qt.Key_Right) && shareUrls.length > 1) { shareStep(key === Qt.Key_Right ? 1 : -1); return true }");
+  expect(panel).toContain('" of " + root.shareUrls.length');
+  // The sheet's taps stop in the sheet: an exclusive grab on press, or the
+  // row, bubble or link underneath would act on the same click.
+  const sheet = panel.slice(panel.indexOf("id: shareSheet"), panel.indexOf("id: shareSheet") + 6000);
+  expect(sheet).toContain("TapHandler { gesturePolicy: TapHandler.ReleaseWithinBounds; onTapped: root.closeShare() }");
+  expect(sheet).not.toMatch(/TapHandler \{ onTapped:/);
+  // The QR box keeps its place while a code is being made, so stepping links
+  // swaps the image instead of collapsing and re-growing the card.
+  expect(sheet).toContain('visible: root.shareQr !== "" || qrProc.running');
+  expect(qmlFunction("showShareUrl")).not.toContain('shareQr = ""');
 });

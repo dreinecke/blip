@@ -801,6 +801,14 @@ describe("a link that just arrived opens the share sheet", () => {
     expect(out.every((l) => l.key.startsWith("link:"))).toBe(true);
   });
 
+  test("every link of a message rides along; url stays the first", () => {
+    const out = selectIncomingLinks([
+      msg({ ts: "2026-09-02 12:30:00", from_me: false, text: "two: https://a.test/1, and https://b.test/2." }),
+    ], WM, []);
+    expect(out[0]!.url).toBe("https://a.test/1");
+    expect(out[0]!.urls).toEqual(["https://a.test/1", "https://b.test/2"]);
+  });
+
   test("a link fires once — its key suppresses the next poll", () => {
     const m = msg({ ts: "2026-09-02 12:30:00", from_me: false, text: "https://a.test/1" });
     const first = selectIncomingLinks([m], WM, []);

@@ -183,14 +183,42 @@ FocusScope {
   /** Open the share sheet for one http(s) URL. Anything else is ignored. The
    *  URL is message content: it reaches qrencode and the LocalSend temp file
    *  on STDIN, never argv (CLAUDE.md: message text never rides argv). */
-  function openShare(u) {
-    u = String(u || "")
-    if (!/^https?:\/\//i.test(u)) return
-    shareUrl = u
+  property var shareUrls: []       // the links the sheet was opened on
+  property int shareIndex: 0       // which of them it shows; ←/→ and ‹ › step
+  property int shareCursor: 0      // highlighted action (mouse and keys agree)
+  property real shareKeysFrom: 0   // Enter and digits act from this time on
+  /** Open the sheet on one URL or a list (a message's links, first showing).
+   *  `auto`: it opened by itself — a link you sent, a link that arrived, IPC.
+   *  The sheet is the warning either way (host, full URL, a button that says
+   *  what Enter does), but for 700 ms after an auto sheet appears Enter and
+   *  digits still belong to the draft, so a link landing as Enter is pressed
+   *  to send is never opened by it. False when nothing in `u` is http(s). */
+  function openShare(u, auto) {
+    var urls = (Array.isArray(u) ? u : [u]).map(function(x) { return String(x || "") })
+      .filter(function(x) { return /^https?:\/\//i.test(x) })
+    if (urls.length === 0) return false
+    shareUrls = urls
+    shareIndex = 0
+    shareCursor = 0
+    shareKeysFrom = Date.now() + (auto === true ? 700 : 0)
     shareQr = ""
+    showShareUrl(urls[0])
+    return true
+  }
+  function shareStep(d) {
+    var n = shareUrls.length
+    if (n < 2) return
+    shareIndex = (shareIndex + d + n) % n
+    showShareUrl(shareUrls[shareIndex])
+  }
+  /** The QR for `u`. The box keeps the previous code until this one is
+   *  written, so stepping swaps the image instead of re-flowing the card. */
+  function showShareUrl(u) {
+    shareUrl = u
     // A sheet opened over a still-rendering one: the old job's exit would have
     // published ITS result under the new outFile (Astra A#8). Kill it; the
-    // non-zero exit keeps its result out.
+    // non-zero exit keeps its result out. Stepping between links re-runs this,
+    // so it matters more here than it did for one link.
     if (qrProc.running) qrProc.running = false
     var out = shareDir + "/qr-" + Date.now() + ".png"
     qrProc.outFile = out
@@ -200,18 +228,29 @@ FocusScope {
     qrProc.write(u)
     qrProc.stdinEnabled = false
   }
-  function closeShare() { shareUrl = ""; shareQr = "" }
+  function closeShare() { shareUrl = ""; shareQr = ""; shareUrls = [] }
   /** First http(s) URL in a string, or "" — mirrors collector.firstUrl. */
   function firstUrl(t) {
     var m = /https?:\/\/[^\s<>"']+/i.exec(String(t || ""))
     return m ? m[0].replace(/[.,;:!?)\]}'"]+$/, "") : ""
   }
-  /** IPC `share <url>` (host gates it behind automation=on). */
+  /** Every link in a message, in order, exactly as linkify() anchors them
+   *  (same pattern, same trailing-punctuation rule, www. gets https://). */
+  function allUrls(t) {
+    var re = /\bhttps?:\/\/[^\s<>"']+|\bwww\.[^\s<>"']+\.[^\s<>"']+/gi, out = [], m
+    while ((m = re.exec(String(t || ""))) !== null) {
+      var u = m[0].replace(/[.,;:!?\]]+$/, "")
+      while (u.endsWith(")") && u.split("(").length < u.split(")").length) u = u.slice(0, -1)
+      u = u.replace(/[.,;:!?\]]+$/, "")
+      if (/^www\./i.test(u)) u = "https://" + u
+      if (out.indexOf(u) < 0) out.push(u)
+    }
+    return out
+  }
+  /** IPC `share <url>` (host gates it behind automation=on), and the host's
+   *  arriving-link path, which hands over every link of the message. */
   function shareLink(u) {
-    u = String(u || "")
-    if (!/^https?:\/\//i.test(u)) return "not an http(s) url"
-    openShare(u)
-    return "share sheet"
+    return openShare(u, true) ? "share sheet" : "not an http(s) url"
   }
   /** The full app window. The host owns creation (Quickshell never re-maps a
    *  hidden FloatingWindow), so this asks the widget, exactly like SUPER+M.
@@ -221,6 +260,23 @@ FocusScope {
     closeShare()
     if (!hostWidget) return
     if (typeof hostWidget.showApp === "function") hostWidget.showApp()
+  }
+  /** The sheet's keys: Esc closes, ←/→ step links, ↑/↓ move the highlight,
+   *  Enter takes it, 1/2/3 pick directly. Anything else falls through to the
+   *  field (a sheet over a draft never blocks typing); see openShare for
+   *  the grace on an auto sheet. True when the key was the sheet's. */
+  function shareKey(key) {
+    if (shareUrl === "") return false
+    var acts = [shareOpen, shareCopy, shareSend]
+    if (key === Qt.Key_Escape) { closeShare(); return true }
+    // ←/→ are the sheet's only when there is something to step through; a
+    // draft keeps its caret keys otherwise.
+    if ((key === Qt.Key_Left || key === Qt.Key_Right) && shareUrls.length > 1) { shareStep(key === Qt.Key_Right ? 1 : -1); return true }
+    if (key === Qt.Key_Up || key === Qt.Key_Down) { shareCursor = Math.max(0, Math.min(2, shareCursor + (key === Qt.Key_Down ? 1 : -1))); return true }
+    if (Date.now() < shareKeysFrom) return false
+    if (key === Qt.Key_Return || key === Qt.Key_Enter) { acts[shareCursor](); return true }
+    if (key >= Qt.Key_1 && key <= Qt.Key_3) { acts[key - Qt.Key_1](); return true }
+    return false
   }
   function shareOpen() { var u = shareUrl; closeShare(); openLink(u) }
   function shareCopy() { var u = shareUrl; closeShare(); copyText(u) }
@@ -271,6 +327,12 @@ FocusScope {
   // return to it), but a row must not LOOK selected while typing happens
   // elsewhere — Up from the top and a click in the field both got here.
   readonly property bool cursorShown: !searchField.activeFocus
+  // The bubble the arrows have selected in a conversation (-1 = none) and the
+  // delegate drawing it — registered by the row itself, like cursorRow. The
+  // selection is a TARGET for actions (copy, open, reply), not a scroll state.
+  property int bubbleCursor: -1
+  property Item bubbleCursorItem: null
+  onBubblesChanged: clearBubbleCursor()   // a reload renumbers the rows
   property bool pinToBottom: false   // scroll to the newest bubble once layout settles
   property bool bubbleFocused: false // a bubble's TextEdit has focus (text selection in progress)
   property string threadRunningChat: "" // chat owned by the current threadProc
@@ -454,6 +516,116 @@ FocusScope {
    *  Keystroke injection (wtype) proved non-deterministic — a virtual
    *  keyboard's events can land on whatever surface Hyprland favors. */
   /** Clear every badge/dot locally. Read state never goes back to iMessage. */
+  /** Move the conversation by dy pixels — the wheel and the keys share this,
+   *  so the bottom-stick (which gates the deferred push reload) behaves the
+   *  same whichever way the reader moves. */
+  function scrollConversation(dy) {
+    var max = Math.max(0, flick.contentHeight - flick.height)
+    flick.contentY = Math.max(0, Math.min(max, flick.contentY + dy))
+    flick.stick = flick.contentY >= max - 4
+  }
+  /** Up/Down in an empty compose field walk the bubbles, newest first, and
+   *  keep the selected one in view. Down past the newest drops the selection
+   *  and re-sticks to the bottom, so the conversation follows new messages
+   *  again — the reader is back where they started. */
+  function moveBubbleCursor(dy) {
+    var n = bubbles.length
+    if (n === 0) return
+    if (bubbleCursor < 0) {
+      if (dy > 0) return
+      bubbleCursor = n - 1
+    } else if (dy > 0 && bubbleCursor >= n - 1) {
+      leaveBubbles()
+      return
+    } else {
+      bubbleCursor = Math.max(0, bubbleCursor + dy)
+    }
+    revealBubbleCursor()
+  }
+  /** PgUp/PgDn walk the bubbles a screen at a time, and unlike the arrows
+   *  they work with text in the compose field (they move no caret). PgUp
+   *  selects the topmost visible bubble; already there, it pages up first.
+   *  PgDn mirrors it with the bottommost, and past the newest leaves. */
+  function pageBubbles(dy) {
+    if (bubbles.length === 0) return
+    var edge = edgeVisibleBubble(dy)
+    if (edge === bubbleCursor && bubbleCursorItem) {
+      if (dy > 0 && edge === bubbles.length - 1) { leaveBubbles(); return }
+      // Page so the selected row lands at the OPPOSITE edge — a screen with
+      // one row of overlap, the way a pager turns a page.
+      var it = bubbleCursorItem, margin = Style.space(6)
+      scrollConversation(dy < 0 ? it.y + it.height + margin - flick.height - flick.contentY
+                                : it.y - margin - flick.contentY)
+      edge = edgeVisibleBubble(dy)
+    }
+    if (edge < 0) return
+    bubbleCursor = edge
+    revealBubbleCursor()
+  }
+  /** Index of the topmost (dy < 0) or bottommost (dy > 0) bubble that is
+   *  WHOLLY inside the viewport — a sliver of the neighbour above the
+   *  selection must not count, or the next PgUp steps one row instead of
+   *  paging. Falls back to a partly visible row (a picture taller than the
+   *  view); -1 when nothing is laid out yet. */
+  function edgeVisibleBubble(dy) {
+    var top = flick.contentY, bottom = top + flick.height
+    var n = bubbleRepeater.count, partial = -1
+    for (var k = 0; k < n; k++) {
+      var i = dy < 0 ? k : n - 1 - k
+      var it = bubbleRepeater.itemAt(i)
+      if (!it || it.y >= bottom || it.y + it.height <= top) continue
+      if (partial < 0) partial = i
+      if (dy < 0 ? it.y >= top - 1 : it.y + it.height <= bottom + 1) return i
+    }
+    return partial
+  }
+  function revealBubbleCursor() {
+    var it = bubbleCursorItem   // set synchronously by the row's hasCursor binding
+    if (!it) return
+    var margin = Style.space(6)
+    if (it.y < flick.contentY + margin)
+      scrollConversation(it.y - margin - flick.contentY)
+    else if (it.y + it.height > flick.contentY + flick.height - margin)
+      scrollConversation(it.y + it.height + margin - flick.height - flick.contentY)
+  }
+  function clearBubbleCursor() { bubbleCursor = -1; bubbleCursorItem = null }
+  /** Out of the selection and back where reading started: newest at the
+   *  bottom, stick re-armed. Down past the newest and Esc both land here. */
+  function leaveBubbles() {
+    clearBubbleCursor()
+    scrollConversation(flick.contentHeight)
+  }
+  function selectedBubble() {
+    return bubbleCursor >= 0 && bubbleCursor < bubbles.length ? bubbles[bubbleCursor] : null
+  }
+  /** Enter on the selected bubble: its first attachment, else its link card,
+   *  else the first URL in its text — the same handlers a click reaches. */
+  function openBubble(b) {
+    if (b.attachments && b.attachments.length > 0) { openAttachment(b.attachments[0]); return }
+    // A link goes to the share sheet, not straight to the browser: the sheet
+    // shows the host and the URL and makes opening a deliberate second step.
+    var urls = allUrls(b.text)
+    if (b.link && b.link.url && urls.indexOf(String(b.link.url)) < 0) urls.unshift(String(b.link.url))
+    openShare(urls, false)
+  }
+  /** Ctrl+C on the selected bubble: its text, or — for a bubble that is only
+   *  a picture — the first image attachment, as an image. */
+  function copyBubble(b) {
+    var t = String(b.text || "")
+    if (t !== "") { copyText(t); return }
+    var atts = b.attachments || []
+    for (var i = 0; i < atts.length; i++) {
+      if (isImageMime(atts[i].mime)) { copyAttachment(atts[i]); return }
+    }
+  }
+  /** Ctrl+R: quote the selected bubble into the compose field. iMessage's
+   *  inline reply is not reachable through the bridge (no message GUID leaves
+   *  the Mac and AppleScript has no reply-to), so this is a plain "> quote". */
+  function quoteBubble(b) {
+    composeField.text = "> " + String(b.text || "").replace(/\s+/g, " ").slice(0, 200) + "\n"
+    composeField.cursorPosition = composeField.length
+    leaveBubbles()
+  }
   function markAllRead() {
     if (!root.hostWidget || root.unread === 0) return
     root.hostWidget.markAllRead()
@@ -600,29 +772,31 @@ FocusScope {
            m === "application/pdf" || m === "text/plain" || m === "text/vcard" || m === "text/calendar"
   }
 
-  function enqueueFetch(att, openWhenDone, auto) {
+  /** action: "" = just cache it, "open" = xdg-open when it lands, "copy" =
+   *  put it on the clipboard when it lands. */
+  function enqueueFetch(att, action, auto) {
     var id = String(att.id || "")
     if (id === "" || fetchingId === id) return
-    if (attFiles[id] !== undefined && !openWhenDone) return
+    if (attFiles[id] !== undefined && !action) return
     for (var i = 0; i < fetchQueue.length; i++) {
       if (fetchQueue[i].id === id) {
-        if (openWhenDone) fetchQueue[i].open = true
+        if (action) fetchQueue[i].action = action
         return
       }
     }
     fetchQueue.push({ id: id, name: String(att.name || "file"),
-                      mime: String(att.mime || ""), open: openWhenDone === true,
+                      mime: String(att.mime || ""), action: action || "",
                       auto: auto === true })
     pumpFetch()
   }
 
-  property bool fetchJobOpen: false
+  property string fetchJobAction: ""
   property string fetchJobMime: ""
   function pumpFetch() {
     if (fetchProc.running || fetchQueue.length === 0) return
     var job = fetchQueue.shift()
     fetchingId = job.id
-    fetchJobOpen = job.open === true
+    fetchJobAction = job.action
     fetchJobMime = job.mime
     // Auto-pulls carry a hard transfer cap: claimed metadata is not the limit.
     fetchProc.command = ["bun", root.fetchScript, job.id, job.name, job.mime, job.auto ? "5242880" : ""]
@@ -647,11 +821,11 @@ FocusScope {
         // iPhone photos were rejected at both ends and simply never appeared.
         var b = atts[j].bytes
         if (isImageMime(atts[j].mime) && typeof b === "number" && b > 0 && b <= root.autoFetchMaxSource)
-          enqueueFetch(atts[j], false, true)
+          enqueueFetch(atts[j], "", true)
       }
       // link-card preview PNGs are small; the auto-fetch transfer cap bounds them
       var l = bubbles[i].link
-      if (l && l.image_id) enqueueFetch({ id: String(l.image_id), name: "preview.png", mime: "image/png", bytes: 0 }, false, true)
+      if (l && l.image_id) enqueueFetch({ id: String(l.image_id), name: "preview.png", mime: "image/png", bytes: 0 }, "", true)
     }
   }
 
@@ -664,7 +838,13 @@ FocusScope {
     if (attFiles[id] === "") {   // failed marker — clear it so a retry runs
       var m = Object.assign({}, attFiles); delete m[id]; attFiles = m
     }
-    enqueueFetch(att, true)
+    enqueueFetch(att, "open")
+  }
+  /** Ctrl+C on an image bubble: fetch-then-clipboard, the same round trip as
+   *  a click, ending in wl-copy with the image's own MIME type. */
+  function copyAttachment(att) {
+    if (String(att.id || "") === "") return
+    enqueueFetch(att, "copy")
   }
 
   // ------------------------------------------------------ compose attachment
@@ -1258,8 +1438,8 @@ FocusScope {
       if (code === 0) {
         // A URL you just SHARED opens the sheet too (Fred, 2.3.0): send it,
         // then offer the QR / LocalSend / copy for the same link.
-        var sentUrl = root.firstUrl(completedText)
-        if (belongsHere && sentUrl !== "") Qt.callLater(function() { root.openShare(sentUrl) })
+        var sentUrls = root.allUrls(completedText)
+        if (belongsHere && sentUrls.length > 0) Qt.callLater(function() { root.openShare(sentUrls, true) })
         // The bubble is already up; reload to swap it for the real row.
         root.reloadChat = completedChat
         reloadTimer.restart()
@@ -1286,8 +1466,12 @@ FocusScope {
         var id = root.fetchingId
         try {
           var d = JSON.parse(text.trim())
+          // A copy fetches the ORIGINAL for the clipboard; the bubble keeps
+          // the preview it already draws. Swapping its source and metrics
+          // re-decodes and re-lays out the picture under the reader's eyes.
+          var keepInline = root.fetchJobAction === "copy" && !!root.attFiles[id]
           var m = Object.assign({}, root.attFiles)
-          m[id] = d.ok === true ? String(d.url || "") : ""
+          if (!keepInline) m[id] = d.ok === true ? String(d.url || "") : ""
           root.attFiles = m
           var ratio = Number(d.pixelRatio)
           var pixelWidth = Number(d.pixelWidth)
@@ -1295,10 +1479,20 @@ FocusScope {
           if (!isFinite(ratio) || ratio < 1 || ratio > 4) ratio = 1
           if (!isFinite(pixelWidth) || pixelWidth < 1 || pixelWidth > 100000) pixelWidth = 0
           if (!isFinite(pixelHeight) || pixelHeight < 1 || pixelHeight > 100000) pixelHeight = 0
-          var metrics = Object.assign({}, root.attMetrics)
-          metrics[id] = { pixelRatio: ratio, pixelWidth: pixelWidth, pixelHeight: pixelHeight }
-          root.attMetrics = metrics
-          if (d.ok === true && root.fetchJobOpen) {
+          if (!keepInline) {
+            var metrics = Object.assign({}, root.attMetrics)
+            metrics[id] = { pixelRatio: ratio, pixelWidth: pixelWidth, pixelHeight: pixelHeight }
+            root.attMetrics = metrics
+          }
+          if (d.ok === true && root.fetchJobAction === "copy") {
+            // The Mac converts HEIC/HEIF to JPEG on the way (fetch.ts wantsJpeg),
+            // so the clipboard type must say what the bytes are. Path and type
+            // travel as arguments, never interpolated into the script.
+            var mime = root.fetchJobMime === "image/heic" || root.fetchJobMime === "image/heif" ? "image/jpeg" : root.fetchJobMime
+            Quickshell.execDetached(["sh", "-c", 'wl-copy --type "$1" < "$2"', "sh", mime, String(d.path || "")])
+            root.note = "copied"
+            noteTimer.restart()
+          } else if (d.ok === true && root.fetchJobAction === "open") {
             if (root.openableMime(root.fetchJobMime)) {
               Quickshell.execDetached(["xdg-open", String(d.url || "")])
             } else {
@@ -1309,7 +1503,7 @@ FocusScope {
           // A click deserves the reason (a photo Messages in iCloud has not
           // brought to the Mac yet reads as "no such attachment" otherwise);
           // auto-pulls stay quiet so a scroll through old media is not a toast storm.
-          else if (d.ok !== true && root.fetchJobOpen)
+          else if (d.ok !== true && root.fetchJobAction !== "")
             root.note = "fetch failed — " + String(d.error || "unknown error").replace(/^error:\s*/, "")
         } catch (e) {
           var m2 = Object.assign({}, root.attFiles)
@@ -2345,15 +2539,27 @@ FocusScope {
             acceptedButtons: Qt.NoButton
             onWheel: function(wheel) {
               var d = wheel.pixelDelta.y !== 0 ? wheel.pixelDelta.y * 3.0 : wheel.angleDelta.y * 4.5
-              var max = Math.max(0, flick.contentHeight - flick.height)
-              flick.contentY = Math.max(0, Math.min(max, flick.contentY - d))
-              // the wheel bypasses Flickable movement signals — maintain the
-              // bottom-stick here too
-              flick.stick = flick.contentY >= max - 4
+              // the wheel bypasses Flickable movement signals — the helper
+              // maintains the bottom-stick too
+              root.scrollConversation(-d)
               wheel.accepted = true
             }
           }
 
+          // The bubble cursor: one translucent band behind the selected row,
+          // the list rows' fill. A sibling of `content`, not a child of the
+          // layout, so no delegate carries a background of its own; the row's
+          // y/height are in `content` space, which sits at the origin here.
+          Rectangle {
+            visible: root.bubbleCursorItem !== null
+            width: content.width
+            y: root.bubbleCursorItem ? root.bubbleCursorItem.y - Style.space(2) : 0
+            height: root.bubbleCursorItem ? root.bubbleCursorItem.height + Style.space(4) : 0
+            radius: Style.cornerRadius
+            // Omarchy's cursor fill: the theme's hover-cursor colour and alpha
+            // (foreground at 0.08 by default), not a hard-coded copy of them.
+            color: Style.hoverFillFor(root.foreground, root.accent)
+          }
           ColumnLayout {
             id: content
             width: parent.width
@@ -2371,11 +2577,15 @@ FocusScope {
             }
 
             Repeater {
+              id: bubbleRepeater
               model: root.inThread ? root.bubbles : []
               delegate: ColumnLayout {
                 id: bubbleRow
                 required property var modelData
+                required property int index
                 readonly property bool mine: modelData.from_me === true
+                readonly property bool hasCursor: root.bubbleCursor === index
+                onHasCursorChanged: if (hasCursor) root.bubbleCursorItem = bubbleRow
 
                 Layout.fillWidth: true
                 spacing: Style.space(2)
@@ -2972,18 +3182,69 @@ FocusScope {
                 borderSpec: composeField._composeBorder
                 radius: Style.cornerRadius
               }
-              // Esc with the share sheet up (it opens on an ARRIVING link, over
-              // whatever you were typing) closes the sheet — back() would clear
-              // the draft and the queued file underneath it (Astra A#7).
-              Keys.onEscapePressed: { if (root.shareUrl !== "") root.closeShare(); else root.back() }
+              // Esc drops a bubble selection first (back to the bottom), then
+              // leaves the thread — the two-step Esc a text selection gets.
+              Keys.onEscapePressed: if (root.shareUrl !== "") root.closeShare(); else if (root.bubbleCursor >= 0) root.leaveBubbles(); else root.back()
               // Ctrl+V goes through paste.ts: an image on the clipboard becomes
               // a draft chip; text falls through to a manual insert. One process
               // snapshots types AND data — probing then re-reading races.
               // Enter sends (iMessage); Shift+Enter inserts a newline.
               Keys.onPressed: (event) => {
+                if (root.shareKey(event.key)) { event.accepted = true; return }
                 if (event.matches(StandardKey.Paste)) {
                   event.accepted = true
                   root.startPaste()
+                  return
+                }
+                // Reading history without the mouse: the compose field is the
+                // thread's focus holder, so the keys live here. An empty field
+                // has no caret for Up/Down to move; they select bubbles instead.
+                // The arrows are the bubbles' when there is no caret line to
+                // move to: Up from the first line of a draft (or an empty
+                // field), Down from the last line while a bubble is selected.
+                // Omarchy's own lists get this for free from single-line
+                // fields; the compose box is multi-line, hence the edge rule.
+                var empty = text.length === 0
+                var caret = cursorRectangle
+                var onFirstLine = empty || caret.y < topPadding + caret.height * 0.5
+                var onLastLine = empty || caret.y + caret.height > topPadding + contentHeight - caret.height * 0.5
+                if ((event.key === Qt.Key_Up && onFirstLine)
+                    || (event.key === Qt.Key_Down && onLastLine && root.bubbleCursor >= 0)) {
+                  event.accepted = true
+                  root.moveBubbleCursor(event.key === Qt.Key_Up ? -1 : 1)
+                  return
+                }
+                // PgUp/PgDn work with a draft in the field (they move no caret):
+                // a screen at a time, or one bubble at a time with Shift held.
+                if (event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown) {
+                  event.accepted = true
+                  var dir = event.key === Qt.Key_PageUp ? -1 : 1
+                  if (event.modifiers & Qt.ShiftModifier) root.moveBubbleCursor(dir)
+                  else root.pageBubbles(dir)
+                  return
+                }
+                // Actions on the selected bubble. Enter is free here: with no
+                // text and no queued file, send() would do nothing anyway.
+                var b = empty && root.draftPath === "" ? root.selectedBubble() : null
+                if (b) {
+                  if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { event.accepted = true; root.openBubble(b); return }
+                  if (event.matches(StandardKey.Copy)) { event.accepted = true; root.copyBubble(b); return }
+                  if (event.key === Qt.Key_R && (event.modifiers & Qt.ControlModifier)) { event.accepted = true; root.quoteBubble(b); return }
+                }
+                // Home/End select the oldest / newest bubble from an empty
+                // field, or once the caret already sits at the start / end
+                // of its line — the first press is the caret's, the second
+                // the bubbles' (the arrows' edge rule). Neighbour glyphs on
+                // another line mean a line edge, so wrapped lines count too.
+                var atLineStart = empty || cursorPosition === 0
+                  || positionToRectangle(cursorPosition - 1).y < caret.y - 1
+                var atLineEnd = empty || cursorPosition === length
+                  || positionToRectangle(cursorPosition + 1).y > caret.y + 1
+                if (((event.key === Qt.Key_Home && atLineStart) || (event.key === Qt.Key_End && atLineEnd))
+                    && root.bubbles.length > 0) {
+                  event.accepted = true
+                  root.bubbleCursor = event.key === Qt.Key_Home ? 0 : root.bubbles.length - 1
+                  root.revealBubbleCursor()
                   return
                 }
                 if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
@@ -3013,12 +3274,16 @@ FocusScope {
           }
         }
 
+        // Always one line tall, empty or not: a note that appears and vanishes
+        // must not shove the compose box and the bubbles around. Only failures
+        // are red; progress and confirmations are dim.
         Text {
           Layout.fillWidth: true
-          visible: root.note !== ""
-          text: root.note
+          text: root.note === "" ? " " : root.note
           textFormat: Text.PlainText
-          color: root.note === "sending…" ? root.dim : root.urgent
+          readonly property bool calm: root.note === "copied" || root.note === "sending…"
+            || root.note === "sent to LocalSend" || root.note.indexOf("attached") === 0
+          color: calm ? root.dim : root.urgent
           font.family: root.fontFamily
           font.pixelSize: root.fontCaption
           wrapMode: Text.WordWrap
@@ -3055,7 +3320,9 @@ FocusScope {
     Rectangle {
       anchors.fill: parent
       color: Qt.rgba(0, 0, 0, 0.45)
-      TapHandler { onTapped: root.closeShare() }
+      // ReleaseWithinBounds takes an exclusive grab on press: the tap ends
+      // here instead of also reaching the row, bubble or link underneath.
+      TapHandler { gesturePolicy: TapHandler.ReleaseWithinBounds; onTapped: root.closeShare() }
     }
     Rectangle {
       id: shareCard
@@ -3066,17 +3333,33 @@ FocusScope {
       color: Color.background
       border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.18)
       border.width: 1
-      TapHandler { }   // swallow clicks on the card so they never reach the scrim
+      TapHandler { gesturePolicy: TapHandler.ReleaseWithinBounds }   // clicks on the card stop here
       ColumnLayout {
         id: shareCol
         anchors.left: parent.left; anchors.right: parent.right; anchors.top: parent.top
         anchors.margins: Style.space(14)
         spacing: Style.space(8)
-        Text {
+        RowLayout {
           Layout.fillWidth: true
-          text: "SHARE LINK"
-          color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.6)
-          font.family: root.fontFamily; font.pixelSize: root.fontCaption; font.letterSpacing: 1
+          spacing: Style.space(10)
+          Text {
+            Layout.fillWidth: true
+            text: "SHARE LINK" + (root.shareUrls.length > 1 ? "  ·  " + (root.shareIndex + 1) + " of " + root.shareUrls.length : "")
+            color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.6)
+            font.family: root.fontFamily; font.pixelSize: root.fontCaption; font.letterSpacing: 1
+          }
+          // ‹ › step through the message's links (the keyboard's ←/→)
+          Repeater {
+            model: root.shareUrls.length > 1 ? [-1, 1] : []
+            delegate: Text {
+              required property var modelData
+              text: modelData < 0 ? "‹" : "›"
+              color: root.foreground
+              font.family: root.fontFamily; font.pixelSize: root.fontBody; font.bold: true
+              HoverHandler { cursorShape: Qt.PointingHandCursor }
+              TapHandler { gesturePolicy: TapHandler.ReleaseWithinBounds; onTapped: root.shareStep(modelData) }
+            }
+          }
         }
         Text {
           Layout.fillWidth: true
@@ -3100,7 +3383,8 @@ FocusScope {
           width: Style.space(176); height: width
           radius: Style.cornerRadius
           color: "white"
-          visible: root.shareQr !== ""
+          // shown while a code is being made too; hidden only when qrencode failed
+          visible: root.shareQr !== "" || qrProc.running
           Image {
             anchors.fill: parent; anchors.margins: Style.space(8)
             source: root.shareQr
@@ -3117,10 +3401,11 @@ FocusScope {
           ]
           delegate: Rectangle {
             required property var modelData
+            required property int index
             Layout.fillWidth: true
             height: Style.space(40)
             radius: Style.cornerRadius
-            color: shareHover.hovered
+            color: shareHover.hovered || index === root.shareCursor
               ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
               : Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.06)
             Text {
@@ -3129,8 +3414,9 @@ FocusScope {
               color: root.foreground
               font.family: root.fontFamily; font.pixelSize: root.fontBodySmall
             }
-            HoverHandler { id: shareHover; cursorShape: Qt.PointingHandCursor }
+            HoverHandler { id: shareHover; cursorShape: Qt.PointingHandCursor; onHoveredChanged: if (hovered) root.shareCursor = index }
             TapHandler {
+              gesturePolicy: TapHandler.ReleaseWithinBounds
               onTapped: {
                 if (modelData.act === "open") root.shareOpen()
                 else if (modelData.act === "copy") root.shareCopy()
@@ -3142,7 +3428,7 @@ FocusScope {
         Text {
           Layout.fillWidth: true
           horizontalAlignment: Text.AlignHCenter
-          text: "Esc closes"
+          text: (root.shareUrls.length > 1 ? "← → link  ·  " : "") + "1–3 or ↑↓ Enter  ·  Esc closes"
           color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.45)
           font.family: root.fontFamily; font.pixelSize: root.fontCaption
         }
