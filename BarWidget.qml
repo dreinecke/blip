@@ -178,9 +178,15 @@ BarWidget {
     // call means SHOW, so make it so once its restore pass has run.
     Qt.callLater(function() { if (windowLoader.item && !windowLoader.item.visible) windowLoader.item.visible = true })
   }
+  /** Toggle the app window. Returns what it just DID, not what windowVisible
+   *  says: ensureWindow() defers the actual `visible = true` to a callLater
+   *  (a fresh BlipWindow has to run its restore pass first), so reading the
+   *  property straight after showing still says hidden — IPC `window` reported
+   *  "window hidden" on both paths and could never say it had shown one. */
   function toggleWindow() {
-    if (root.windowVisible) hideWindow()
-    else ensureWindow()
+    if (root.windowVisible) { hideWindow(); return false }
+    ensureWindow()
+    return true
   }
   // Show AND focus: a window restored on another workspace is invisible to
   // the user, and a plain toggle would HIDE it ("SUPER+M doesn't load the
@@ -834,7 +840,7 @@ BarWidget {
     function bubbles(): string { if (!root.automationOn) return root.automationOff; return panelLoader.item ? panelLoader.item.bubbleModel() : "[]" }
     function find(query: string): string { if (!root.automationOn) return root.automationOff; return panelLoader.item ? panelLoader.item.searchFor(query) : "no panel" }
     function newchat(query: string): string { if (!root.automationOn) return root.automationOff; return panelLoader.item ? panelLoader.item.newChatFor(query) : "no panel" }
-    function window(): string { root.toggleWindow(); return root.windowVisible ? "window shown" : "window hidden" }
+    function window(): string { return root.toggleWindow() ? "window shown" : "window hidden" }
     function app(): string { root.showApp(); return "app shown + focused" }
     function windowgoto(chat: string): string {
       if (!root.automationOn) return root.automationOff

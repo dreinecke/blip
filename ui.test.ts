@@ -147,6 +147,16 @@ describe("QML safety invariants", () => {
     expect(widget).not.toContain('/^[0-9]+$/.test(want)');
   });
 
+  test("IPC window reports what it did, not a property that has not settled", () => {
+    // ensureWindow() defers `visible = true` to a callLater, so reading
+    // windowVisible straight after showing still says hidden: `window` answered
+    // "window hidden" on BOTH paths and could never report a window it had just
+    // shown. Found by driving the live IPC surface, 2026-09-07.
+    expect(widget).toContain('return root.toggleWindow() ? "window shown" : "window hidden"');
+    expect(widget).toContain("if (root.windowVisible) { hideWindow(); return false }");
+    expect(widget).not.toContain('root.toggleWindow(); return root.windowVisible');
+  });
+
   test("navigating away dismisses the share sheet", () => {
     // The sheet auto-opens on an ARRIVING link. Without this it survived into
     // the next conversation, and resetToList() (which the host runs on every
