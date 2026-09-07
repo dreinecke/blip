@@ -428,6 +428,7 @@ FocusScope {
 
   /** Back to the list view, scrolled to top — the host calls this on open. */
   function resetToList() {
+    closeShare()   // the sheet belongs to the link you were looking at
     active = null
     bubbles = []
     note = ""
@@ -450,6 +451,7 @@ FocusScope {
   }
 
   function back() {
+    closeShare()   // ditto: navigating away dismisses the sheet
     active = null
     bubbles = []
     note = ""
@@ -468,6 +470,10 @@ FocusScope {
 
   function openThread(t) {
     if (!t) return
+    // A sheet opened over the PREVIOUS conversation (an arriving link opens it
+    // by itself) otherwise floats over this one, offering a QR for a link that
+    // is no longer on screen. Found by driving the live panel, 2026-09-07.
+    closeShare()
     active = t
     activeLastTs = String(t.last_ts || "")
     bubbles = []

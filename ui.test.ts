@@ -147,6 +147,28 @@ describe("QML safety invariants", () => {
     expect(widget).not.toContain('/^[0-9]+$/.test(want)');
   });
 
+  test("navigating away dismisses the share sheet", () => {
+    // The sheet auto-opens on an ARRIVING link. Without this it survived into
+    // the next conversation, and resetToList() (which the host runs on every
+    // open) brought a stale sheet back over the list. Found live, 2026-09-07.
+    for (const fn of ["resetToList", "back", "openThread"]) {
+      expect(qmlFunction(fn)).toContain("closeShare()");
+    }
+    // Esc still closes the sheet BEFORE it unwinds the view (Astra A#7)
+    expect(panel).toContain('if (root.shareUrl !== "") root.closeShare(); else if (root.bubbleCursor >= 0)');
+  });
+
+  test("IPC goto refuses an id that is not one, instead of opening a blank thread", () => {
+    // `goto ""` opened a nameless thread with no header that nothing could
+    // send to — a script with an unset variable is how you get there. Found by
+    // driving the live IPC surface, 2026-09-07. An id that merely LOOKS like a
+    // handle but is unknown still opens, on purpose (start a new conversation).
+    expect(widget).toContain('if (raw === "" || !/^[A-Za-z0-9._@:;$-]{1,256}$/.test(raw)) return false');
+    expect(widget).toContain('return root.show(chat) ? "shown" : "not a conversation id"');
+    // show() must report failure rather than the handler assuming success
+    expect(widget).toContain("if (!panelLoader.item) return false");
+  });
+
   test("read marks are queued and only applied after a successful load", () => {
     expect(widget).toContain("property var refreshQueue: []");
     expect(widget).not.toContain("property var queued: null");

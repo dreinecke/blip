@@ -86,13 +86,21 @@ BarWidget {
   function open() { if (panelLoader.item) panelLoader.item.open() }
   function close() { if (panelLoader.item) panelLoader.item.close() }
   function toggle() { if (panelLoader.item) panelLoader.item.toggle() }
+  /** Open a conversation by chat id. Returns false when the id is not one —
+   *  `goto ""` used to open a nameless thread with no header that nothing
+   *  could send to, and a script with an unset variable is how you get there.
+   *  The shape test is the one the toast's argv guard already uses; an id that
+   *  LOOKS like a handle but is unknown still opens, on purpose, so you can
+   *  start a conversation with a number you have never messaged. */
   function show(chat) {
-    if (!panelLoader.item) return
+    var raw = String(chat === undefined || chat === null ? "" : chat).trim()
+    if (raw === "" || !/^[A-Za-z0-9._@:;$-]{1,256}$/.test(raw)) return false
+    if (!panelLoader.item) return false
     panelLoader.item.open()
     // `qs ipc call` rejects a leading "+" as a flag, so accept the bare digits too.
     // Exact match FIRST, alias second: when both variants exist as threads,
     // the alias must never shadow the exact one (Codex HIGH, 1.2.0).
-    var want = String(chat)
+    var want = raw
     var t = null
     for (var i = 0; i < threads.length; i++) {
       if (String(threads[i].chat) === want) { t = threads[i]; break }
@@ -104,6 +112,7 @@ BarWidget {
     if (!t && /^[0-9]{10,}$/.test(want)) want = "+" + want
     // Unknown to the current window: still open it, with the id as the name.
     panelLoader.item.openThread(t || { chat: want, handle: want, name: want })
+    return true
   }
 
   /** Newest arriving link → the share sheet on whichever surface is open. */
@@ -817,7 +826,7 @@ BarWidget {
     function open(): void { root.open() }
     function close(): void { root.close() }
     function toggle(): void { root.toggle() }
-    function goto(chat: string): string { if (!root.automationOn) return root.automationOff; root.show(chat); return "shown" }
+    function goto(chat: string): string { if (!root.automationOn) return root.automationOff; return root.show(chat) ? "shown" : "not a conversation id" }
     function copycode(): string { if (!root.automationOn) return root.automationOff; return root.copyCode() }
     function typecode(): string { if (!root.automationOn) return root.automationOff; return root.typeCode() }
     function share(url: string): string { if (!root.automationOn) return root.automationOff; root.open(); return panelLoader.item ? panelLoader.item.shareLink(url) : "no panel" }
