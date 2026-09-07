@@ -37,12 +37,37 @@ describe("QML safety invariants", () => {
   });
 
   test("compose wraps at the box edge instead of scrolling sideways", () => {
+    // The width must come from the LAYOUT, never from the text: a bare
+    // TextArea's implicitWidth is the unwrapped line, so the RowLayout would
+    // grow with what you type and the caret would scroll sideways. It used to
+    // be anchors.fill on the slot; it is now the flickable's width, which is
+    // the slot's, which is the layout's.
     const start = panel.indexOf("id: composeField");
     expect(start).toBeGreaterThan(-1);
     const compose = panel.slice(Math.max(0, start - 80), start + 2800);
     expect(compose).toContain("TextArea {");
     expect(compose).toContain("wrapMode: TextEdit.Wrap");
-    expect(compose).toContain("anchors.fill: parent");
+    expect(compose).toContain("width: composeFlick.width");
+    expect(compose).not.toContain("implicitWidth:");
+  });
+
+  test("a long draft scrolls to the caret instead of growing past the panel", () => {
+    // The slot caps at five lines and clips. A TextArea scrolls to its caret
+    // ONLY inside a Flickable — anchored to fill the clipped slot it did not,
+    // so past the fifth line the text was laid out below the visible area and
+    // you typed blind (Fred, 2026-09-07).
+    expect(panel).toContain("id: composeFlick");
+    expect(panel).toContain("onCursorRectangleChanged: composeFlick.showCaret()");
+    const show = qmlFunction("showCaret");
+    expect(show).toContain("var c = composeField.cursorRectangle");
+    expect(show).toContain("if (c.y < contentY) contentY = Math.max(0, c.y)");
+    expect(show).toContain("contentY = Math.min(max, c.y + c.height - height)");
+    // a drag in the field is text selection, exactly as in the conversation
+    const flick = panel.slice(panel.indexOf("id: composeFlick"), panel.indexOf("id: composeField"));
+    expect(flick).toContain("interactive: false");
+    // the border is the slot's: inside the flickable it would scroll away
+    expect(panel).toContain("borderSpec: composeField._composeBorder");
+    expect(panel).toContain("background: null");
   });
 
   test("send completion owns immutable chat and draft context", () => {

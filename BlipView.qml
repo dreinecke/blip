@@ -3151,112 +3151,147 @@ FocusScope {
             }
             clip: true
 
-            TextArea {
-              id: composeField
+            // The border belongs to the SLOT, not the field: inside composeFlick
+            // the TextArea is as tall as its text, so a background there would
+            // scroll away and its rounded bottom edge would be clipped off.
+            BorderSurface {
               anchors.fill: parent
-              wrapMode: TextEdit.Wrap
-              // Every edit is kept under the open conversation, so switching
-              // threads does not lose it. A send clears the field and with it
-              // the draft; leaving a thread nulls active BEFORE clearing, so the
-              // draft stays. Loading a draft in openThread fires this too and
-              // writes the same text back, which is harmless.
-              onTextChanged: if (root.active) root.drafts[String(root.active.chat)] = text
-              // NEVER disabled: this field is the panel's exclusive keyboard-focus
-              // holder, and disabling the focused editor dismisses the whole
-              // panel (0.7.2 postmortem; Codex design review #8). readOnly
-              // instead; send() is the authoritative online/sendability guard.
-              enabled: true
-              readOnly: !root.online || !root.isSendable(root.active)
-              placeholderText: root.draftPath !== ""
-                ? "caption (optional) — Enter sends the file"
-                : root.isSendable(root.active) ? "iMessage" : "Read-only — group id unknown"
-              color: root.foreground
-              placeholderTextColor: Qt.darker(root.foreground, 1.6)
-              selectionColor: Style.selectionFillFor(root.foreground, root.mineFill)
-              selectedTextColor: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: root.fontBodySmall
-              readonly property var _composeBorder: Border.controlSpec(
-                activeFocus ? "focus" : (hovered ? "hover-cursor" : "normal"),
-                root.foreground, root.mineFill)
-              leftPadding: Style.spacing.controlPaddingX + Border.left(_composeBorder)
-              rightPadding: Style.spacing.controlPaddingX + Border.right(_composeBorder)
-              topPadding: Style.spacing.inputPaddingY + Border.top(_composeBorder)
-              bottomPadding: Style.spacing.inputPaddingY + Border.bottom(_composeBorder)
-              background: BorderSurface {
-                color: Style.controlFill(composeField.activeFocus, composeField.hovered, root.foreground, root.mineFill)
-                borderSpec: composeField._composeBorder
-                radius: Style.cornerRadius
+              color: Style.controlFill(composeField.activeFocus, composeField.hovered, root.foreground, root.mineFill)
+              borderSpec: composeField._composeBorder
+              radius: Style.cornerRadius
+            }
+
+            // A TextArea scrolls to its caret ONLY when it lives in a Flickable.
+            // Anchored to fill this clipped slot it did not: past the fifth line
+            // the text was still laid out, just below the visible area, and you
+            // typed blind (Fred, 2026-09-07).
+            Flickable {
+              id: composeFlick
+              anchors.fill: parent
+              contentWidth: width
+              contentHeight: composeField.height
+              // Same reason the conversation's Flickable is not interactive: a
+              // drag here IS text selection. The caret does the scrolling.
+              interactive: false
+              boundsBehavior: Flickable.StopAtBounds
+
+              /** Keep the caret inside the viewport, both directions. */
+              function showCaret() {
+                var c = composeField.cursorRectangle
+                var max = Math.max(0, contentHeight - height)
+                if (c.y < contentY) contentY = Math.max(0, c.y)
+                else if (c.y + c.height > contentY + height)
+                  contentY = Math.min(max, c.y + c.height - height)
+                else if (contentY > max) contentY = max
               }
-              // Esc drops a bubble selection first (back to the bottom), then
-              // leaves the thread — the two-step Esc a text selection gets.
-              Keys.onEscapePressed: if (root.shareUrl !== "") root.closeShare(); else if (root.bubbleCursor >= 0) root.leaveBubbles(); else root.back()
-              // Ctrl+V goes through paste.ts: an image on the clipboard becomes
-              // a draft chip; text falls through to a manual insert. One process
-              // snapshots types AND data — probing then re-reading races.
-              // Enter sends (iMessage); Shift+Enter inserts a newline.
-              Keys.onPressed: (event) => {
-                if (root.shareKey(event.key)) { event.accepted = true; return }
-                if (event.matches(StandardKey.Paste)) {
-                  event.accepted = true
-                  root.startPaste()
-                  return
-                }
-                // Reading history without the mouse: the compose field is the
-                // thread's focus holder, so the keys live here. An empty field
-                // has no caret for Up/Down to move; they select bubbles instead.
-                // The arrows are the bubbles' when there is no caret line to
-                // move to: Up from the first line of a draft (or an empty
-                // field), Down from the last line while a bubble is selected.
-                // Omarchy's own lists get this for free from single-line
-                // fields; the compose box is multi-line, hence the edge rule.
-                var empty = text.length === 0
-                var caret = cursorRectangle
-                var onFirstLine = empty || caret.y < topPadding + caret.height * 0.5
-                var onLastLine = empty || caret.y + caret.height > topPadding + contentHeight - caret.height * 0.5
-                if ((event.key === Qt.Key_Up && onFirstLine)
-                    || (event.key === Qt.Key_Down && onLastLine && root.bubbleCursor >= 0)) {
-                  event.accepted = true
-                  root.moveBubbleCursor(event.key === Qt.Key_Up ? -1 : 1)
-                  return
-                }
-                // PgUp/PgDn work with a draft in the field (they move no caret):
-                // a screen at a time, or one bubble at a time with Shift held.
-                if (event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown) {
-                  event.accepted = true
-                  var dir = event.key === Qt.Key_PageUp ? -1 : 1
-                  if (event.modifiers & Qt.ShiftModifier) root.moveBubbleCursor(dir)
-                  else root.pageBubbles(dir)
-                  return
-                }
-                // Actions on the selected bubble. Enter is free here: with no
-                // text and no queued file, send() would do nothing anyway.
-                var b = empty && root.draftPath === "" ? root.selectedBubble() : null
-                if (b) {
-                  if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { event.accepted = true; root.openBubble(b); return }
-                  if (event.matches(StandardKey.Copy)) { event.accepted = true; root.copyBubble(b); return }
-                  if (event.key === Qt.Key_R && (event.modifiers & Qt.ControlModifier)) { event.accepted = true; root.quoteBubble(b); return }
-                }
-                // Home/End select the oldest / newest bubble from an empty
-                // field, or once the caret already sits at the start / end
-                // of its line — the first press is the caret's, the second
-                // the bubbles' (the arrows' edge rule). Neighbour glyphs on
-                // another line mean a line edge, so wrapped lines count too.
-                var atLineStart = empty || cursorPosition === 0
-                  || positionToRectangle(cursorPosition - 1).y < caret.y - 1
-                var atLineEnd = empty || cursorPosition === length
-                  || positionToRectangle(cursorPosition + 1).y > caret.y + 1
-                if (((event.key === Qt.Key_Home && atLineStart) || (event.key === Qt.Key_End && atLineEnd))
-                    && root.bubbles.length > 0) {
-                  event.accepted = true
-                  root.bubbleCursor = event.key === Qt.Key_Home ? 0 : root.bubbles.length - 1
-                  root.revealBubbleCursor()
-                  return
-                }
-                if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
-                    && !(event.modifiers & Qt.ShiftModifier)) {
-                  event.accepted = true
-                  root.send()
+
+              TextArea {
+                id: composeField
+                width: composeFlick.width
+                // At least the viewport, so a click in empty space still lands in
+                // the field; taller than it once the text outgrows five lines.
+                height: Math.max(composeFlick.height, contentHeight + topPadding + bottomPadding)
+                background: null
+                onCursorRectangleChanged: composeFlick.showCaret()
+                wrapMode: TextEdit.Wrap
+                // Every edit is kept under the open conversation, so switching
+                // threads does not lose it. A send clears the field and with it
+                // the draft; leaving a thread nulls active BEFORE clearing, so the
+                // draft stays. Loading a draft in openThread fires this too and
+                // writes the same text back, which is harmless.
+                onTextChanged: if (root.active) root.drafts[String(root.active.chat)] = text
+                // NEVER disabled: this field is the panel's exclusive keyboard-focus
+                // holder, and disabling the focused editor dismisses the whole
+                // panel (0.7.2 postmortem; Codex design review #8). readOnly
+                // instead; send() is the authoritative online/sendability guard.
+                enabled: true
+                readOnly: !root.online || !root.isSendable(root.active)
+                placeholderText: root.draftPath !== ""
+                  ? "caption (optional) — Enter sends the file"
+                  : root.isSendable(root.active) ? "iMessage" : "Read-only — group id unknown"
+                color: root.foreground
+                placeholderTextColor: Qt.darker(root.foreground, 1.6)
+                selectionColor: Style.selectionFillFor(root.foreground, root.mineFill)
+                selectedTextColor: root.foreground
+                font.family: root.fontFamily
+                font.pixelSize: root.fontBodySmall
+                readonly property var _composeBorder: Border.controlSpec(
+                  activeFocus ? "focus" : (hovered ? "hover-cursor" : "normal"),
+                  root.foreground, root.mineFill)
+                leftPadding: Style.spacing.controlPaddingX + Border.left(_composeBorder)
+                rightPadding: Style.spacing.controlPaddingX + Border.right(_composeBorder)
+                topPadding: Style.spacing.inputPaddingY + Border.top(_composeBorder)
+                bottomPadding: Style.spacing.inputPaddingY + Border.bottom(_composeBorder)
+                // Esc drops a bubble selection first (back to the bottom), then
+                // leaves the thread — the two-step Esc a text selection gets.
+                Keys.onEscapePressed: if (root.shareUrl !== "") root.closeShare(); else if (root.bubbleCursor >= 0) root.leaveBubbles(); else root.back()
+                // Ctrl+V goes through paste.ts: an image on the clipboard becomes
+                // a draft chip; text falls through to a manual insert. One process
+                // snapshots types AND data — probing then re-reading races.
+                // Enter sends (iMessage); Shift+Enter inserts a newline.
+                Keys.onPressed: (event) => {
+                  if (root.shareKey(event.key)) { event.accepted = true; return }
+                  if (event.matches(StandardKey.Paste)) {
+                    event.accepted = true
+                    root.startPaste()
+                    return
+                  }
+                  // Reading history without the mouse: the compose field is the
+                  // thread's focus holder, so the keys live here. An empty field
+                  // has no caret for Up/Down to move; they select bubbles instead.
+                  // The arrows are the bubbles' when there is no caret line to
+                  // move to: Up from the first line of a draft (or an empty
+                  // field), Down from the last line while a bubble is selected.
+                  // Omarchy's own lists get this for free from single-line
+                  // fields; the compose box is multi-line, hence the edge rule.
+                  var empty = text.length === 0
+                  var caret = cursorRectangle
+                  var onFirstLine = empty || caret.y < topPadding + caret.height * 0.5
+                  var onLastLine = empty || caret.y + caret.height > topPadding + contentHeight - caret.height * 0.5
+                  if ((event.key === Qt.Key_Up && onFirstLine)
+                      || (event.key === Qt.Key_Down && onLastLine && root.bubbleCursor >= 0)) {
+                    event.accepted = true
+                    root.moveBubbleCursor(event.key === Qt.Key_Up ? -1 : 1)
+                    return
+                  }
+                  // PgUp/PgDn work with a draft in the field (they move no caret):
+                  // a screen at a time, or one bubble at a time with Shift held.
+                  if (event.key === Qt.Key_PageUp || event.key === Qt.Key_PageDown) {
+                    event.accepted = true
+                    var dir = event.key === Qt.Key_PageUp ? -1 : 1
+                    if (event.modifiers & Qt.ShiftModifier) root.moveBubbleCursor(dir)
+                    else root.pageBubbles(dir)
+                    return
+                  }
+                  // Actions on the selected bubble. Enter is free here: with no
+                  // text and no queued file, send() would do nothing anyway.
+                  var b = empty && root.draftPath === "" ? root.selectedBubble() : null
+                  if (b) {
+                    if (event.key === Qt.Key_Return || event.key === Qt.Key_Enter) { event.accepted = true; root.openBubble(b); return }
+                    if (event.matches(StandardKey.Copy)) { event.accepted = true; root.copyBubble(b); return }
+                    if (event.key === Qt.Key_R && (event.modifiers & Qt.ControlModifier)) { event.accepted = true; root.quoteBubble(b); return }
+                  }
+                  // Home/End select the oldest / newest bubble from an empty
+                  // field, or once the caret already sits at the start / end
+                  // of its line — the first press is the caret's, the second
+                  // the bubbles' (the arrows' edge rule). Neighbour glyphs on
+                  // another line mean a line edge, so wrapped lines count too.
+                  var atLineStart = empty || cursorPosition === 0
+                    || positionToRectangle(cursorPosition - 1).y < caret.y - 1
+                  var atLineEnd = empty || cursorPosition === length
+                    || positionToRectangle(cursorPosition + 1).y > caret.y + 1
+                  if (((event.key === Qt.Key_Home && atLineStart) || (event.key === Qt.Key_End && atLineEnd))
+                      && root.bubbles.length > 0) {
+                    event.accepted = true
+                    root.bubbleCursor = event.key === Qt.Key_Home ? 0 : root.bubbles.length - 1
+                    root.revealBubbleCursor()
+                    return
+                  }
+                  if ((event.key === Qt.Key_Return || event.key === Qt.Key_Enter)
+                      && !(event.modifiers & Qt.ShiftModifier)) {
+                    event.accepted = true
+                    root.send()
+                  }
                 }
               }
             }
