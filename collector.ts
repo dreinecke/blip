@@ -1032,7 +1032,7 @@ export function fetchMessages(limit: number, runner = spawnSync): FetchResult {
 
   if (res.error) {
     // spawn itself failed: ~/bin/imsg missing (run blip-setup) or not executable
-    return { ok: false, online: false, error: `cannot run ~/bin/imsg: ${(res.error as Error).message}`, msgs: [] };
+    return { ok: false, online: false, error: `cannot run ~/bin/imsg: ${(res.error as Error).message}`, msgs: [], fetchedCount: 0 };
   }
   if (res.status === null) {
     // killed by our timeout — a Mac asleep behind a live ControlMaster looks exactly like this
@@ -1050,7 +1050,7 @@ export function fetchMessages(limit: number, runner = spawnSync): FetchResult {
     if (!Array.isArray(parsed)) throw new Error("not an array");
     return { ok: true, online: true, error: "", msgs: (parsed as ImsgMessage[]).filter(hasIdentity), fetchedCount: parsed.length };
   } catch (e) {
-    return { ok: false, online: true, error: `bad JSON from imsg: ${e}`, msgs: [] };
+    return { ok: false, online: true, error: `bad JSON from imsg: ${e}`, msgs: [], fetchedCount: 0 };
   }
 }
 
@@ -1385,6 +1385,15 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
       failures: [],
       links: [],
       persisted: true,
+      // Reported on the failure path too: it comes from a local file, needs no
+      // Mac, and "why are reads not reaching my phone" is asked precisely when
+      // something is broken. Without it `status` says read_push=? exactly then.
+      readPush: pushReadPolicy(),
+      // The widget guards both with Array.isArray/=== true, so these were never
+      // a crash — but BlipOutput declares them required and this return did not
+      // carry them, so the type was lying about the failure path.
+      codes: [],
+      deep: false,
     };
   }
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.4.0 — 2026-09-08 — read it from the keyboard, send without the wait
 
 - **Reading a conversation can now clear it on your phone.** `push_read` in
   `bridge.conf` gained a documented middle setting and a status surface. The
@@ -93,6 +93,47 @@
   a moment before Enter counts, so an Enter meant to send never opens the link
   that just landed. A message with several links offers them all, whether
   sent, received or opened with Enter, and ←/→ step through them.
+- **Full audit (four Codex gpt-6-astra auditors, one per area), thirty-eight
+  verified fixes.** Forty findings, each checked against the code before
+  anything changed; two ruled out. The ones worth naming: an unmapped media
+  MIME kept the *sender's* file extension, so "evil.desktop" with an image MIME
+  reached `xdg-open` — the extension is ours now, `.bin` when unmapped; search
+  text rode argv on both machines and now goes stdin end to end; a message
+  dated tomorrow became the global read mark and suppressed every toast until
+  then; `blip-setup` accepted a host beginning with `-` and ran ssh without
+  `--`, so `host=-Fssh_config` reached ssh as an option; the demo harness would
+  `rm -rf` whatever `BLIP_DEMO_HOME` pointed at, and now refuses anything
+  without a marker file it wrote itself, `$HOME` and the repo outright; a
+  crafted app-card archive cost about a billion decoder iterations; and the
+  consent probes still cut macOS's Automation prompt short at 20 and 60
+  seconds, which TCC records as a denial.
+
+- **The panel and the app window agree about links, and Esc no longer eats a
+  draft.** Esc over the share sheet used to clear the compose field underneath
+  it, overlapping QR jobs published the wrong image, and a security code could
+  outlive its five minutes in the toast path.
+
+- **A long draft scrolls instead of typing off the bottom.** The compose box
+  caps at five lines and clips, but a `TextArea` follows its caret only inside
+  a `Flickable` — anchored to fill the clipped slot it kept laying text out
+  below the visible area, so past the fifth line you were typing blind.
+
+- **IPC `window` could never report a window it had just shown.** `ensureWindow()`
+  defers the real `visible = true`, so the handler read a property that had not
+  settled and answered "window hidden" on both paths. It reports what it did now.
+
+- **`goto` refuses an id that is not one.** `goto ""` opened a nameless thread
+  with no header that nothing could send to — a script with an unset variable
+  is how you get there. The share sheet also outlived the conversation it
+  belonged to: it opens by itself on an arriving link, and nothing dismissed it
+  when you navigated, so it floated over the next conversation offering a QR
+  for a link no longer on screen.
+
+- **The demo harness renders on the overlay layer** and no longer shares the
+  real runtime directory, so making the README screenshots cannot touch your
+  contacts dump, drafts or QR files. `undefined/st.json`, a test artifact
+  committed at 2.2.0, is gone from the repo.
+
 - **Bug hunt (Codex, gpt-6-astra), fourteen fixes.** A 2FA code was written
   to Omarchy's on-disk notification history — the daemon persists every
   displayed toast regardless of the `transient` hint — so the toast now says a

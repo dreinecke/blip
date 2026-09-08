@@ -1456,6 +1456,18 @@ describe("the read-push policy is reported, not just applied", () => {
     expect(pushReadArgs("thread", { markRead: false, readChat: "ce5a593a78af408282d61461ade89135" })).toBeNull();
     expect(pushReadArgs("thread", { markRead: false, readChat: "chat224479848698394295" })).toBeNull();
   });
+  test("the failure path still reports the policy and the guarded arrays", () => {
+    // status says read_push=? exactly when something is broken, unless the
+    // offline return carries it too — and BlipOutput declares codes/deep
+    // required, which that return did not satisfy (found by typechecking,
+    // 2026-09-08; the widget's Array.isArray guards meant it never crashed).
+    const src = readFileSync(new URL("./collector.ts", import.meta.url), "utf8");
+    const offline = src.slice(src.indexOf("if (!fetched.ok) {"), src.indexOf("const highest = maxTs("));
+    expect(offline).toContain("readPush: pushReadPolicy()");
+    expect(offline).toContain("codes: []");
+    expect(offline).toContain("deep: false");
+  });
+
   test("off pushes nothing at all", () => {
     expect(pushReadArgs("off", { markRead: true, readChat: "" })).toBeNull();
   });

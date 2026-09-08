@@ -113,6 +113,21 @@ what it is handed. Keep it that way.
   with the physical modifiers still held from the hotkey, and the digits
   fired Super+Shift+<digit> binds (found the hard way, 2026-09-04). Never a
   group, never the self-thread, once per message through the `code:` ring.
+- **A per-thread read push fires on the TRANSITION, not on the poll.** Every
+  poll while a thread is open carries its `readChat` (that is what stops a
+  message landing in the open conversation from flashing unread), so
+  `pushReadArgs` gates `--chat` on `clearedUnread` — did THIS run turn unread
+  into read? Without it the Mac was told once per poll, and each telling opens
+  the conversation there, because aiming Messages' menu at one chat means
+  opening it: five ssh round trips a minute, four of them "nothing unread"
+  (measured 2026-09-08). Consequence to keep in mind: a conversation Blip
+  already considers read but Apple still counts unread is never pushed
+  per-thread; `--all` is what clears those. `push_read` defaults to `all`,
+  which pushes ONLY on the mark-all gesture — reading a thread then leaves the
+  iPhone badge alone, which looks exactly like a broken push, so `status`
+  reports the live policy as `read_push=`. The watcher field beside it is
+  `watch=`; it was called `push=` until 2.4.0 and the collision sent a
+  diagnosis the wrong way.
 - **No message content in state.json.** `~/.local/state/blip/state.json` holds
   timestamps, counts, opaque SHA-256 toast keys, self-chat ids, and group
   metadata. It is atomic and `0600`; no message bodies are allowed. EXCEPTION

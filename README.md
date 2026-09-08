@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-2.3.3-0a84ff?style=flat-square">
+  <img alt="version" src="https://img.shields.io/badge/version-2.4.0-0a84ff?style=flat-square">
   <img alt="Omarchy" src="https://img.shields.io/badge/Omarchy-plugin-5fd7ff?style=flat-square">
   <img alt="QuickShell" src="https://img.shields.io/badge/QuickShell-QML-0a84ff?style=flat-square">
   <img alt="bun" src="https://img.shields.io/badge/bun-TypeScript-f9f1e1?style=flat-square">
@@ -153,6 +153,8 @@ Linux side. If the Mac is asleep, the widget dims and says so.
 - `omarchy-shell shell toggle nixfred.blip` opens and closes the panel the way
   Omarchy's own panels do, so a stock binding in `~/.config/hypr/bindings.lua`
   is all it takes — `o.bind("SUPER + CTRL + M", "Blip", "omarchy-shell shell toggle nixfred.blip")`.
+  (The bar finds a widget's panel through `open()`, `close()` and an `opened`
+  property; without the last one every panel hotkey silently skips the plugin.)
   Omarchy's `SUPER+CTRL+<n>` (panel *n* in the bar's right section) reaches
   it too. On a multi-monitor bar the panel lives on the first screen's copy.
 
