@@ -176,7 +176,7 @@ BarWidget {
     }
     // A fresh BlipWindow honours window.json (which may say hidden) — this
     // call means SHOW, so make it so once its restore pass has run.
-    Qt.callLater(function() { if (windowLoader.item && !windowLoader.item.visible) windowLoader.item.visible = true })
+    Qt.callLater(function() { if (windowLoader.item) windowLoader.item.requestShow() })
   }
   /** Toggle the app window. Returns what it just DID, not what windowVisible
    *  says: ensureWindow() defers the actual `visible = true` to a callLater
