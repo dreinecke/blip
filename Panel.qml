@@ -68,7 +68,7 @@ Panel {
     // The floor keeps the panel usable if a mode flip's relayout ever lags
     // again — search/new modes always have at least a field to show.
     contentHeight: panel.fittedContentHeight(
-      view.inThread ? Style.space(640)
+      view.contactsOpen || view.inThread ? Style.space(640)
         : Math.max(view.contentHeightHint,
                    (view.newMode || view.searching) ? Style.space(280) : 0),
       Style.space(640))

@@ -360,6 +360,7 @@ FocusScope {
     return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase()
   }
 
+  readonly property bool contactsOpen: contactReview.opened
   readonly property bool inThread: active !== null && !contactReview.opened
   // last_ts of the open conversation as of its last load — the push watcher
   // refreshes the thread list, and when OUR thread advances, the bubbles

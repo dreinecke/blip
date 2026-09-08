@@ -112,7 +112,7 @@ FocusScope {
     RowLayout {
       Layout.fillWidth: true
       PanelActionButton {
-        iconText: "←"; tooltipText: "Back"; enabled: !root.busy
+        iconText: "←"; tooltipText: "Back"; enabled: !root.busy; focusable: true
         foreground: root.foreground; hoverColor: root.accent
         onClicked: root.back()
       }
@@ -123,16 +123,11 @@ FocusScope {
         font.family: root.fontFamily; font.pixelSize: root.fontSize + 2; font.bold: true
         elide: Text.ElideRight
       }
-      QQC.Button { text: "Scan contacts"; enabled: !root.busy; onClicked: root.scan() }
-      PanelActionButton {
-        iconText: "×"; tooltipText: "Close contact review"
-        foreground: root.foreground; hoverColor: root.accent
-        onClicked: root.close()
-      }
+
     }
     Text {
       Layout.fillWidth: true
-      text: "Review matching cards here. Make changes in Contacts on your Mac."
+      text: "Matching cards from Mac Contacts."
       textFormat: Text.PlainText; wrapMode: Text.WordWrap
       color: Qt.darker(root.foreground, 1.4)
       font.family: root.fontFamily; font.pixelSize: root.fontSize
@@ -186,10 +181,12 @@ FocusScope {
                 wrapMode: Text.WordWrap; color: Qt.darker(root.foreground, 1.3)
                 font.family: root.fontFamily; font.pixelSize: root.fontSize
               }
-              QQC.Button {
-                Layout.alignment: Qt.AlignRight
+              ContactButton {
+                Layout.fillWidth: true
+                foreground: root.foreground; accent: root.accent
+                fontFamily: root.fontFamily; fontSize: root.fontSize
                 enabled: !root.busy
-                text: modelData.action === "open" ? "Open in Contacts on Mac" : "Review"
+                text: modelData.action === "open" ? "Open on Mac ↗" : "Review"
                 onClicked: {
                   if (modelData.action === "candidates" && root.model.view !== "cards") root.overview = root.model
                   root.request(modelData.action, { handle: modelData.handle, token: modelData.token })
@@ -200,5 +197,14 @@ FocusScope {
         }
       }
     }
+    ContactButton {
+      Layout.fillWidth: true
+      text: "Scan contacts"
+      enabled: !root.busy
+      foreground: root.foreground; accent: root.accent
+      fontFamily: root.fontFamily; fontSize: root.fontSize
+      onClicked: root.scan()
+    }
+
   }
 }
