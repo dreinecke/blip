@@ -43,6 +43,11 @@ BarWidget {
   property int unread: 0
   property bool online: false        // the Mac is reachable
   property bool healthy: false       // last collector run parsed cleanly
+  // Which reads reach the Mac, straight from the collector (bridge.conf's
+  // push_read). "all" is the default and pushes ONLY on the mark-all gesture,
+  // so reading a conversation clears it here and leaves the phone's badge —
+  // by design, and indistinguishable from a broken push until status said so.
+  property string readPush: ""
   property string lastError: ""
   property string lastRun: ""
   // Unsent compose text per chat id, shared by the panel and the app window.
@@ -427,6 +432,7 @@ BarWidget {
           root.online = d.online === true
           root.lastError = String(d.error || "")
           root.lastRun = String(d.ts || "")
+          if (typeof d.readPush === "string") root.readPush = d.readPush
           if (d.ok === true) {
             // Filter through the optimistic-read ledger: a poll that was
             // already in flight when the user opened a thread must not
@@ -823,7 +829,8 @@ BarWidget {
       return "online=" + root.online + " unread=" + root.unread + " leader=" + root.leader
         + " window=" + (w && w.visible ? (w.focused ? "focused" : "unfocused") : "hidden")
         + " threads=" + root.threads.length + " healthy=" + root.healthy
-        + " push=" + root.watchAlive
+        + " watch=" + root.watchAlive
+        + " read_push=" + (root.readPush !== "" ? root.readPush : "?")
         + (root.lastError !== "" ? " error=" + root.lastError : "")
     }
     function threads(): string { return root.automationOn ? JSON.stringify(root.threads) : root.automationOff }

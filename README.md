@@ -184,7 +184,7 @@ Linux side. If the Mac is asleep, the widget dims and says so.
 **Real-time**
 - a push watcher on the Mac pings when chat.db changes — messages land in
   ~2 s, the open conversation refreshes itself, and the poll drops to a
-  60 s safety net (`status` shows `push=true`)
+  60 s safety net (`status` shows `watch=true`)
 
 </td>
 </tr>
@@ -559,9 +559,18 @@ in that menu reports *disabled* — which used to read as "nothing unread" and
 silently did nothing. Blip now checks what Messages itself counts as unread in
 `chat.db` before and after, and when the menu is dormant it activates Messages
 for well under a second, clicks, and hands focus straight back to whatever you
-had in front. `push_read=off` in `bridge.conf` turns the whole thing off. Every
-push records its outcome in `~/.local/state/blip/push-read.log` (no message
-content), so "did that reach the Mac?" has an answer.
+had in front.
+
+`push_read` in `bridge.conf` takes three values, and the default surprises
+people: **`all`** (the default) pushes *only* on the mark-all gesture, so
+reading one conversation in Blip clears its dot here and leaves your iPhone's
+badge alone. **`thread`** also pushes each conversation you open — DMs only,
+since a group has no `imessage://` form — at the cost of bringing Messages to
+the front on the Mac, because aiming that menu at one conversation means
+opening it. **`off`** keeps the Mac out of it entirely. `qs ipc call
+nixfred.blip status` reports the live value as `read_push=`. Every push records
+its outcome in `~/.local/state/blip/push-read.log` (no message content), so
+"did that reach the Mac?" has an answer.
 
 **Groups send by GUID.** Message rows carry a group as a bare
 `chat_identifier` (32 hex, or `chat<digits>`); AppleScript's `chat id` wants

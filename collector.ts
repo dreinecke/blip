@@ -178,6 +178,9 @@ export interface BlipOutput {
    *  poll window's rows — the widget overlays a shallow result onto its last
    *  deep one instead of replacing it. */
   deep: boolean;
+  /** Which reads are pushed to the Mac: "off", "all" (the mark-all gesture
+   *  only — the default) or "thread" (also each conversation you open). */
+  readPush: PushRead;
 }
 
 // ---------------------------------------------------------------- state I/O
@@ -873,11 +876,15 @@ export function pushReadPolicy(path = BRIDGE_CONF): PushRead {
 /** What to hand `imsg-read`, or null when this run should tell the Mac nothing. */
 export function pushReadArgs(
   policy: PushRead,
-  opts: { markRead: boolean; readChat: string },
+  opts: { markRead: boolean; readChat: string; clearedUnread?: boolean },
 ): string[] | null {
   if (policy === "off") return null;
   if (opts.markRead) return ["--all"];
   if (policy !== "thread") return null;
+  // Only when this run turned unread into read. A poll that cleared nothing
+  // has nothing to tell the Mac, and telling it anyway opens the conversation
+  // there — once per poll for as long as the thread stays open.
+  if (opts.clearedUnread === false) return null;
   const chat = String(opts.readChat || "");
   // Groups have no imessage:// form, so only a DM can be aimed at.
   if (!/^\+?[0-9]{3,15}$/.test(chat) && !/^[^@\s]+@[^@\s]+$/.test(chat)) return null;
@@ -1442,10 +1449,19 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
       }
     }
   }
+  // Did THIS run actually turn unread into read for the chat being viewed?
+  // Every poll while a thread is open carries its readChat (that is what keeps
+  // a message landing in the open conversation from flashing unread), so
+  // without this the Mac was told again on every single poll. Each of those
+  // costs an ssh AND pulls Messages to the front, because aiming its menu at
+  // one conversation means opening it — five pushes in one minute, four of
+  // them "nothing unread" (measured, 2026-09-08).
+  let clearedUnread = false;
   if (markRead) {
     exactCounts = {};
     exactOldest = {};
   } else if (readChat) {
+    clearedUnread = (exactCounts[readChat] ?? 0) > 0;
     delete exactCounts[readChat];
     delete exactOldest[readChat];
   }
@@ -1468,6 +1484,9 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   if (readChat) {
     for (const a of aliasesOf(chatAliases, readChat)) {
       if (readSeen > readMark) readMarks[a] = readSeen;   // same prune rule as the canonical
+      // An alias carrying the unread counts too: reading the canonical row
+      // cleared it, so the Mac is worth telling.
+      if ((exactCounts[a] ?? 0) > 0) clearedUnread = true;
       delete exactCounts[a];
       delete exactOldest[a];
     }
@@ -1506,7 +1525,8 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
 
   // Only after the local state is committed: if the write failed the user
   // will be asked to read these again, and the Mac must agree.
-  if (persisted) pushRead(pushReadArgs(pushReadPolicy(), { markRead, readChat }));
+  const readPush = pushReadPolicy();
+  if (persisted) pushRead(pushReadArgs(readPush, { markRead, readChat, clearedUnread }));
 
   const warning = !persisted
     ? "state write failed; notifications paused"
@@ -1525,6 +1545,12 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     codes: persisted ? codes : [],
     persisted,
     deep: chats !== null,
+    // Which reads reach the Mac. Surfaced so `status` can say it: the default
+    // ("all") pushes ONLY on the mark-all gesture, so reading a conversation
+    // clears it here and leaves the iPhone's badge alone — correct by design
+    // and impossible to tell apart from a broken push without this (Fred,
+    // 2026-09-08: "they are not marking them read on my iphone").
+    readPush,
   };
 }
 

@@ -172,6 +172,17 @@ describe("QML safety invariants", () => {
     expect(widget).not.toContain('/^[0-9]+$/.test(want)');
   });
 
+  test("status names the read-push policy, and does not call the watcher a push", () => {
+    // `push=` was the message WATCHER; read-pushing had no status surface at
+    // all, so "reads are not reaching my phone" could not be told apart from a
+    // policy that was never going to push (Fred, 2026-09-08). The default,
+    // "all", pushes only on the mark-all gesture.
+    expect(widget).toContain('+ " watch=" + root.watchAlive');
+    expect(widget).toContain('+ " read_push=" + (root.readPush !== "" ? root.readPush : "?")');
+    expect(widget).not.toContain('" push=" + root.watchAlive');
+    expect(widget).toContain('if (typeof d.readPush === "string") root.readPush = d.readPush');
+  });
+
   test("IPC window reports what it did, not a property that has not settled", () => {
     // ensureWindow() defers `visible = true` to a callLater, so reading
     // windowVisible straight after showing still says hidden: `window` answered

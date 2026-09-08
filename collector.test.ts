@@ -1438,3 +1438,40 @@ describe("search stdin payload (Astra B#2)", () => {
     expect(parseStdinPayload("garbage", true)).toEqual({ query: "", threads: [] });
   });
 });
+
+describe("the read-push policy is reported, not just applied", () => {
+  const { pushReadArgs } = require("./collector.ts");
+  test("the default pushes only on mark-all, never on opening a conversation", () => {
+    // This is why reads did not reach the phone: correct by design, and
+    // invisible until collect() started reporting the policy (Fred, 2026-09-08).
+    expect(pushReadArgs("all", { markRead: false, readChat: "+15550100001" })).toBeNull();
+    expect(pushReadArgs("all", { markRead: true, readChat: "" })).toEqual(["--all"]);
+  });
+  test("thread pushes a DM you open, but never a group", () => {
+    expect(pushReadArgs("thread", { markRead: false, readChat: "+15550100001" }))
+      .toEqual(["--chat", "+15550100001"]);
+    expect(pushReadArgs("thread", { markRead: false, readChat: "pat@example.com" }))
+      .toEqual(["--chat", "pat@example.com"]);
+    // 32-hex and chat<digits> have no imessage:// form
+    expect(pushReadArgs("thread", { markRead: false, readChat: "ce5a593a78af408282d61461ade89135" })).toBeNull();
+    expect(pushReadArgs("thread", { markRead: false, readChat: "chat224479848698394295" })).toBeNull();
+  });
+  test("off pushes nothing at all", () => {
+    expect(pushReadArgs("off", { markRead: true, readChat: "" })).toBeNull();
+  });
+
+  test("a poll that cleared nothing does not re-open the conversation on the Mac", () => {
+    // Every poll while a thread is open carries its readChat, so this gate is
+    // the difference between one push and one per poll — and each push pulls
+    // Messages to the front, because aiming its menu at one conversation means
+    // opening it. Measured before the gate: five pushes in a minute, four of
+    // them "nothing unread".
+    const dm = { markRead: false, readChat: "+15550100001" };
+    expect(pushReadArgs("thread", { ...dm, clearedUnread: true })).toEqual(["--chat", "+15550100001"]);
+    expect(pushReadArgs("thread", { ...dm, clearedUnread: false })).toBeNull();
+    // absent means "caller did not say" — push, so an old caller keeps working
+    expect(pushReadArgs("thread", dm)).toEqual(["--chat", "+15550100001"]);
+    // mark-all is never gated: it is an explicit gesture, not a side effect
+    expect(pushReadArgs("all", { markRead: true, readChat: "", clearedUnread: false })).toEqual(["--all"]);
+  });
+});

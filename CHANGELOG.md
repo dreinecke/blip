@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+- **Reading a conversation can now clear it on your phone.** `push_read` in
+  `bridge.conf` gained a documented middle setting and a status surface. The
+  default, `all`, pushes to the Mac *only* on the mark-all gesture — so reading
+  one thread in Blip cleared its dot here and left the iPhone badge alone,
+  which looked exactly like a broken push. `push_read=thread` also pushes each
+  DM you open (groups have no `imessage://` form, so they still need mark-all).
+  A per-thread push now fires only when that run actually turned unread into
+  read: every poll while a thread is open carries its readChat, and pushing on
+  each one meant five ssh round trips a minute, four of them "nothing unread",
+  each pulling Messages to the front of the Mac. `status` reports the live
+  policy as `read_push=`, and the field that used to read `push=` is now
+  `watch=` — it was always the message watcher, never read-pushing, and the
+  collision is what made this undiagnosable.
+
 - **Pinned avatars no longer grow on the first cursor move.** The tiles were
   measured before the grid had its width, and the layout kept that small size
   until the next relayout; the size is now a layout hint, so they render at
