@@ -405,6 +405,24 @@ Messages, Blip simply stops showing them.
 > opt-out footers are safe because nobody types them at you; a common word is
 > not.
 
+**Spam and unknown senders** — iPhone Messages keeps a Spam folder (and,
+when Filter Unknown Senders is on, a separate unknown-senders list). Those
+chats are still unread rows in `chat.db` (`is_filtered = 2` and `1`), so
+Blip's badge used to disagree with the phone. Hide them the way the phone
+does:
+
+```
+# ~/.config/blip/bridge.conf — the shim re-reads this every call
+hide_spam=on
+hide_unknown=on
+```
+
+Either key, or both. Default is off. This is the folder, not a phrase: a
+fundraising blast that Messages left in the inbox still needs the mute list.
+Needs a `blip-setup` re-run (or a copy of `bridge/mac/imsg` to the Mac)
+so `--hide-spam` / `--hide-unknown` exist on the far side.
+
+
 **Outside North America:** set `country_code=44` (etc.) in
 `~/.config/blip/bridge.conf` so a number typed without a country code in
 "New message" resolves correctly. Contacts saved without a country code

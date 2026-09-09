@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- **`hide_spam` / `hide_unknown` in `bridge.conf`.** The iPhone Messages badge
+  ignores conversations Apple filed under Spam (`chat.is_filtered = 2`) and
+  Filter Unknown Senders (`= 1`). Blip read the same `chat.db` and counted
+  them, so the bar could show 3 while the phone showed 0. Set `hide_spam=on`
+  and/or `hide_unknown=on` to drop those chats at the Mac query — no sidebar
+  row, no unread, no toast. Default is off (previous behaviour). The mute list
+  is still the knob for a sender who is *not* in those folders. Re-run
+  `blip-setup` so the Mac `imsg` and the Linux shim pick up the flags.
+
 ## 2.4.0 — 2026-09-08 — read it from the keyboard, send without the wait
 
 - **Reading a conversation can now clear it on your phone.** `push_read` in

@@ -925,6 +925,47 @@ def render(rows, as_json: bool, with_names: bool = True, con=None, rich: bool = 
 #   cmd_groups reads the raw table for that.
 HIDE_DELETED = os.environ.get("IMSG_INCLUDE_DELETED") != "1"
 
+# chat.is_filtered (macOS / iOS Messages): 0 inbox, 1 Filter Unknown Senders,
+# 2 Spam. The iPhone badge ignores 1 and 2; Blip used to count them. Opt-in
+# via --hide-spam / --hide-unknown (the Linux shim sets these from bridge.conf).
+_CHAT_COLS: set[str] | None = None
+
+
+def _chat_has_col(con, name: str) -> bool:
+    global _CHAT_COLS
+    if _CHAT_COLS is None:
+        _CHAT_COLS = {r[1] for r in con.execute("PRAGMA table_info(chat)")}
+    return name in _CHAT_COLS
+
+
+def filtered_chat_predicate(hide_spam: bool, hide_unknown: bool, has_is_filtered: bool) -> str:
+    """Boolean SQL over alias `c` (chat). Empty when there is nothing to hide.
+
+    LEFT JOIN chat: keep rows with no chat so a handle-only SMS still appears.
+    """
+    if not has_is_filtered:
+        return ""
+    skip: list[str] = []
+    if hide_unknown:
+        skip.append("1")
+    if hide_spam:
+        skip.append("2")
+    if not skip:
+        return ""
+    return f"(c.ROWID IS NULL OR c.is_filtered NOT IN ({', '.join(skip)}))"
+
+
+def chat_filter_sql(con, args, *, already_where: bool) -> str:
+    pred = filtered_chat_predicate(
+        bool(getattr(args, "hide_spam", False)),
+        bool(getattr(args, "hide_unknown", False)),
+        _chat_has_col(con, "is_filtered"),
+    )
+    if not pred:
+        return ""
+    return (" AND " if already_where else " WHERE ") + pred
+
+
 
 def message_src(has_recently_deleted: bool) -> str:
     where = ["item_type = 0"]
@@ -967,7 +1008,8 @@ def base_select(con) -> str:
 
 def cmd_recent(con, args):
     rows = con.execute(
-        base_select(con) + " ORDER BY m.date DESC LIMIT ?", (args.n,)
+        base_select(con) + chat_filter_sql(con, args, already_where=False)
+        + " ORDER BY m.date DESC LIMIT ?", (args.n,)
     ).fetchall()
     render(reversed(rows) if args.chrono else rows, args.json,
            with_names=not args.no_names, con=con, rich=args.rich)
@@ -1047,9 +1089,11 @@ def cmd_search(con, args):
     rows = con.execute(
         base_select(con)
         + f"""
-        WHERE m.text LIKE ?
-           OR (m.attributedBody IS NOT NULL AND ({blob_or}))
-        ORDER BY m.date DESC LIMIT ?""",
+        WHERE (m.text LIKE ?
+           OR (m.attributedBody IS NOT NULL AND ({blob_or})))
+        """
+        + chat_filter_sql(con, args, already_where=True)
+        + " ORDER BY m.date DESC LIMIT ?",
         (f"%{args.query}%", *needles, args.n),
     ).fetchall()
     render(reversed(rows) if args.chrono else rows, args.json,
@@ -1094,6 +1138,7 @@ def cmd_chats(con, args):
     # original_group_id is absent on older chat.db schemas; probe once.
     chat_cols = {row[1] for row in con.execute("PRAGMA table_info(chat)")}
     orig_col = "c.original_group_id" if "original_group_id" in chat_cols else "NULL"
+    filt = chat_filter_sql(con, args, already_where=False)
     rows = con.execute(
         f"""
         SELECT c.ROWID AS cid, c.chat_identifier, c.guid, c.group_id,
@@ -1103,6 +1148,7 @@ def cmd_chats(con, args):
         FROM chat c
         LEFT JOIN chat_message_join cmj ON cmj.chat_id = c.ROWID
         LEFT JOIN {MESSAGE_SRC} m ON m.ROWID = cmj.message_id
+        {filt}
         GROUP BY c.ROWID
         HAVING n > 0
         ORDER BY last_date DESC
@@ -1923,11 +1969,17 @@ def main() -> None:
     common.add_argument("--rich", action="store_true", default=argparse.SUPPRESS,
                         help="JSON only: fold tapbacks onto their targets and add "
                              "read_at/edited/retracted/reply_to/attachments/effect/audio")
+    common.add_argument("--hide-spam", action="store_true", default=argparse.SUPPRESS,
+                        help="omit chats with is_filtered=2 (iPhone Spam)")
+    common.add_argument("--hide-unknown", action="store_true", default=argparse.SUPPRESS,
+                        help="omit chats with is_filtered=1 (Filter Unknown Senders)")
     # also accept on the parent for `imsg --json recent 5` style
     p.add_argument("--json", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--chrono", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--no-names", action="store_true", help=argparse.SUPPRESS)
     p.add_argument("--rich", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--hide-spam", action="store_true", help=argparse.SUPPRESS)
+    p.add_argument("--hide-unknown", action="store_true", help=argparse.SUPPRESS)
 
     sub = p.add_subparsers(dest="cmd", required=True)
 
