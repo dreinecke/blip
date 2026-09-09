@@ -324,7 +324,12 @@ to whatever has focus otherwise.
 - Tapbacks, edits, typing indicators out. Needs SIP-off code injection; rejected.
 - Selecting a GROUP on the Mac from Linux. `imessage://` addresses a handle;
   a group's `chat<digits>` id has no URL form. So per-conversation read-push
-  is DMs only; groups clear through `--all`.
+  is DMs only; groups clear through `--all`. NOT closed for good: Bluetooth MAP
+  marks a message read by setting `Read` on an `org.bluez.obex.Message1`
+  object, which needs no Mac and no URL, and might cover groups. Untested here
+  — dex's Realtek radio will not stay up long enough to pair (ROADMAP, Prior
+  art, 2026-09-09). Do not lift BlueFerry's code to try it: it is GPL and Blip
+  is MIT.
 
 ## Things that ARE possible (verified)
 
