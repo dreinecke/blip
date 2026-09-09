@@ -691,6 +691,47 @@ export function dropMutedChats(chats: ChatInfo[] | null, mute: string[], muted: 
   });
 }
 
+/** Chat ids the unread ledger may still name: the current window, plus every
+ *  conversation `imsg chats` still lists. hide_spam / mute omit a chat from
+ *  that list; a missing chats fetch leaves only the window. */
+export function visibleLedgerChats(msgs: ImsgMessage[], chats: ChatInfo[] | null): Set<string> {
+  const ids = new Set<string>();
+  for (const m of msgs) {
+    const c = chatKey(m);
+    if (c) ids.add(c);
+  }
+  if (chats) {
+    for (const c of chats) {
+      ids.add(c.id);
+      for (const a of c.aliases) ids.add(a);
+    }
+  }
+  return ids;
+}
+
+/** Astra B#3: a capped window must not zero an unread it never saw. Only
+ *  restore chats that are still visible — otherwise Spam we hid in SQL
+ *  pins catch-up (oldestUnread never appears) and keeps the bar badge. */
+export function keepCappedUnread(
+  exactCounts: Record<string, number>,
+  exactOldest: Record<string, string>,
+  priorCounts: Record<string, number>,
+  priorOldest: Record<string, string>,
+  inWindow: Set<string>,
+  visible: Set<string>,
+): { counts: Record<string, number>; oldest: Record<string, string> } {
+  const counts = { ...exactCounts };
+  const oldest = { ...exactOldest };
+  for (const [c, n] of Object.entries(priorCounts)) {
+    if (n > 0 && !inWindow.has(c) && !(c in counts) && visible.has(c)) {
+      counts[c] = n;
+      if (priorOldest[c]) oldest[c] = priorOldest[c]!;
+    }
+  }
+  return { counts, oldest };
+}
+
+
 /** First http(s) URL in a message, or "". Trailing punctuation that a person
  *  would read as sentence-end is trimmed; a URL inside the text is fine. */
 export function firstUrl(text: string | null | undefined): string {
@@ -1446,17 +1487,19 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   const msgs = dropMuted(deduped, muted);
   let exactCounts = unreadCounts(msgs, state.readMark, state.readMarks, selfChats);
   let exactOldest = unreadOldest(msgs, state.readMark, state.readMarks, selfChats);
+  // Deep runs complete the sidebar from `imsg chats`. A capped catch-up
+  // needs that list too: otherwise a chat hide_spam dropped in SQL is
+  // restored from the ledger (Astra B#3) and pins every later poll.
+  const listed = (deep || fetched.capped) ? dropMutedChats(fetchChats(), mute, muted) : null;
   if (fetched.capped) {
-    // The window stopped short of the oldest outstanding unread: a chat with
-    // NO row in the window keeps its ledger entry instead of being reset to
-    // zero by a rebuild that never saw it (Astra B#3).
     const inWindow = new Set(msgs.map(chatKey));
-    for (const [c, n] of Object.entries(state.unreadCounts)) {
-      if (n > 0 && !inWindow.has(c) && !(c in exactCounts)) {
-        exactCounts[c] = n;
-        if (state.unreadOldest[c]) exactOldest[c] = state.unreadOldest[c]!;
-      }
-    }
+    const kept = keepCappedUnread(
+      exactCounts, exactOldest,
+      state.unreadCounts, state.unreadOldest,
+      inWindow, visibleLedgerChats(msgs, listed),
+    );
+    exactCounts = kept.counts;
+    exactOldest = kept.oldest;
   }
   // Did THIS run actually turn unread into read for the chat being viewed?
   // Every poll while a thread is open carries its readChat (that is what keeps
@@ -1480,10 +1523,9 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     if (ts <= readMark) delete readMarks[chat];
   }
   const windowThreads = buildThreads(msgs, readMark, readMarks, groups, exactCounts);
-  // Deep runs (a surface is open) complete the list from `imsg chats`; a
-  // shallow poll returns the window's rows and the widget keeps its last
+  // A shallow poll returns the window's rows; the widget keeps its last
   // complete list in memory (it skips identical assignments anyway).
-  const chats = deep ? dropMutedChats(fetchChats(), mute, muted) : null;
+  const chats = deep ? listed : null;
   // One entry per CONVERSATION. A re-keyed group has several chat rows; the
   // bridge names the older ones as aliases of the live row, and the map is
   // cached so shallow polls fold identically (a conversation must never

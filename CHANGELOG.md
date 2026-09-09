@@ -8,7 +8,9 @@
   them, so the bar could show 3 while the phone showed 0. Set `hide_spam=on`
   and/or `hide_unknown=on` to drop those chats at the Mac query — no sidebar
   row, no unread, no toast. Default is off (previous behaviour). The mute list
-  is still the knob for a sender who is *not* in those folders. Re-run
+  is still the knob for a sender who is *not* in those folders. A capped
+  catch-up no longer restores hidden chats onto the unread ledger (that
+  would pin every later poll at 8192 rows and keep the old badge). Re-run
   `blip-setup` so the Mac `imsg` and the Linux shim pick up the flags.
 
 ## 2.4.0 — 2026-09-08 — read it from the keyboard, send without the wait
