@@ -2,8 +2,14 @@
 """
 blip-check: the three Mac permissions Blip needs, checked the way Blip uses them.
 
-  python3 ~/.blip/bin/blip-check          # human lines, exit 0 when all pass
-  python3 ~/.blip/bin/blip-check --json   # {"chatdb", "automation", "contacts", "markread": bool, ...}
+  python3 ~/.blip/bin/blip-check             # human lines, exit 0 when all pass
+  python3 ~/.blip/bin/blip-check --json      # {"chatdb", "automation", "contacts", "markread": bool, ...}
+  python3 ~/.blip/bin/blip-check --markread  # ALSO test the optional read-push grant
+
+--markread is opt-in because that probe is consent-triggering in its own right:
+it talks to System Events, which pops a second Automation prompt, and on
+macOS 26 a grant the user never asked for could not be switched back off in
+System Settings (#36). Only read-push needs it.
 
 Run it OVER SSH — that is the context that matters (sshd's grants, not the
 Terminal's). The Automation check deliberately talks to Messages.app, which
@@ -184,9 +190,24 @@ def check_markread() -> tuple[bool, str]:
 def main() -> None:
     results = {"chatdb": check_chatdb(), "automation": check_automation(), "contacts": check_contacts()}
     # Optional: its absence costs only mark-as-read, so it must not fail the run.
-    optional = {"markread": check_markread()}
+    # Opt-IN as well as optional, because the probe itself asks macOS for a
+    # permission: it pops a System Events Automation prompt, and on macOS 26 a
+    # grant nobody wanted could not be switched back off in System Settings
+    # afterwards (#36, 26.6.2). Asking for consent the user did not request is
+    # the exact failure this file exists to warn about, so it must not do it
+    # uninvited. Read-push is the only thing that needs it.
+    want_markread = "--markread" in sys.argv
+    optional = {"markread": check_markread() if want_markread else
+                (False, "not checked — only read-push needs it; re-run with --markread to test it")}
+
+    def fix_for(key: str, ok: bool) -> str:
+        """No fix line for a probe that never ran: nothing is wrong with it."""
+        if ok or (key == "markread" and not want_markread):
+            return ""
+        return FIX[key]
+
     if "--json" in sys.argv:
-        print(json.dumps({k: {"ok": v[0], "detail": v[1], "fix": "" if v[0] else FIX[k]}
+        print(json.dumps({k: {"ok": v[0], "detail": v[1], "fix": fix_for(k, v[0])}
                           for k, v in {**results, **optional}.items()}))
     else:
         for k, (ok, detail) in results.items():
@@ -195,7 +216,7 @@ def main() -> None:
                 print(f"      fix: {FIX[k]}")
         for k, (ok, detail) in optional.items():
             print(f"  {'✅' if ok else '➖'}  {k:<10} {detail}")
-            if not ok:
+            if fix_for(k, ok):
                 print(f"      fix: {FIX[k]}")
     sys.exit(0 if all(v[0] for v in results.values()) else 1)
 

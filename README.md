@@ -344,7 +344,9 @@ wizard pauses here and re-checks when you press Enter)
   then re-run `blip-setup` and sit at the Mac's screen for the prompt.
 
 `ssh your-mac 'python3 "$HOME/.blip/bin/blip-check"'` shows ✅/❌ per grant at any
-time, with the fix for each ❌.
+time, with the fix for each ❌. It does not test the optional read-push grant
+unless you add `--markread`, because that probe pops an Automation prompt of its
+own and you should only be asked for a permission you actually want.
 
 **4. Bar widget.** `omarchy plugin add --enable` already placed it. If you
 cloned by hand: `omarchy plugin enable nixfred.blip --section right`, or add

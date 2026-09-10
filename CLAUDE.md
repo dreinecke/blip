@@ -362,8 +362,12 @@ to whatever has focus otherwise.
     mark-all does. Conversations read in Blip stay unread on the phone until
     the next mark-all. Documented trade-off, not a bug.
   - Needs **Accessibility** for `/usr/libexec/sshd-keygen-wrapper`, on top of
-    the Full Disk Access it already has. Optional: `blip-check` reports it as
-    a ➖ rather than failing.
+    the Full Disk Access it already has. Optional AND opt-in: `blip-check`
+    reports it as a ➖ rather than failing, and does not probe it at all unless
+    you pass `--markread`. The probe talks to System Events, which pops a
+    SECOND Automation prompt, and a grant nobody asked for could not be
+    switched back off in System Settings on macOS 26.6.2 (#36). Never fire a
+    consent prompt the user did not ask for.
   - The menu item is disabled when nothing is unread, and the per-conversation
     item is NAMED for what it will do ("Mark as Read" only appears while the
     chat is unread) — treat an absent item as success, not an error.
