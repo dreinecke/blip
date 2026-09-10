@@ -2358,138 +2358,167 @@ FocusScope {
               wrapMode: Text.WordWrap
             }
 
-            Repeater {
-              model: root.online && root.listShowing && !root.searchShowing && !root.newMode ? root.unpinnedThreads : []
-              delegate: Rectangle {
-                id: threadRow
-                required property var modelData
-                required property int index
-                readonly property bool hasCursor: root.cursorChat === String(modelData.chat)
-                onHasCursorChanged: if (hasCursor) root.cursorRow = threadRow
+            ColumnLayout {
+              id: chronologicalRows
+              property int hoveredRow: -1
+              Layout.fillWidth: true
+              visible: root.online && root.listShowing && !root.searchShowing && !root.newMode
+              spacing: 0
+              Repeater {
+                id: chronologicalRepeater
+                model: root.online && root.listShowing && !root.searchShowing && !root.newMode ? root.unpinnedThreads : []
+                delegate: Rectangle {
+                  id: threadRow
+                  required property var modelData
+                  required property int index
+                  readonly property bool highlighted: rowHover.hovered || (hasCursor && root.cursorShown)
+                  readonly property bool hasCursor: root.cursorChat === String(modelData.chat)
+                  onHasCursorChanged: if (hasCursor) root.cursorRow = threadRow
 
-                Layout.fillWidth: true
-                implicitHeight: rowRow.implicitHeight + Style.space(root.splitView ? 20 : 12)
-                radius: Style.cornerRadius
-                color: rowHover.hovered || (hasCursor && root.cursorShown)
-                  ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
-                  : "transparent"
+                  Layout.fillWidth: true
+                  implicitHeight: rowRow.implicitHeight + Style.space(root.splitView ? 30 : 18)
+                  radius: Style.cornerRadius
+                  color: highlighted
+                    ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
+                    : "transparent"
 
-                HoverHandler { id: rowHover }
-                TapHandler { onTapped: root.openThread(modelData) }
-                  TapHandler {
-                    acceptedButtons: Qt.RightButton
-                    onTapped: { root.contactContext = modelData; contactMenu.popup() }
+                  HoverHandler {
+                    id: rowHover
+                    onHoveredChanged: {
+                      if (hovered) chronologicalRows.hoveredRow = index
+                      else if (chronologicalRows.hoveredRow === index) chronologicalRows.hoveredRow = -1
+                    }
                   }
+                  TapHandler { onTapped: root.openThread(modelData) }
+                    TapHandler {
+                      acceptedButtons: Qt.RightButton
+                      onTapped: { root.contactContext = modelData; contactMenu.popup() }
+                    }
 
-                RowLayout {
-                  id: rowRow
-                  anchors.fill: parent
-                  anchors.margins: Style.space(6)
-                  spacing: Style.space(8)
+                  RowLayout {
+                    id: rowRow
+                    anchors.fill: parent
+                    anchors.margins: Style.space(6)
+                    spacing: Style.space(8)
 
-                  // the iMessage blue dot — present only while the thread has
-                  // unread inbound; the slot stays so names line up.
-                  Rectangle {
-                    width: Style.space(9); height: width; radius: width / 2
-                    color: root.mineFill
-                    opacity: modelData.unread > 0 ? 1 : 0
-                  }
+                    // the iMessage blue dot — present only while the thread has
+                    // unread inbound; the slot stays so names line up.
+                    Rectangle {
+                      width: Style.space(9); height: width; radius: width / 2
+                      color: root.mineFill
+                      opacity: modelData.unread > 0 ? 1 : 0
+                    }
 
-                  // avatar circle — the contact's photo when Contacts has one,
-                  // initials otherwise (the iMessage sidebar look)
-                  Rectangle {
-                    id: avatarCircle
-                    // Messages' sidebar avatar is large relative to the row;
-                    // 30 looked like a contact list, not a conversation list.
-                    width: Style.space(34); height: width; radius: width / 2
-                    color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.18)
-                    // A group binds to ITS OWN chat id (its Messages group photo); a DM to
-                    // the person. Binding a group to `handle` showed whoever spoke last —
-                    // their cached contact photo one minute, initials the next.
-                    readonly property string avatarHandle: root.isGroupId(String(modelData.chat || "")) ? String(modelData.chat) : String(modelData.handle || modelData.chat || "")
-                    Component.onCompleted: root.requestAvatar(avatarHandle)
-                    Image {
-                      id: avatarImg
-                      anchors.fill: parent
-                      visible: false
-                      source: root.avatarFiles[avatarCircle.avatarHandle] || ""
-                      asynchronous: true
-                      fillMode: Image.PreserveAspectCrop
-                      autoTransform: true
-                      sourceSize.width: 96
-                      sourceSize.height: 96
-                      // a stale/corrupt cache file → initials, and no retry this session
-                      onStatusChanged: if (status === Image.Error && avatarCircle.avatarHandle !== "") {
-                        var m = Object.assign({}, root.avatarFiles); m[avatarCircle.avatarHandle] = ""; root.avatarFiles = m
+                    // avatar circle — the contact's photo when Contacts has one,
+                    // initials otherwise (the iMessage sidebar look)
+                    Rectangle {
+                      id: avatarCircle
+                      // Messages' sidebar avatar is large relative to the row;
+                      // Keep ordinary avatars legible beside two preview lines.
+                      width: Style.space(40); height: width; radius: width / 2
+                      color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.18)
+                      // A group binds to ITS OWN chat id (its Messages group photo); a DM to
+                      // the person. Binding a group to `handle` showed whoever spoke last —
+                      // their cached contact photo one minute, initials the next.
+                      readonly property string avatarHandle: root.isGroupId(String(modelData.chat || "")) ? String(modelData.chat) : String(modelData.handle || modelData.chat || "")
+                      Component.onCompleted: root.requestAvatar(avatarHandle)
+                      Image {
+                        id: avatarImg
+                        anchors.fill: parent
+                        visible: false
+                        source: root.avatarFiles[avatarCircle.avatarHandle] || ""
+                        asynchronous: true
+                        fillMode: Image.PreserveAspectCrop
+                        autoTransform: true
+                        sourceSize.width: 96
+                        sourceSize.height: 96
+                        // a stale/corrupt cache file → initials, and no retry this session
+                        onStatusChanged: if (status === Image.Error && avatarCircle.avatarHandle !== "") {
+                          var m = Object.assign({}, root.avatarFiles); m[avatarCircle.avatarHandle] = ""; root.avatarFiles = m
+                        }
                       }
-                    }
-                    Item {
-                      id: avatarMask
-                      anchors.fill: parent
-                      visible: false
-                      layer.enabled: true
-                      Rectangle { anchors.fill: parent; radius: width / 2 }
-                    }
-                    MultiEffect {
-                      anchors.fill: parent
-                      source: avatarImg
-                      visible: avatarImg.status === Image.Ready
-                      maskEnabled: true
-                      maskSource: avatarMask
-                    }
-                    Text {
-                      anchors.centerIn: parent
-                      visible: avatarImg.status !== Image.Ready
-                      text: root.avatarInitials(modelData)
-                      color: root.foreground
-                      font.family: root.fontFamily
-                      font.pixelSize: root.fontCaption
-                      font.bold: true
-                    }
-                  }
-
-                  ColumnLayout {
-                    Layout.fillWidth: true
-                    spacing: Style.space(1)
-                    RowLayout {
-                      Layout.fillWidth: true
-                      spacing: Style.space(6)
+                      Item {
+                        id: avatarMask
+                        anchors.fill: parent
+                        visible: false
+                        layer.enabled: true
+                        Rectangle { anchors.fill: parent; radius: width / 2 }
+                      }
+                      MultiEffect {
+                        anchors.fill: parent
+                        source: avatarImg
+                        visible: avatarImg.status === Image.Ready
+                        maskEnabled: true
+                        maskSource: avatarMask
+                      }
                       Text {
-                        Layout.fillWidth: true
-                        text: String(modelData.name || modelData.chat)
-                        textFormat: Text.PlainText
-                        elide: Text.ElideRight
+                        anchors.centerIn: parent
+                        visible: avatarImg.status !== Image.Ready
+                        text: root.avatarInitials(modelData)
                         color: root.foreground
                         font.family: root.fontFamily
-                        font.pixelSize: root.fontBodySmall
-                        // Messages keeps the name semibold ALWAYS; unread is
-                        // carried by the dot and the blue timestamp, not by
-                        // the name suddenly changing weight.
-                        font.weight: modelData.unread > 0 ? Font.Bold : Font.DemiBold
+                        font.pixelSize: root.fontCaption
+                        font.bold: true
                       }
+                    }
+
+                    ColumnLayout {
+                      Layout.fillWidth: true
+                      spacing: Style.space(1)
+                      RowLayout {
+                        Layout.fillWidth: true
+                        spacing: Style.space(6)
+                        Text {
+                          Layout.fillWidth: true
+                          text: String(modelData.name || modelData.chat)
+                          textFormat: Text.PlainText
+                          elide: Text.ElideRight
+                          color: root.foreground
+                          font.family: root.fontFamily
+                          font.pixelSize: root.fontBodySmall
+                          // Messages keeps the name semibold ALWAYS; unread is
+                          // carried by the dot and the blue timestamp, not by
+                          // the name suddenly changing weight.
+                          font.weight: modelData.unread > 0 ? Font.Bold : Font.DemiBold
+                        }
+                        Text {
+                          text: root.fmtTime(modelData.last_ts)
+                          textFormat: Text.PlainText
+                          color: modelData.unread > 0 ? root.mineFill : root.dim
+                          font.family: root.fontFamily
+                          font.pixelSize: root.fontCaption
+                        }
+                      }
+                      // TWO lines, wrapped — the single most recognisable thing
+                      // about the Messages sidebar. One elided line reads like a
+                      // mail client; two lines of preview reads like Messages.
                       Text {
-                        text: root.fmtTime(modelData.last_ts)
+                        Layout.fillWidth: true
+                        text: (modelData.last_from_me ? "You: " : "") + String(modelData.last_text || "")
                         textFormat: Text.PlainText
-                        color: modelData.unread > 0 ? root.mineFill : root.dim
+                        wrapMode: Text.Wrap
+                        elide: Text.ElideRight
+                        maximumLineCount: 2
+                        color: root.dim
                         font.family: root.fontFamily
                         font.pixelSize: root.fontCaption
+                        lineHeight: 1.15
                       }
                     }
-                    // TWO lines, wrapped — the single most recognisable thing
-                    // about the Messages sidebar. One elided line reads like a
-                    // mail client; two lines of preview reads like Messages.
-                    Text {
-                      Layout.fillWidth: true
-                      text: (modelData.last_from_me ? "You: " : "") + String(modelData.last_text || "")
-                      textFormat: Text.PlainText
-                      wrapMode: Text.Wrap
-                      elide: Text.ElideRight
-                      maximumLineCount: 2
-                      color: root.dim
-                      font.family: root.fontFamily
-                      font.pixelSize: root.fontCaption
-                      lineHeight: 1.15
-                    }
+
+                  }
+                  Rectangle {
+                    anchors.bottom: parent.bottom
+                    anchors.right: parent.right
+                    // Align the hairline with the text, beyond the dot and avatar.
+                    anchors.left: parent.left
+                    anchors.leftMargin: rowRow.x + avatarCircle.x + avatarCircle.width + rowRow.spacing
+                    height: 1
+                    color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
+                    visible: !threadRow.highlighted
+                      && chronologicalRows.hoveredRow !== index + 1
+                      && !(root.cursorShown && root.unpinnedThreads[index + 1]
+                        && root.cursorChat === String(root.unpinnedThreads[index + 1].chat))
                   }
 
                 }
