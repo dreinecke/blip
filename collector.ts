@@ -1430,7 +1430,8 @@ export function mergeChats(
       aliases,
       guid: group ? groupInfo?.guid ?? thread.guid : "",
       name: group
-        ? (groupInfo?.name || info.name || thread.name || thread.chat)
+        ? (groupInfo?.name || info.name || (groupInfo?.participants.length
+          ? groupName(thread.chat, groupInfo, knownParticipantNames) : thread.name || thread.chat))
         : (info.last_name || info.name || thread.name || thread.chat),
       service: info.service || thread.service,
       last_text: info.last === thread.last_ts ? info.last_text : messagePreview(thread.last_text),
@@ -1454,7 +1455,7 @@ export function mergeChats(
     const groupInfo = groups[c.id]
       ?? aliases.map((alias) => groups[alias]).find((value) => value !== undefined);
     const name = group
-      ? (groupInfo?.name || c.name || c.id)
+      ? (groupInfo?.name || c.name || groupName(c.id, groupInfo, new Map()))
       : (c.last_name || c.name || c.id);
     out.push({
       chat: c.id,

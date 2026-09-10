@@ -943,6 +943,25 @@ describe("complete conversation list (mergeChats)", () => {
       pinned: false, pin_order: null, aliases: ["+15559990000"], pin_name: null },
   ];
 
+  test("unnamed groups use resolved participants in both list merge paths", () => {
+    const chat = {...chats[1]!, name:null};
+    const info = {name:"", guid:"any;+;"+chat.id,
+      participants:["+15551234567", "+15550001111"],
+      participantNames:{"+15551234567":"Pat", "+15550001111":"Sam"}};
+    const groups = {[chat.id]:info};
+    const quiet = mergeChats([], [chat], groups, {})[0]!;
+    expect(quiet.name).toBe("Pat, Sam");
+    const existing = {...quiet, name:chat.id};
+    expect(mergeChats([existing], [chat], groups, {})[0]!.name).toBe("Pat, Sam");
+    expect(mergeChats([], [{...chat,name:"Custom title"}], groups, {})[0]!.name).toBe("Custom title");
+    expect(mergeChats([], [chat], {[chat.id]:{...info,name:"Group title"}}, {})[0]!.name).toBe("Group title");
+    const aliasChat = {...chat,id:"chat123456",aliases:["chat123456",chat.id]};
+    const aliased = mergeChats([], [aliasChat], groups, {})[0]!;
+    expect(aliased.name).toBe("Pat, Sam");
+    expect(aliased.guid).toBe(info.guid);
+    expect(mergeChats([], [chat], {}, {})[0]!.name).toBe(chat.id);
+  });
+
   test("quiet conversations outside the window appear, newest first", () => {
     const out = mergeChats([windowThread], chats, { ce5a593a78af408282d61461ade89135: { name: "Lunch Crew", guid: "any;+;ce5a", participants: [] } }, { ce5a593a78af408282d61461ade89135: 2 });
     expect(out.map((t) => t.chat)).toEqual(["+15551234567", "ce5a593a78af408282d61461ade89135", "+15559990000"]);
