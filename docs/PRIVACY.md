@@ -91,3 +91,12 @@ timestamp when `chat.db` changes; the client then fetches privately.
 
 Send tapbacks, edit or unsend, see typing indicators.
 Those need Apple private APIs that Blip deliberately does not use.
+
+The read-only detail viewer resolves an explicit source-card token again before
+reading that card. Names, phone/email/website labels, addresses, dates, related
+people, social profiles, and notes stay in process memory on Linux. Details
+are never written to the audit cache. Requests and responses use the existing
+48 KiB bridge contract, with at most 160 fields, 32 values per collection,
+80-character labels, and 4,096-character values; oversized cards report an
+error instead of silently dropping fields. The reader uses the existing
+AddressBook object layer and enables no Contacts mutation operations.

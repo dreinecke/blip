@@ -21,11 +21,12 @@ FocusScope {
   property string error: ""
   property string notice: ""
   property bool busy: false
+  property var selectedCard: null
   visible: opened
   readonly property string helper: decodeURIComponent(Qt.resolvedUrl("contact-review.ts").toString().replace(/^file:\/\//, ""))
   signal closed()
 
-  function close() { opened = false; closed() }
+  function close() { selectedCard = null; opened = false; closed() }
   function textField(value, maximum) { return typeof value === "string" ? value.slice(0, maximum) : "" }
   function metadata(thread) {
     return { chat: textField(thread.chat, 320), name: textField(thread.name, 160) }
@@ -49,6 +50,7 @@ FocusScope {
     request("audit", { conversations: threads.map(function(thread) { return { chat: textField(thread.chat, 320) } }) })
   }
   function back() {
+    if (selectedCard) { selectedCard = null; return }
     if (busy) return
     if (overview) { model = overview; overview = null; error = ""; notice = "" }
     else close()
@@ -106,7 +108,22 @@ FocusScope {
     })
   }
 
+  Loader {
+    anchors.fill: parent
+    active: root.selectedCard !== null
+    sourceComponent: ContactDetails {
+      card: root.selectedCard
+      foreground: root.foreground; accent: root.accent; fontFamily: root.fontFamily; fontSize: root.fontSize
+      onClosed: root.selectedCard = null
+      onOpenOnMac: {
+        var card = root.selectedCard
+        root.selectedCard = null
+        root.request("open", {handle: card.handle, token: card.token})
+      }
+    }
+  }
   ColumnLayout {
+    visible: root.selectedCard === null
     anchors.fill: parent
     spacing: Style.space(10)
     RowLayout {
@@ -180,6 +197,14 @@ FocusScope {
                 Layout.fillWidth: true; text: modelData.detail; textFormat: Text.PlainText
                 wrapMode: Text.WordWrap; color: Qt.darker(root.foreground, 1.3)
                 font.family: root.fontFamily; font.pixelSize: root.fontSize
+              }
+              ContactButton {
+                Layout.fillWidth: true
+                visible: modelData.action === "open"
+                text: "View details"
+                enabled: !root.busy
+                foreground: root.foreground; accent: root.accent; fontFamily: root.fontFamily; fontSize: root.fontSize
+                onClicked: root.selectedCard = modelData
               }
               ContactButton {
                 Layout.fillWidth: true
