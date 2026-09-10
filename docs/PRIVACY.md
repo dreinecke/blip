@@ -100,7 +100,11 @@ stdin/stdout, never argv, and never pass through the QML model.
 
 An explicit copy creates a private `.vcf` file under
 `$XDG_RUNTIME_DIR/blip/vcards` (directories 0700, files 0600) and places a file
-reference on the clipboard as `text/uri-list` for native file pasting. Runtime directories are pinned and reject links
+reference on the clipboard as `text/uri-list` for native file pasting. Each
+copy gets a separate random subdirectory, so its basename can remain the
+contact’s short name without replacing a previous export. Short names come
+from the selected vCard’s nickname or given-name fields; card bytes remain
+unchanged. Runtime directories are pinned and reject links
 or incorrect ownership/permissions. On each copy, Blip removes its files older
 than 24 hours and retains at most 32 files including the new one. Runtime
 files disappear when the login runtime directory is cleared. This is contact
