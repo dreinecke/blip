@@ -509,7 +509,9 @@ export function groupName(chat: string, info: GroupInfo | undefined, byHandle: M
     info?.participantShortNames?.[member.handle] || member.name);
   // A "(filtered)" stranger is not a phone/email shape, so it lands here (the
   // never-a-DM-target rule stands: nothing sends to it); its label is the number.
-  return members.length ? members.join(", ") : prettyHandle(chat);
+  if (members.length === 0) return prettyHandle(chat);
+  if (members.length === 1) return members[0]!;
+  return members.slice(0, -1).join(", ") + " & " + members[members.length - 1];
 }
 
 export type SendService = "iMessage" | "SMS" | "RCS";

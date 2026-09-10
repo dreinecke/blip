@@ -264,7 +264,7 @@ describe("self-echo in the thread list", () => {
       "", {},
       { [guid]: { name: "", guid: "any;+;" + guid, participants: ["+15550100004", "+15550100005"] } },
     );
-    expect(threads[0]!.name).toBe("Jordan Blake, +15550100005");
+    expect(threads[0]!.name).toBe("Jordan Blake & +15550100005");
   });
 
   test("group threads expose named participants for explicit contact actions", () => {
@@ -950,14 +950,14 @@ describe("complete conversation list (mergeChats)", () => {
       participantNames:{"+15551234567":"Pat", "+15550001111":"Sam"}};
     const groups = {[chat.id]:info};
     const quiet = mergeChats([], [chat], groups, {})[0]!;
-    expect(quiet.name).toBe("Pat, Sam");
+    expect(quiet.name).toBe("Pat & Sam");
     const existing = {...quiet, name:chat.id};
-    expect(mergeChats([existing], [chat], groups, {})[0]!.name).toBe("Pat, Sam");
+    expect(mergeChats([existing], [chat], groups, {})[0]!.name).toBe("Pat & Sam");
     expect(mergeChats([], [{...chat,name:"Custom title"}], groups, {})[0]!.name).toBe("Custom title");
     expect(mergeChats([], [chat], {[chat.id]:{...info,name:"Group title"}}, {})[0]!.name).toBe("Group title");
     const aliasChat = {...chat,id:"chat123456",aliases:["chat123456",chat.id]};
     const aliased = mergeChats([], [aliasChat], groups, {})[0]!;
-    expect(aliased.name).toBe("Pat, Sam");
+    expect(aliased.name).toBe("Pat & Sam");
     expect(aliased.guid).toBe(info.guid);
     expect(mergeChats([], [chat], {}, {})[0]!.name).toBe(chat.id);
   });
@@ -1659,4 +1659,13 @@ test("group labels prefer short names while participant details retain full name
  const fetched=fetchGroups(()=>({status:0,stdout:JSON.stringify([{chat:'chat123',name:'',guid:info.guid,participants:info.participants,participant_names:info.participantNames,participant_short_names:info.participantShortNames}])}));
  expect(fetched.chat123).toEqual(info);
  expect(normalizeGroups({chat123:{...info,participantShortNames:[]}}).chat123.participantShortNames).toBeUndefined();
+});
+
+test("generated group labels join the last short name with an ampersand", () => {
+ const {groupName} = require('./collector');
+ const info={name:"",guid:"",participants:["a","b","c"],participantShortNames:{a:"Pat",b:"Sam",c:"Alex"}};
+ expect(groupName('chat123',info,new Map())).toBe('Pat, Sam & Alex');
+ expect(groupName('chat123',{...info,participants:['a','b']},new Map())).toBe('Pat & Sam');
+ expect(groupName('chat123',{...info,participants:['a']},new Map())).toBe('Pat');
+ expect(groupName('chat123',{...info,name:'Custom, title'},new Map())).toBe('Custom, title');
 });
