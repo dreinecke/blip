@@ -23,6 +23,9 @@ export function members(value: unknown) {
     [[.16,.16,.34],[.51,.16,.34],[.16,.51,.34],[.51,.51,.34]]];
   return people.map((person, i) => {
     const [x,y,size] = layouts[people.length]![i]!;
-    return {handle: person.handle, initials: person.initials, x,y,size};
+    // Leave an 8% radial inset so participant circles do not hug the rim.
+    const inset = .08, scale = 1 - inset * 2;
+    return {handle: person.handle, initials: person.initials,
+      x: inset + x! * scale, y: inset + y! * scale, size: size! * scale};
   });
 }

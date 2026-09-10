@@ -16,10 +16,10 @@ test('composites select at most four distinct valid participants', () => {
   expect(result.every(p => p.initials === 'SS')).toBe(true);
   expect(members({})).toEqual([]);
 });
-test('all one-to-four-member layouts stay inside the circular avatar', () => {
+test('all one-to-four-member layouts leave breathing room inside the circular avatar', () => {
   for(let count=1; count<=4; count++) {
     for(const p of members(Array.from({length:count},(_,i)=>({handle:`p${i}@example.com`,name:'Pat'})))) {
-      expect(Math.hypot(p.x!+p.size!/2-.5,p.y!+p.size!/2-.5)+p.size!/2).toBeLessThanOrEqual(.5);
+      expect(Math.hypot(p.x!+p.size!/2-.5,p.y!+p.size!/2-.5)+p.size!/2).toBeLessThanOrEqual(.42);
     }
   }
 });

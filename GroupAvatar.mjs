@@ -28,7 +28,14 @@ function members(value) {
   ];
   return people.map((person, i) => {
     const [x, y, size] = layouts[people.length][i];
-    return { handle: person.handle, initials: person.initials, x, y, size };
+    const inset = 0.08, scale = 1 - inset * 2;
+    return {
+      handle: person.handle,
+      initials: person.initials,
+      x: inset + x * scale,
+      y: inset + y * scale,
+      size: size * scale
+    };
   });
 }
 export {
