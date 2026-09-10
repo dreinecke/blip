@@ -2176,11 +2176,16 @@ FocusScope {
                     Rectangle {
                       id: pinnedAvatar
                       Layout.alignment: Qt.AlignHCenter
-                      // A layout sizes its children from Layout hints; a width:
-                      // binding here loses to the layout's first measurement.
-                      Layout.preferredWidth: Math.min(88, Math.max(56,
-                        (pinnedGrid.width - pinnedGrid.columnSpacing * 2) / 3 * 0.62))
-                      Layout.preferredHeight: Layout.preferredWidth
+                      // Hidden layouts defer their first measurement. Derive
+                      // the size from the pane's known width and supply both
+                      // implicit size and layout hints before the first open.
+                      readonly property real avatarSize: Math.min(88, Math.max(56,
+                        ((root.splitView ? root.sidebarWidth - Style.space(36) : root.width)
+                          - pinnedGrid.columnSpacing * 2) / 3 * 0.62))
+                      implicitWidth: avatarSize
+                      implicitHeight: avatarSize
+                      Layout.preferredWidth: avatarSize
+                      Layout.preferredHeight: avatarSize
                       radius: width / 2
                       color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.18)
                       readonly property string avatarHandle: root.isGroupId(String(modelData.chat || "")) ? String(modelData.chat) : String(modelData.handle || modelData.chat || "")
@@ -3206,6 +3211,8 @@ FocusScope {
           Layout.fillWidth: true
           Layout.maximumWidth: parent.width
           visible: root.inThread
+          // Match the popup's bottom inset above the composer as well.
+          Layout.topMargin: root.splitView ? 0 : Math.max(0, Style.spacing.popupPadding - Style.space(8))
           spacing: Style.space(6)
 
           // Width must be assigned by the layout *before* wrap can happen.
@@ -3399,12 +3406,12 @@ FocusScope {
           }
         }
 
-        // Always one line tall, empty or not: a note that appears and vanishes
-        // must not shove the compose box and the bubbles around. Only failures
-        // are red; progress and confirmations are dim.
+        // No empty status row below the composer. The resize grip overlays
+        // the panel corner independently of this layout.
         Text {
+          visible: root.note !== ""
           Layout.fillWidth: true
-          text: root.note === "" ? " " : root.note
+          text: root.note
           textFormat: Text.PlainText
           readonly property bool calm: root.note === "copied" || root.note === "sending…"
             || root.note === "sent to LocalSend" || root.note.indexOf("attached") === 0

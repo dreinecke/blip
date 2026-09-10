@@ -403,9 +403,8 @@ describe("QML safety invariants", () => {
     expect(panel).toContain('var keepInline = root.fetchJobAction === "copy" && !!root.attFiles[id]');
     expect(panel).not.toContain("fetchJobOpen");
     expect(qmlFunction("quoteBubble")).toContain("leaveBubbles()");
-    // the status line never collapses (no layout shift) and only failures are red
-    expect(panel).toContain('text: root.note === "" ? " " : root.note');
-    expect(panel).not.toContain('visible: root.note !== ""');
+    // Empty status does not reserve a row; only failures are red.
+    expect(panel).toContain('visible: root.note !== ""');
     expect(panel).toContain("color: calm ? root.dim : root.urgent");
   });
 
@@ -608,9 +607,13 @@ test("search queries never ride argv", () => {
 test("pinned avatars size through Layout hints, not width bindings", () => {
   const start = panel.indexOf("id: pinnedAvatar");
   expect(start).toBeGreaterThan(-1);
-  const avatar = panel.slice(start, start + 600);
-  expect(avatar).toContain("Layout.preferredWidth: Math.min(88, Math.max(56,");
-  expect(avatar).toContain("Layout.preferredHeight: Layout.preferredWidth");
+  const avatar = panel.slice(start, panel.indexOf("radius: width / 2", start));
+  expect(avatar).toContain("readonly property real avatarSize: Math.min(88, Math.max(56,");
+  expect(avatar).toContain("implicitWidth: avatarSize");
+  expect(avatar).toContain("implicitHeight: avatarSize");
+  expect(avatar).toContain("Layout.preferredWidth: avatarSize");
+  expect(avatar).not.toContain("pinnedGrid.width");
+  expect(avatar).toContain("Layout.preferredHeight: avatarSize");
   expect(avatar).not.toContain(" width: Math.min(88");
 });
 
