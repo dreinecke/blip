@@ -1868,49 +1868,16 @@ FocusScope {
         anchors.topMargin: root.splitView ? Style.space(10) : 0
         anchors.bottomMargin: root.splitView ? Style.space(10) : 0
         spacing: Style.space(root.splitView ? 14 : 8)
-        ColumnLayout {
+        RowLayout {
           Layout.fillWidth: true
-          spacing: Style.space(2)
-          RowLayout {
-            Layout.fillWidth: true
-            spacing: Style.space(8)
-            Text {
-              text: "Blip"
-              textFormat: Text.PlainText
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: root.fontTitle
-              font.bold: true
-            }
-            Text {
-              visible: root.version !== ""
-              text: root.version
-              textFormat: Text.PlainText
-              color: root.dim
-              font.family: root.fontFamily
-              font.pixelSize: root.fontCaption
-            }
-            Item { Layout.fillWidth: true }
-            PanelActionButton {
-              visible: root.online && !root.newMode && !root.searchShowing
-              iconText: "＋"
-              tooltipText: "New message (n)"
-              bordered: true
-              foreground: root.foreground
-              hoverColor: root.accent
-              fontFamily: root.fontFamily
-              onClicked: root.startNew()
-            }
-            PanelActionButton {
-              visible: root.online && !root.splitView
-              iconText: "⇱"
-              tooltipText: "Open the app window"
-              bordered: true
-              foreground: root.foreground
-              hoverColor: root.accent
-              fontFamily: root.fontFamily
-              onClicked: root.openApp()
-            }
+          spacing: Style.space(8)
+          Text {
+            text: "Blip"
+            textFormat: Text.PlainText
+            color: root.foreground
+            font.family: root.fontFamily
+            font.pixelSize: root.fontTitle
+            font.bold: true
           }
           Text {
             Layout.fillWidth: true
@@ -1923,6 +1890,34 @@ FocusScope {
             font.bold: true
             font.letterSpacing: 1.2
             elide: Text.ElideRight
+          }
+          Text {
+            visible: root.version !== ""
+            text: root.version
+            textFormat: Text.PlainText
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: root.fontCaption
+          }
+          PanelActionButton {
+            visible: root.online && !root.newMode && !root.searchShowing
+            iconText: "＋"
+            tooltipText: "New message (n)"
+            bordered: true
+            foreground: root.foreground
+            hoverColor: root.accent
+            fontFamily: root.fontFamily
+            onClicked: root.startNew()
+          }
+          PanelActionButton {
+            visible: root.online && !root.splitView
+            iconText: "⇱"
+            tooltipText: "Open the app window"
+            bordered: true
+            foreground: root.foreground
+            hoverColor: root.accent
+            fontFamily: root.fontFamily
+            onClicked: root.openApp()
           }
         }
 
