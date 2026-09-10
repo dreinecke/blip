@@ -72,8 +72,8 @@ export function copyContactVcard(request:any,runner=spawnSync,runtimeRoot=proces
   if(Buffer.byteLength(output)>MAX_RESPONSE_BYTES) throw new Error('Contact vCard response is too large');
   let body:any;try {body=JSON.parse(output);} catch {throw new Error('Invalid contact vCard response');}
   const uri=writeVcard(vcardBytes(body,handle,token),runtimeRoot);
-  const copied=runner('/usr/bin/wl-copy',['--type','x-special/gnome-copied-files'], {
-    input:'copy\n'+uri+'\n',encoding:'utf8',timeout:5000,maxBuffer:1024,
+  const copied=runner('/usr/bin/wl-copy',['--type','text/uri-list'], {
+    input:uri+'\r\n',encoding:'utf8',timeout:5000,maxBuffer:1024,
   });
   if(copied.error || copied.status!==0) throw new Error('Could not copy the vCard to the clipboard');
   return {ok:true,view:'copied',title:'Contact review',detail:'Copied vCard — paste it as a contact file',rows:[]};

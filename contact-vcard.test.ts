@@ -24,8 +24,9 @@ test('copies a runtime file through clipboard stdin and reports failure honestly
     expect(copyContactVcard({handle,token},runner,dir).view).toBe('copied');
     expect(calls[0].args).toEqual(['--json','resolve']);
     expect(JSON.parse(calls[0].input)).toEqual({operation:'vcard',handle,token});
-    expect(calls[1].args).toEqual(['--type','x-special/gnome-copied-files']);
-    const uri=calls[1].input.split('\n')[1],path=fileURLToPath(uri);
+    expect(calls[1].args).toEqual(['--type','text/uri-list']);
+    expect(calls[1].input.endsWith('\r\n')).toBe(true);
+    const uri=calls[1].input.trim(),path=fileURLToPath(uri);
     expect(readFileSync(path)).toEqual(card);
     expect(statSync(path).mode&0o777).toBe(0o600);
     expect(()=>copyContactVcard({handle,token},((command:string)=>({status:command.endsWith('/contacts')?0:1,stdout:JSON.stringify(body)})) as any,dir)).toThrow('clipboard');
