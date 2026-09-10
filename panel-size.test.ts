@@ -4,9 +4,9 @@ import {sizeStore} from './panel-size-store';
 import {mkdtempSync,rmSync,writeFileSync,symlinkSync,statSync} from 'node:fs';
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
-test('panel sizes track the current display and never exceed 80% height',()=>{
- expect(fitSize(700,1500,1920,1080,1880,1000)).toEqual({width:700,height:864});
- expect(fitSize(700,1500,3072,1728,3032,1650)).toEqual({width:700,height:1382});
+test('panel sizes cap width at 500px and height at 80% of the current display',()=>{
+ expect(fitSize(700,1500,1920,1080,1880,1000)).toEqual({width:500,height:864});
+ expect(fitSize(700,1500,3072,1728,3032,1650)).toEqual({width:500,height:1382});
  expect(fitSize(700,1500,320,200,300,180)).toEqual({width:300,height:160});
  expect(fitSize(500,600,1920,1080,1880,1000)).toEqual({width:500,height:600});
  for (const value of [null,[],{}, {width:'500',height:600},{width:NaN,height:3},{width:20000,height:600}]) expect(parseSize(value)).toBeNull();

@@ -7,7 +7,7 @@ export function parseSize(value: unknown): PanelSize | null {
     && width <= 16384 && height <= 16384 ? {width,height} : null;
 }
 export function fitSize(width:number,height:number,screenWidth:number,screenHeight:number,availableWidth:number,availableHeight:number): PanelSize {
-  const maxWidth = Math.max(1, Math.floor(Math.min(screenWidth || width, availableWidth || width)));
+  const maxWidth = Math.max(1, Math.floor(Math.min(500, screenWidth || width, availableWidth || width)));
   const maxHeight = Math.max(1, Math.floor(Math.min((screenHeight || height) * .8, availableHeight || height)));
   return {
     width: Math.round(Math.min(maxWidth, Math.max(Math.min(280,maxWidth),width))),
