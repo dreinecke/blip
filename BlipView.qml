@@ -1875,6 +1875,14 @@ FocusScope {
             Layout.fillWidth: true
             spacing: Style.space(8)
             Text {
+              text: "Blip"
+              textFormat: Text.PlainText
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: root.fontTitle
+              font.bold: true
+            }
+            Text {
               visible: root.version !== ""
               text: root.version
               textFormat: Text.PlainText
@@ -1882,16 +1890,7 @@ FocusScope {
               font.family: root.fontFamily
               font.pixelSize: root.fontCaption
             }
-            Text {
-              Layout.fillWidth: true
-              text: "Blip"
-              textFormat: Text.PlainText
-              color: root.foreground
-              font.family: root.fontFamily
-              font.pixelSize: root.fontTitle
-              font.bold: true
-              elide: Text.ElideRight
-            }
+            Item { Layout.fillWidth: true }
             PanelActionButton {
               visible: root.online && !root.newMode && !root.searchShowing
               iconText: "＋"
