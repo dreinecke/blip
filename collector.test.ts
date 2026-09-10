@@ -26,6 +26,8 @@ import {
   mutedChats,
   dropMuted,
   dropMutedChats,
+  visibleLedgerChats,
+  keepCappedUnread,
   loadState,
   validPins,
   pinsFromChats,
@@ -1291,6 +1293,44 @@ describe("mute list", () => {
     expect(selectToasts(kept, "2026-08-30 10:00:00", ["78462"], [])).toEqual([]);
   });
 });
+
+describe("capped unread keep vs hidden chats", () => {
+  const row = (id: string, aliases: string[] = []): ChatInfo => ({
+    id, name: id, service: "SMS", last: "2026-08-30 10:00:00", last_text: "",
+    last_from_me: false, last_handle: id, last_name: null, pinned: false, pin_order: null, aliases,
+  });
+
+  test("a capped window still keeps an inbox unread the fetch never saw", () => {
+    const windowMsgs = [msg({ chat: "A" })];
+    const visible = visibleLedgerChats(windowMsgs, [row("A"), row("B")]);
+    const kept = keepCappedUnread(
+      { A: 1 }, {},
+      { A: 1, B: 3 }, { B: "2026-08-01 09:00:00" },
+      new Set(["A"]), visible,
+    );
+    expect(kept.counts).toEqual({ A: 1, B: 3 });
+    expect(kept.oldest).toEqual({ B: "2026-08-01 09:00:00" });
+  });
+
+  test("Spam missing from imsg chats is not restored onto the badge", () => {
+    const windowMsgs = [msg({ chat: "A" })];
+    const visible = visibleLedgerChats(windowMsgs, [row("A")]); // hide_spam omitted B
+    const kept = keepCappedUnread(
+      { A: 1 }, {},
+      { A: 1, B: 3 }, { B: "2026-08-01 09:00:00" },
+      new Set(["A"]), visible,
+    );
+    expect(kept.counts).toEqual({ A: 1 });
+    expect(kept.oldest).toEqual({});
+  });
+
+  test("an alias of a listed chat still counts as visible", () => {
+    const visible = visibleLedgerChats([], [row("LIVE", ["OLD"])]);
+    expect(visible.has("LIVE")).toBe(true);
+    expect(visible.has("OLD")).toBe(true);
+  });
+});
+
 
 describe("the mute list can catch a person (documented caveat, #27)", () => {
   const { matchesMute, mutedChats } = require("./collector") as typeof import("./collector");
