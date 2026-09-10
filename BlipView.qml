@@ -2223,7 +2223,6 @@ FocusScope {
                         active: pinnedAvatarImg.status !== Image.Ready
                           && root.isGroupId(String(modelData.chat || ""))
                           && (modelData.participants || []).length > 0
-                          && root.avatarFiles[pinnedAvatar.avatarHandle] !== undefined
                         sourceComponent: GroupAvatar {
                           participants: modelData.participants || []
                           avatarFiles: root.avatarFiles
@@ -2456,7 +2455,6 @@ FocusScope {
                       active: avatarImg.status !== Image.Ready
                         && root.isGroupId(String(modelData.chat || ""))
                         && (modelData.participants || []).length > 0
-                        && root.avatarFiles[avatarCircle.avatarHandle] !== undefined
                       sourceComponent: GroupAvatar {
                         participants: modelData.participants || []
                         avatarFiles: root.avatarFiles
