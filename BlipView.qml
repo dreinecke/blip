@@ -2182,7 +2182,7 @@ FocusScope {
                   onHasCursorChanged: if (hasCursor) root.cursorRow = pinnedTile
                   Layout.fillWidth: true
                   Layout.preferredWidth: Math.max(1, (pinnedGrid.width - pinnedGrid.columnSpacing * 2) / 3)
-                  implicitHeight: pinnedColumn.implicitHeight + Style.space(4)
+                  implicitHeight: pinnedColumn.implicitHeight + Style.space(12)
                   radius: Style.cornerRadius
                   color: pinnedHover.hovered || (hasCursor && root.cursorShown)
                     ? Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.08)
@@ -2199,7 +2199,9 @@ FocusScope {
                     id: pinnedColumn
                     anchors.left: parent.left
                     anchors.right: parent.right
-                    anchors.top: parent.top
+                    anchors.leftMargin: Style.space(4)
+                    anchors.rightMargin: Style.space(4)
+                    anchors.verticalCenter: parent.verticalCenter
                     spacing: Style.space(4)
 
                     Rectangle {
