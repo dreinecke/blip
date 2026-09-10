@@ -394,3 +394,8 @@ to whatever has focus otherwise.
 - **Attachments out.** `send POSIX file` works on Sequoia IF the file is staged
   in `~/Pictures/` — from anywhere else Messages fails silently (`error=25`,
   "Not Delivered"). Verified delivered for PNG and PDF. See ROADMAP.md.
+
+The composer keeps arrow/Home/End keys for native text editing; PageUp/PageDown
+select history bubbles. `ComposerInput.qml` exposes the editable accessibility
+field and draws spelling ranges supplied by `spellcheck.ts`. Draft text stays
+on bounded stdin, never argv or disk; the helper emits only UTF-16 ranges.
