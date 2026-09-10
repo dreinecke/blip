@@ -17,6 +17,7 @@ FocusScope {
   property string error: ""
   signal closed()
   signal openOnMac()
+  signal copyRequested(string text)
   readonly property string helper: decodeURIComponent(Qt.resolvedUrl("contact-details.ts").toString().replace(/^file:\/\//, ""))
   Keys.onEscapePressed: closed()
   function validText(value, limit) {
@@ -97,6 +98,10 @@ FocusScope {
             required property var modelData
             Layout.fillWidth: true
             spacing: Style.space(2)
+            TapHandler {
+              acceptedButtons: Qt.RightButton
+              onTapped: root.copyRequested(modelData.value)
+            }
             Text {
               Layout.fillWidth: true; text: modelData.label; textFormat: Text.PlainText
               wrapMode: Text.WordWrap; color: Qt.darker(root.foreground,1.4)
@@ -106,6 +111,12 @@ FocusScope {
               Layout.fillWidth: true; text: modelData.value; textFormat: TextEdit.PlainText
               readOnly: true; selectByMouse: true; wrapMode: TextEdit.Wrap
               color: root.foreground; font.family: root.fontFamily; font.pixelSize: root.fontSize
+              Keys.onPressed: function(event) {
+                if (event.matches(StandardKey.Copy)) {
+                  if (selectedText !== "") root.copyRequested(selectedText)
+                  event.accepted = true
+                }
+              }
             }
           }
         }

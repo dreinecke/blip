@@ -25,6 +25,7 @@ FocusScope {
   visible: opened
   readonly property string helper: decodeURIComponent(Qt.resolvedUrl("contact-review.ts").toString().replace(/^file:\/\//, ""))
   signal closed()
+  signal copyRequested(string text)
 
   function close() { selectedCard = null; opened = false; closed() }
   function textField(value, maximum) { return typeof value === "string" ? value.slice(0, maximum) : "" }
@@ -115,6 +116,7 @@ FocusScope {
       card: root.selectedCard
       foreground: root.foreground; accent: root.accent; fontFamily: root.fontFamily; fontSize: root.fontSize
       onClosed: root.selectedCard = null
+      onCopyRequested: function(text) { root.copyRequested(text) }
       onOpenOnMac: {
         var card = root.selectedCard
         root.selectedCard = null

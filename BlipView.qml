@@ -3435,6 +3435,7 @@ FocusScope {
     fontFamily: root.fontFamily
     fontSize: root.fontBodySmall
     onClosed: root.focusDefault()
+    onCopyRequested: function(text) { root.copyText(text) }
   }
 
     // drag a file from a file manager onto the open conversation → draft chip

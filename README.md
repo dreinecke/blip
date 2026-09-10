@@ -515,6 +515,9 @@ Each card shows its name, account, source, matching-field count, and whether it
 has a photo. **Open in Contacts on Mac** opens that exact card; make edits in
 Contacts itself.
 
+In a card's details, right-click any field to copy its whole value. To copy
+part of a value, select the text and press Ctrl+C or Ctrl+Insert, or use Omapop.
+
 **Scan contacts** checks the conversation list for possible duplicate cards
 and handles shared by different names. Named conversations and short-code
 senders are included. A shared number or name is evidence to review, never an
