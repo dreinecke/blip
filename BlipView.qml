@@ -2214,9 +2214,24 @@ FocusScope {
                         maskEnabled: true
                         maskSource: pinnedAvatarMask
                       }
+                      Loader {
+                        id: pinnedAvatarComposite
+                        anchors.fill: parent
+                        active: pinnedAvatarImg.status !== Image.Ready
+                          && root.isGroupId(String(modelData.chat || ""))
+                          && (modelData.participants || []).length > 0
+                          && root.avatarFiles[pinnedAvatar.avatarHandle] !== undefined
+                        sourceComponent: GroupAvatar {
+                          participants: modelData.participants || []
+                          avatarFiles: root.avatarFiles
+                          foreground: root.foreground
+                          fontFamily: root.fontFamily
+                          onRequestAvatar: handle => root.requestAvatar(handle)
+                        }
+                      }
                       Text {
                         anchors.centerIn: parent
-                        visible: pinnedAvatarImg.status !== Image.Ready
+                        visible: pinnedAvatarImg.status !== Image.Ready && !pinnedAvatarComposite.active
                         text: root.avatarInitials(modelData)
                         color: root.foreground
                         font.family: root.fontFamily
@@ -2432,9 +2447,24 @@ FocusScope {
                       maskEnabled: true
                       maskSource: avatarMask
                     }
+                    Loader {
+                      id: avatarCircleComposite
+                      anchors.fill: parent
+                      active: avatarImg.status !== Image.Ready
+                        && root.isGroupId(String(modelData.chat || ""))
+                        && (modelData.participants || []).length > 0
+                        && root.avatarFiles[avatarCircle.avatarHandle] !== undefined
+                      sourceComponent: GroupAvatar {
+                        participants: modelData.participants || []
+                        avatarFiles: root.avatarFiles
+                        foreground: root.foreground
+                        fontFamily: root.fontFamily
+                        onRequestAvatar: handle => root.requestAvatar(handle)
+                      }
+                    }
                     Text {
                       anchors.centerIn: parent
-                      visible: avatarImg.status !== Image.Ready
+                      visible: avatarImg.status !== Image.Ready && !avatarCircleComposite.active
                       text: root.avatarInitials(modelData)
                       color: root.foreground
                       font.family: root.fontFamily
