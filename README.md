@@ -517,6 +517,7 @@ Contacts itself.
 
 In a card's details, right-click any field to copy its whole value. To copy
 part of a value, select the text and press Ctrl+C or Ctrl+Insert, or use Omapop.
+A brief toast confirms a successful right-click copy or reports a clipboard error.
 
 **Scan contacts** checks the conversation list for possible duplicate cards
 and handles shared by different names. Named conversations and short-code
