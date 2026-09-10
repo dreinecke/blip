@@ -69,6 +69,12 @@ what it is handed. Keep it that way.
   send per row. The read watermark (`--seen`) skips pending bubbles: their ts
   is THIS machine's clock. A failed send drops its bubble and restores the
   text. Never go back to "wait 1.5 s, then reload".
+- **A peeked thread is not read.** In the window, the sidebar cursor resting on
+  a row shows that thread (`peeking`); focus stays in the list and neither
+  read path fires — `markRead()` in BlipView (the only caller of the host's
+  `markThreadRead`) and `readingSurface()` in BarWidget both check it. Focus
+  entering the compose field (Enter, click, typing) is the commit. Split view
+  only.
 - **Unread is ledger-backed.** `unreadCounts` and `unreadOldest` persist per-chat
   metadata without message bodies. Catch-up fetches cover new arrivals and the
   oldest outstanding unread so deletions are reconciled; never derive the total

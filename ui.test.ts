@@ -197,9 +197,11 @@ describe("QML safety invariants", () => {
     // The sheet auto-opens on an ARRIVING link. Without this it survived into
     // the next conversation, and resetToList() (which the host runs on every
     // open) brought a stale sheet back over the list. Found live, 2026-09-07.
-    for (const fn of ["resetToList", "back", "openThread"]) {
-      expect(qmlFunction(fn)).toContain("closeShare()");
-    }
+    // resetToList() and back() empty the pane through clearThread(), which
+    // closes the sheet; openThread() closes it itself before showing the next.
+    expect(qmlFunction("clearThread")).toContain("closeShare()");
+    for (const fn of ["resetToList", "back"]) expect(qmlFunction(fn)).toContain("clearThread()");
+    expect(qmlFunction("openThread")).toContain("closeShare()");
     // Esc still closes the sheet BEFORE it unwinds the view (Astra A#7)
     expect(panel).toContain('if (root.shareUrl !== "") root.closeShare(); else if (root.bubbleCursor >= 0)');
   });
@@ -219,7 +221,7 @@ describe("QML safety invariants", () => {
     expect(widget).toContain("property var refreshQueue: []");
     expect(widget).not.toContain("property var queued: null");
     const success = panel.indexOf("if (d.ok === true)");
-    const mark = panel.indexOf("markThreadRead(root.threadRunningChat, seen)");
+    const mark = panel.indexOf("markRead(root.threadRunningChat, seen)");
     expect(success).toBeGreaterThan(-1);
     expect(mark).toBeGreaterThan(success);
   });
@@ -329,6 +331,10 @@ describe("QML safety invariants", () => {
     expect(fn).toContain("moveCursor(1)");
     expect(fn).toContain("moveCursor(-1)");
     expect(fn).toContain("activateCursor()");
+    // Right steps into the compose field (committing a peek); Left in an
+    // empty compose field steps back, with text it stays a caret move.
+    expect(fn).toContain("if (key === Qt.Key_Right && inThread) { composeField.forceActiveFocus(); return true }");
+    expect(panel).toContain('if (root.splitView && cursorPosition === 0 && root.shareUrl === "") root.navigationFocusRequested()');
   });
 
   test("Omarchy's shell toggle can find the panel", () => {
@@ -401,6 +407,35 @@ describe("QML safety invariants", () => {
     expect(panel).toContain('text: root.note === "" ? " " : root.note');
     expect(panel).not.toContain('visible: root.note !== ""');
     expect(panel).toContain("color: calm ? root.dim : root.urgent");
+  });
+
+  test("a peeked thread is not read until the reader commits", () => {
+    // Three read paths, all gated on `peeking`: the two post-load marks in
+    // BlipView and readingSurface() in BarWidget (what the collector is told
+    // is being read). Focus entering the compose field is the commit.
+    expect(qmlFunction("markRead")).toContain("if (hostWidget && readActive && !peeking) hostWidget.markThreadRead(chat, seen)");
+    expect(panel.split("root.markRead(root.threadRunningChat, seen)").length - 1).toBe(2);
+    expect(panel).not.toContain("root.hostWidget.markThreadRead(");
+    expect(panel).toContain("onActiveFocusChanged: if (activeFocus) root.commitPeek()");
+    expect(qmlFunction("commitPeek")).toContain("if (!loading) markRead(String(active.chat), seenTs)");
+    expect(window).toContain("readonly property bool peeking: view.peeking");
+    expect(widget).toContain("w.inThread === true && w.peeking !== true");
+  });
+
+  test("peeking is split-view only, debounced, and cleared on the way out", () => {
+    expect(panel).toContain("Timer { id: peekTimer;");
+    // Leaving the list for a field ends a peek; an opened thread stays.
+    expect(qmlFunction("startSearch")).toContain("endPeek()");
+    expect(qmlFunction("startNew")).toContain("endPeek()");
+    expect(qmlFunction("endPeek")).toContain("if (peeking) clearThread()");
+    expect(qmlFunction("peekCursor")).toContain("!cursorShown");
+    // The sidebar's spacing must not follow inThread in split view (8px shift).
+    expect(panel).toContain("spacing: root.splitView ? Style.space(10) : (root.inThread ? Style.space(2) : Style.space(6))");
+    expect(qmlFunction("moveCursor")).toContain("if (splitView) peekTimer.restart()");
+    // one place empties the pane; back() and resetToList() go through it
+    expect(qmlFunction("clearThread")).toContain("peekTimer.stop()");
+    expect(qmlFunction("clearThread")).toContain("peeking = false");
+    for (const name of ["back", "resetToList"]) expect(qmlFunction(name)).toContain("clearThread()");
   });
 
   test("an old toast can still reopen its conversation (omarchy-exec-argv)", () => {
@@ -533,7 +568,7 @@ test("link preview URLs never ride argv", () => {
 // the newest ts in that snapshot — never the sidebar's (Astra A#2, A#3).
 test("reads require a rendered snapshot and carry its own timestamp", () => {
   expect(panel).toContain("property bool rendered: false");
-  expect(panel).toContain("root.hostWidget.markThreadRead(root.threadRunningChat, seen)");
+  expect(panel).toContain("root.markRead(root.threadRunningChat, seen)");   // through the peek gate, same `seen`
   expect(widget).toContain("s.rendered === true");
   expect(widget).toContain('return s ? String(s.seenTs || "") : ""');
   expect(widget).toContain("function markThreadRead(chat, seen)");
