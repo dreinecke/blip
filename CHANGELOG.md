@@ -2,6 +2,14 @@
 
 ## 2.4.0 — 2026-09-08 — read it from the keyboard, send without the wait
 
+- **`blip-setup` pins the dedicated key to this machine over Tailscale.** The
+  key was confined to the bridge tools but accepted from any address, so a copy
+  of the key file still reached your messages. Over Tailscale the enrolled line
+  now carries `from=<this node's Tailscale addresses>` beside `restrict` and
+  `command=`, and a leaked key file is refused from anywhere else. Over a LAN,
+  where an address can change, the key stays unpinned (`docs/SECURITY.md` shows
+  the manual pin). A re-run replaces the key's line, so a changed address is one
+  re-run away.
 - **Reading a conversation can now clear it on your phone.** `push_read` in
   `bridge.conf` gained a documented middle setting and a status surface. The
   default, `all`, pushes to the Mac *only* on the mark-all gesture — so reading
