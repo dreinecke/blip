@@ -59,7 +59,9 @@ FocusScope {
     error = ""; notice = ""
     if (encoded.length > 49152) { error = "Too many contacts in this request"; return }
     worker.received = false
-    worker.command = ["bun", helper, operation]
+    worker.command = operation === "vcard"
+      ? ["bun", helper.replace(/contact-review\.ts$/, "contact-vcard.ts")]
+      : ["bun", helper, operation]
     busy = true
     worker.stdinEnabled = true
     worker.running = true
@@ -80,7 +82,7 @@ FocusScope {
         error = result && validText(result.error, 180) ? result.error : "Contact review failed"
         return
       }
-      if (["people", "cards", "scan", "opened"].indexOf(result.view) < 0
+      if (["people", "cards", "scan", "opened", "copied"].indexOf(result.view) < 0
           || !validText(result.title, 160) || !validText(result.detail, 480)
           || !Array.isArray(result.rows) || result.rows.length > 200) throw "schema"
       for (var i = 0; i < result.rows.length; i++) {
@@ -90,7 +92,7 @@ FocusScope {
             || typeof row.token !== "string" || (row.action === "open"
               ? !/^sha256:[0-9a-f]{64}$/.test(row.token) : row.token !== "")) throw "row"
       }
-      if (result.view === "opened") notice = result.detail
+      if ((result.view === "opened" || result.view === "copied")) notice = result.detail
       else { model = result; reviewFlick.contentY = 0 }
     } catch (e) { error = "Contact review returned an invalid response" }
   }
@@ -180,6 +182,14 @@ FocusScope {
                 Layout.fillWidth: true; text: modelData.detail; textFormat: Text.PlainText
                 wrapMode: Text.WordWrap; color: Qt.darker(root.foreground, 1.3)
                 font.family: root.fontFamily; font.pixelSize: root.fontSize
+              }
+              ContactButton {
+                Layout.fillWidth: true
+                visible: modelData.action === "open"
+                text: "Copy vCard"
+                enabled: !root.busy
+                foreground: root.foreground; accent: root.accent; fontFamily: root.fontFamily; fontSize: root.fontSize
+                onClicked: root.request("vcard", {handle: modelData.handle, token: modelData.token})
               }
               ContactButton {
                 Layout.fillWidth: true

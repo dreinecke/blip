@@ -1,10 +1,10 @@
 #!/usr/bin/osascript -l JavaScript
 /*
- * Read-only Contacts availability check for Blip.
+ * Read-only Contacts availability and exact-card vCard export for Blip.
  *
  * The Python bridge sends one bounded JSON request on stdin. Raw Contacts
  * identifiers never appear in argv, and this helper emits a small JSON
- * result only. Its single operation answers which person ids the object
+ * result only. Its availability operation answers which person ids the object
  * layer can actually address — raw per-account databases can retain
  * inactive cache rows. It mutates nothing.
  */
@@ -36,7 +36,7 @@ function readRequest() {
 }
 
 function normalizeRequest(value) {
-  if (value.operation !== "available") throw new Error("repair operation is invalid");
+  if (["available", "vcard"].indexOf(value.operation) < 0) throw new Error("repair operation is invalid");
   if (!Array.isArray(value.personUids) || value.personUids.length < 1
       || value.personUids.length > MAX_PERSON_IDS)
     throw new Error("person id list is invalid");
@@ -47,7 +47,15 @@ function normalizeRequest(value) {
     seen[normalized] = true;
     return normalized;
   });
-  return { operation: "available", personUids: personUids };
+  if (value.operation === "vcard" && personUids.length !== 1) throw new Error("vCard requires one exact card");
+  return { operation: value.operation, personUids: personUids };
+}
+
+function exportPerson(person) {
+  const data = person.vCardRepresentation;
+  if (!data || Number(data.length) < 1 || Number(data.length) > 2 * 1024 * 1024)
+    throw new Error("The contact vCard is too large to copy");
+  return String(ObjC.unwrap(data.base64EncodedStringWithOptions(0)));
 }
 
 function perform(request) {
@@ -55,6 +63,11 @@ function perform(request) {
   // raw per-account databases can retain inactive cache rows.
   ObjC.import("AddressBook");
   const book = $.ABAddressBook.sharedAddressBook;
+  if (request.operation === "vcard") {
+    const person = book.recordForUniqueId($(request.personUids[0]));
+    if (!ObjC.unwrap(person)) throw new Error("This contact card is no longer available");
+    return {ok: true, vcard: exportPerson(person)};
+  }
   const available = request.personUids.filter(function(uid) {
     try {
       const person = book.recordForUniqueId($(uid));
@@ -69,9 +82,11 @@ function perform(request) {
 
 function run() {
   try {
-    const result = perform(normalizeRequest(readRequest()));
+    const request = normalizeRequest(readRequest());
+    const result = perform(request);
+    const maximum = request.operation === "vcard" ? 3 * 1024 * 1024 : MAX_OUTPUT_BYTES;
     const output = JSON.stringify(result);
-    if ($.NSString.alloc.initWithUTF8String(output).lengthOfBytesUsingEncoding($.NSUTF8StringEncoding) > MAX_OUTPUT_BYTES)
+    if ($.NSString.alloc.initWithUTF8String(output).lengthOfBytesUsingEncoding($.NSUTF8StringEncoding) > maximum)
       throw new Error("repair response is too large");
     return output;
   } catch (error) {

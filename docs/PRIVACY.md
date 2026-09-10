@@ -91,3 +91,17 @@ timestamp when `chat.db` changes; the client then fetches privately.
 
 Send tapbacks, edit or unsend, see typing indicators.
 Those need Apple private APIs that Blip deliberately does not use.
+
+Copy vCard exports only the explicitly selected source card, revalidating its
+opaque token on the Mac. Apple's AddressBook vCard representation supplies the
+file; Blip does not merge or save cards in Contacts. The export is limited to
+2 MiB (3 MiB for the base64 JSON response). Contact bytes travel on bounded
+stdin/stdout, never argv, and never pass through the QML model.
+
+An explicit copy creates a private `.vcf` file under
+`$XDG_RUNTIME_DIR/blip/vcards` (directories 0700, files 0600) and places a file
+reference on the clipboard. Runtime directories are pinned and reject links
+or incorrect ownership/permissions. On each copy, Blip removes its files older
+than 24 hours and retains at most 32 files including the new one. Runtime
+files disappear when the login runtime directory is cleared. This is contact
+export data, not message content; no message text is persisted.
