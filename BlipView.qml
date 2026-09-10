@@ -78,6 +78,7 @@ FocusScope {
     var small = Style.font.bodySmall
     return small > 0 ? uiFontSizePx / small : 1
   }
+  readonly property int fontTitle: Math.max(1, Math.round(Style.font.title * uiFontScale))
   readonly property int fontCaption: Math.max(1, Math.round(Style.font.caption * uiFontScale))
   readonly property int fontBodySmall: Math.max(1, Math.round(Style.font.bodySmall * uiFontScale))
   readonly property int fontBody: Math.max(1, Math.round(Style.font.body * uiFontScale))
@@ -1867,22 +1868,13 @@ FocusScope {
         anchors.topMargin: root.splitView ? Style.space(10) : 0
         anchors.bottomMargin: root.splitView ? Style.space(10) : 0
         spacing: Style.space(root.splitView ? 14 : 8)
-        PanelHero {
+        ColumnLayout {
           Layout.fillWidth: true
-          title: "Blip"
-          meta: (!root.online
-                ? "Mac unreachable — bridge offline"
-                : (root.unread > 0 ? root.unread + " unread" : "all caught up"))
-          detail: ""   // Fred: not needed — and it squeezed the title to "B…"
-          foreground: root.foreground
-          fontFamily: root.fontFamily
-          // The version, pinned to the trailing edge: the hero reserves the
-          // space itself, so unlike `detail` it never squeezes the title. One
-          // header for the popout and the app window, so one place, always the
-          // same number — and that number comes from manifest.json via the host.
-          trailingControl: Component {
+          spacing: Style.space(2)
+          RowLayout {
+            Layout.fillWidth: true
+            spacing: Style.space(8)
             Text {
-              id: versionTag
               visible: root.version !== ""
               text: root.version
               textFormat: Text.PlainText
@@ -1890,6 +1882,48 @@ FocusScope {
               font.family: root.fontFamily
               font.pixelSize: root.fontCaption
             }
+            Text {
+              Layout.fillWidth: true
+              text: "Blip"
+              textFormat: Text.PlainText
+              color: root.foreground
+              font.family: root.fontFamily
+              font.pixelSize: root.fontTitle
+              font.bold: true
+              elide: Text.ElideRight
+            }
+            PanelActionButton {
+              visible: root.online && !root.newMode && !root.searchShowing
+              iconText: "＋"
+              tooltipText: "New message (n)"
+              bordered: true
+              foreground: root.foreground
+              hoverColor: root.accent
+              fontFamily: root.fontFamily
+              onClicked: root.startNew()
+            }
+            PanelActionButton {
+              visible: root.online && !root.splitView
+              iconText: "⇱"
+              tooltipText: "Open the app window"
+              bordered: true
+              foreground: root.foreground
+              hoverColor: root.accent
+              fontFamily: root.fontFamily
+              onClicked: root.openApp()
+            }
+          }
+          Text {
+            Layout.fillWidth: true
+            text: (!root.online ? "Mac unreachable — bridge offline"
+              : root.unread > 0 ? root.unread + " unread" : "all caught up").toUpperCase()
+            textFormat: Text.PlainText
+            color: root.dim
+            font.family: root.fontFamily
+            font.pixelSize: root.fontCaption
+            font.bold: true
+            font.letterSpacing: 1.2
+            elide: Text.ElideRight
           }
         }
 
@@ -1970,36 +2004,12 @@ FocusScope {
             RowLayout {
               Layout.fillWidth: true
               visible: root.online && root.listShowing
+                && (root.newMode || root.unread > 0 && !root.searchShowing)
               PanelSectionHeader {
                 Layout.fillWidth: true
-                text: root.newMode ? "NEW MESSAGE" : root.searchShowing ? "SEARCH" : "MESSAGES"
+                text: root.newMode ? "NEW MESSAGE" : ""
                 foreground: root.foreground
                 fontFamily: root.fontFamily
-              }
-              // A real button (PanelActionButton = the stock panels' control).
-              // The hand-rolled Text+MouseArea version lost its clicks to the
-              // panel's dismiss layer — clicking it CLOSED the panel.
-              PanelActionButton {
-                visible: !root.newMode && !root.searchShowing && !root.splitView
-                iconText: "＋"
-                tooltipText: "New message (n)"
-                bordered: true
-                foreground: root.foreground
-                hoverColor: root.accent
-                fontFamily: root.fontFamily
-                onClicked: root.startNew()
-              }
-              // Open the full app window. Hidden in the app itself (it IS the
-              // window) and in the split/search/new views, like ＋.
-              PanelActionButton {
-                visible: !root.newMode && !root.searchShowing && !root.splitView
-                iconText: "⇱"
-                tooltipText: "Open the app window"
-                bordered: true
-                foreground: root.foreground
-                hoverColor: root.accent
-                fontFamily: root.fontFamily
-                onClicked: root.openApp()
               }
               // Local only: moves readMark/readMarks in state.json so the
               // badge and dots clear. Nothing is written back to the Mac —
@@ -2110,7 +2120,32 @@ FocusScope {
               id: searchField
               Layout.fillWidth: true
               visible: root.online && root.listShowing && !root.newMode
-              placeholderText: "name or message"
+              placeholderText: "Search"
+              Accessible.name: "Search"
+              leftPadding: horizontalPadding + searchGlyph.width + Style.space(7)
+              Canvas {
+                id: searchGlyph
+                anchors.left: parent.left
+                anchors.leftMargin: searchField.horizontalPadding
+                anchors.verticalCenter: parent.verticalCenter
+                width: Style.space(16)
+                height: width
+                readonly property color strokeColor: searchField.placeholderTextColor
+                onStrokeColorChanged: requestPaint()
+                onPaint: {
+                  var ctx = getContext("2d")
+                  ctx.reset()
+                  ctx.scale(width / 16, height / 16)
+                  ctx.strokeStyle = strokeColor
+                  ctx.lineWidth = 1.5
+                  ctx.lineCap = "round"
+                  ctx.beginPath()
+                  ctx.arc(6.5, 6.5, 5, 0, Math.PI * 2)
+                  ctx.moveTo(10.1, 10.1)
+                  ctx.lineTo(14.5, 14.5)
+                  ctx.stroke()
+                }
+              }
               foreground: root.foreground
               accent: root.accent
               font.family: root.fontFamily

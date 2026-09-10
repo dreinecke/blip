@@ -518,7 +518,6 @@ test("outgoing bubbles are always iMessage blue with white text", () => {
 test("the header shows the version from manifest.json", () => {
   expect(widget).toContain('Qt.resolvedUrl("manifest.json")');
   expect(widget).toContain("root.version = String(JSON.parse(text()).version");
-  expect(panel).toContain("trailingControl: Component");
   expect(panel).toContain("text: root.version");
 });
 
