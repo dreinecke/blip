@@ -507,6 +507,24 @@ rather than hang:
 ~/bin/imsg chats 1 >/dev/null && echo "gateway reachable"
 ```
 
+## Contact review
+
+Right-click a conversation or choose **Review contact** from its header to
+inspect the matching cards in Mac Contacts. In a group, choose a participant.
+Each card shows its name, account, source, matching-field count, and whether it
+has a photo. **Open in Contacts on Mac** opens that exact card; make edits in
+Contacts itself.
+
+**Scan contacts** checks the conversation list for possible duplicate cards
+and handles shared by different names. Named conversations and short-code
+senders are included. A shared number or name is evidence to review, never an
+automatic merge. Scans support up to 200 distinct handles.
+
+The scan cache is private and reused only when both the handle set and the Mac
+Contacts fingerprint still match. The feature adds no settings page or display
+name overrides. Configuration stays in `bridge.conf`. Review requires no Swift
+helper; the optional availability check needs Automation → Contacts on the Mac.
+
 ## Keyboard
 
 | where | key | does |

@@ -84,7 +84,7 @@ FocusScope {
   readonly property color dim: Qt.darker(foreground, 1.45)
   /** An editor owns the keyboard — the host's key catcher must stand down. */
   readonly property bool editorActive:
-    composeField.activeFocus || searchField.activeFocus || newField.activeFocus || bubbleFocused
+    contactReview.opened || composeField.activeFocus || searchField.activeFocus || newField.activeFocus || bubbleFocused
   readonly property alias composeEditor: composeField
   readonly property real contentHeightHint: listContent.implicitHeight
   /** The view wants keyboard navigation focus back (list mode). */
@@ -364,7 +364,8 @@ FocusScope {
     return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase()
   }
 
-  readonly property bool inThread: active !== null
+  readonly property bool contactsOpen: contactReview.opened
+  readonly property bool inThread: active !== null && !contactReview.opened
   // last_ts of the open conversation as of its last load — the push watcher
   // refreshes the thread list, and when OUR thread advances, the bubbles
   // reload themselves. The guard makes unchanged refreshes free.
@@ -453,6 +454,7 @@ FocusScope {
   /** Back to the list view, scrolled to top — the host calls this on open. */
   function resetToList() {
     clearThread()
+    contactReview.opened = false
     cursor = -1
     composeField.text = ""
     searching = false
@@ -1751,7 +1753,7 @@ FocusScope {
   // press past the last row landing at the top reads as a jump, not a loop
   // (Omarchy's Dropdown clamps the same way).
   function moveCursor(dy) {
-    if (!listShowing || threads.length === 0 || dy === 0) return
+    if (contactReview.opened || !listShowing || threads.length === 0 || dy === 0) return
     // Up from the first row hands focus to the search field above the list,
     // and Down in an empty field hands it back (Omarchy's SearchableDropdown).
     if (dy < 0 && cursor <= 0) { startSearch(); return }
@@ -1796,6 +1798,7 @@ FocusScope {
     return false
   }
   function catchNavText(text) {
+    if (contactReview.opened) return false
     var jump = text === "/" || text === "n" || text === "N"
       || (text >= "1" && text <= "9")
     if (!jump) return false
@@ -1825,13 +1828,15 @@ FocusScope {
   /** Esc semantics for a host without a PanelKeyCatcher (the window): true if
    *  something was unwound, false if the host should close. */
   function unwind() {
+    if (contactReview.opened) { contactReview.back(); return true }
     if (shareUrl !== "") { closeShare(); return true }
     if (catchEscape()) return true
     if (inThread) { back(); return true }
     return false
   }
   function focusDefault() {
-    if (inThread) composeField.forceActiveFocus()
+    if (contactReview.opened) contactReview.forceActiveFocus()
+    else if (inThread) composeField.forceActiveFocus()
     else navigationFocusRequested()
   }
 
@@ -1843,6 +1848,7 @@ FocusScope {
 
   RowLayout {
     anchors.fill: parent
+    visible: !contactReview.opened
     spacing: 0
 
     // ------------------------------------------------------- thread pane
@@ -2155,6 +2161,10 @@ FocusScope {
 
                   HoverHandler { id: pinnedHover }
                   TapHandler { onTapped: root.openThread(modelData) }
+                  TapHandler {
+                    acceptedButtons: Qt.RightButton
+                    onTapped: { root.contactContext = modelData; contactMenu.popup() }
+                  }
 
                   ColumnLayout {
                     id: pinnedColumn
@@ -2361,6 +2371,10 @@ FocusScope {
 
                 HoverHandler { id: rowHover }
                 TapHandler { onTapped: root.openThread(modelData) }
+                  TapHandler {
+                    acceptedButtons: Qt.RightButton
+                    onTapped: { root.contactContext = modelData; contactMenu.popup() }
+                  }
 
                 RowLayout {
                   id: rowRow
@@ -2520,6 +2534,14 @@ FocusScope {
               : ""
             foreground: root.foreground
             fontFamily: root.fontFamily
+          }
+          PanelActionButton {
+            visible: root.inThread
+            iconText: "⋯"
+            tooltipText: "Review contact"
+            foreground: root.foreground
+            hoverColor: root.accent
+            onClicked: contactReview.review(root.active)
           }
           // The app's NEW button lives up here (where "Esc = back" used to be).
           PanelActionButton {
@@ -3393,6 +3415,26 @@ FocusScope {
         }
       }
     }
+  }
+
+  property var contactContext: null
+  Menu {
+    id: contactMenu
+    MenuItem {
+      text: "Review contact"
+      onTriggered: if (root.contactContext) contactReview.review(root.contactContext)
+    }
+  }
+  ContactReview {
+    id: contactReview
+    objectName: "blipContactReview"
+    anchors.fill: parent
+    threads: root.threads
+    foreground: root.foreground
+    accent: root.accent
+    fontFamily: root.fontFamily
+    fontSize: root.fontBodySmall
+    onClosed: root.focusDefault()
   }
 
     // drag a file from a file manager onto the open conversation → draft chip

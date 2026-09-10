@@ -16,6 +16,8 @@ treating a Mac as the gateway. Read this before touching anything.
                                     reads ~/.config/blip/bridge.conf (host=, remote_bin='$HOME/.blip/bin'
                                     — single-quoted, expands on the MAC). `ssh -n` preflight; exit 69 offline.
                                     Blip only ever calls ~/bin/imsg*. No hostnames in code, ever.
+contact-review.ts                   bounded read-only contact broker, view models, fingerprint cache.
+ContactReview.qml                   compact review and scan, opened from conversations.
 collector.ts                        poll → {threads, unread, toast}. Pure functions + one spawn.
 thread.ts                           one conversation → decorated bubbles. Pure + one spawn.
 fetch.ts                            attachment id → ~/.cache/blip/att (0700/0600, 500MB LRU).
@@ -188,6 +190,15 @@ what it is handed. Keep it that way.
   store, flagged `isChildDelegate` in the same Accounts db. Contacts.app hides
   those from All Contacts; `_ab_sources()` drops them entirely, or two sons'
   "Mom" cards outvote your own "Monica Gamble" for the same number.
+- **Contact review is read-only and separate from configuration.**
+  `ContactReview.qml` opens from a conversation and renders models supplied by
+  `contact-review.ts`. Only candidates, audit, fingerprint, and exact-card open
+  cross the Mac protocol. Handles and opaque tokens travel on bounded stdin;
+  no display-name choices or appearance preferences are saved. A group offers
+  its participants, never the last speaker as a stand-in for the group.
+  Duplicate scans include named conversations and short codes. The private
+  `audit-cache.json` holds contact summaries only and is reused only after
+  validating the handle-set and current Mac store fingerprints.
 - **Configuration is `bridge.conf` keys, not a settings system.** Blip has one
   config file (`~/.config/blip/bridge.conf`, parsed not sourced) carrying
   `host`, `remote_bin`, `automation`, `ui_font_size`, `ui_font_theme`,

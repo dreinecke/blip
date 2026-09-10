@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Read-only contact review opens directly from conversations. Inspect matching
+  source cards and open an exact card in Contacts on Mac. A bounded duplicate
+  scan reuses results only while the handle set and Mac fingerprint match.
+  Configuration remains in `bridge.conf`; no preferences system or saved
+  display-name overrides are added.
 - **`hide_spam` / `hide_unknown` in `bridge.conf`.** The iPhone Messages badge
   ignores conversations Apple filed under Spam (`chat.is_filtered = 2`) and
   Filter Unknown Senders (`= 1`). Blip read the same `chat.db` and counted
@@ -12,8 +17,6 @@
   catch-up no longer restores hidden chats onto the unread ledger (that
   would pin every later poll at 8192 rows and keep the old badge). Re-run
   `blip-setup` so the Mac `imsg` and the Linux shim pick up the flags.
-
-## 2.4.0 — 2026-09-08 — read it from the keyboard, send without the wait
 
 - **`blip-setup` pins the dedicated key to this machine over Tailscale.** The
   key was confined to the bridge tools but accepted from any address, so a copy
@@ -30,6 +33,9 @@
   start of the text steps back. Leaving the list for the search or new-message
   field ends the preview, and the sidebar holds still while the pane fills or
   empties. The bar panel is unchanged.
+
+## 2.4.0 — 2026-09-08 — read it from the keyboard, send without the wait
+
 - **Reading a conversation can now clear it on your phone.** `push_read` in
   `bridge.conf` gained a documented middle setting and a status surface. The
   default, `all`, pushes to the Mac *only* on the mark-all gesture — so reading

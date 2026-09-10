@@ -91,6 +91,8 @@ export interface LinkCard { url: string; title: string; summary: string; image_i
 
 export interface Thread {
   chat: string;
+  /** Historical chat identifiers coalesced into this logical conversation. */
+  aliases?: string[];
   /** Full AppleScript chat GUID for groups (""), empty for DMs. Sending to a
    *  group means `imsg-send --chat-id <guid>`; never the bare id. */
   guid: string;
@@ -106,7 +108,13 @@ export interface Thread {
   pinned: boolean;
   /** Position in Messages' pinned section, when pinned. */
   pin_order: number | null;
+  /** Messages-style short label from Contacts' unified-card view. */
+  pin_name?: string;
+  /** Other people in a group, for explicit per-person contact actions. */
+  participants?: GroupParticipant[];
 }
+
+export interface GroupParticipant { handle: string; name: string }
 
 export interface Toast {
   chat: string;
@@ -127,7 +135,12 @@ export interface Toast {
  *               Only moves on --mark-read (panel open, or middle-click).
  */
 /** guid is what AppleScript's `chat id` wants ("any;+;<id>"); chat is the bare id. */
-export interface GroupInfo { name: string; guid: string; participants: string[] }
+export interface GroupInfo {
+  name: string;
+  guid: string;
+  participants: string[];
+  participantNames?: Record<string, string>;
+}
 
 export interface BlipState {
   watermark: string;
@@ -333,6 +346,23 @@ export function prettyHandle(id: string): string {
   return id.replace(/\(filtered\)$/i, "");
 }
 
+/** Never expose Messages' U+FFFC attachment marker as a dotted OBJ glyph. */
+export function messagePreview(
+  text: unknown,
+  attachment?: { name?: unknown; mime?: unknown } | null,
+): string {
+  const cleaned = String(text ?? "").replace(/\uFFFC/g, "").trim();
+  if (cleaned) return cleaned;
+  if (!attachment) return "";
+  const mime = String(attachment.mime ?? "").toLowerCase();
+  const name = String(attachment.name ?? "").toLowerCase();
+  if (mime.startsWith("image/") || /\.(?:avif|gif|heic|heif|jpe?g|png|webp)$/.test(name)) return "Photo";
+  if (mime.startsWith("video/") || /\.(?:m4v|mov|mp4|webm)$/.test(name)) return "Video";
+  if (mime.startsWith("audio/") || /\.(?:aac|m4a|mp3|wav)$/.test(name)) return "Audio message";
+  if (mime === "text/vcard" || /\.vcf$/.test(name)) return "Contact card";
+  return "Attachment";
+}
+
 /**
  * Group chat ids (chat.style=43) are either 32 hex chars or "chat<digits>";
  * DMs are a phone or email. Anything that is not a phone/email is treated as
@@ -466,7 +496,7 @@ export function hasIdentity(m: ImsgMessage): boolean {
  */
 export function groupName(chat: string, info: GroupInfo | undefined, byHandle: Map<string, string>): string {
   if (info?.name) return info.name;
-  const members = (info?.participants ?? []).map((h) => byHandle.get(h) || h);
+  const members = groupParticipants(info, byHandle).map((member) => member.name);
   // A "(filtered)" stranger is not a phone/email shape, so it lands here (the
   // never-a-DM-target rule stands: nothing sends to it); its label is the number.
   return members.length ? members.join(", ") : prettyHandle(chat);
@@ -521,6 +551,23 @@ export function sendServiceForMessages(msgs: ImsgMessage[]): SendService {
   return "iMessage";
 }
 
+/** Bounded, de-duplicated people for a group contact menu. */
+export function groupParticipants(
+  info: GroupInfo | undefined,
+  byHandle: Map<string, string> = new Map(),
+): GroupParticipant[] {
+  const result: GroupParticipant[] = [];
+  const seen = new Set<string>();
+  for (const raw of info?.participants ?? []) {
+    const handle = String(raw || "").trim().slice(0, 320);
+    if (!handle || seen.has(handle) || result.length >= 64) continue;
+    seen.add(handle);
+    const resolved = info?.participantNames?.[handle] || byHandle.get(handle) || handle;
+    result.push({ handle, name: String(resolved).trim().slice(0, 160) || handle });
+  }
+  return result;
+}
+
 export function buildThreads(
   msgs: ImsgMessage[],
   watermark: string,
@@ -555,12 +602,13 @@ export function buildThreads(
       handle: String(last.handle || chat),
       service: isGroupChat(chat) ? last.service : sendServiceForMessages(sorted),
       last_ts: last.ts,
-      last_text: last.text,
+      last_text: messagePreview(last.text, last.attachments?.[0]),
       last_from_me: last.from_me,
       count: sorted.length,
       unread,
       pinned: false,
       pin_order: null,
+      ...(isGroupChat(chat) ? { participants: groupParticipants(groups[chat], byHandle) } : {}),
     });
   }
 
@@ -1183,6 +1231,8 @@ export function unreadOldest(
 /** One row of `imsg --json chats`: a conversation with preview + pin metadata. */
 export interface ChatInfo {
   id: string;
+  /** Canonical id followed by historical ids for this conversation. */
+  aliases: string[];
   name: string | null;
   service: string;
   last: string;
@@ -1193,8 +1243,8 @@ export interface ChatInfo {
   /** Mirrored from Messages' pinning preferences; absent on old bridges. */
   pinned: boolean;
   pin_order: number | null;
-  /** Other chat rows of this same conversation (imsg ≥ 2.3.0). */
-  aliases: string[];
+  last_attachment?: { name: string; mime: string } | null;
+  pin_name: string | null;
 }
 
 /** How many conversations the sidebar lists (chat.db has hundreds). */
@@ -1218,20 +1268,45 @@ export function fetchChats(runner = spawnSync): ChatInfo[] | null {
     const rows = JSON.parse(res.stdout as string);
     if (!Array.isArray(rows)) return null;
     return rows
-      .filter((r) => r && typeof r.id === "string" && r.id !== "")
-      .map((r) => ({
-        id: String(r.id),
-        name: typeof r.name === "string" ? r.name : null,
-        service: String(r.service ?? ""),
-        last: String(r.last ?? ""),
-        last_text: String(r.last_text ?? ""),
-        last_from_me: r.last_from_me === true,
-        last_handle: String(r.last_handle ?? ""),
-        last_name: typeof r.last_name === "string" ? r.last_name : null,
-        pinned: r.pinned === true,
-        pin_order: Number.isInteger(r.pin_order) ? Number(r.pin_order) : null,
-        aliases: Array.isArray(r.aliases) ? r.aliases.filter((a: unknown) => typeof a === "string" && a !== "") : [],
-      }));
+      .filter((r) => r && typeof r.id === "string" && r.id.length > 0 && r.id.length <= 512 &&
+        !/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/.test(r.id))
+      .map((r) => {
+        const id = String(r.id);
+        const aliases = [...new Set([
+          id,
+          ...(Array.isArray(r.aliases) ? r.aliases : []),
+        ].filter((value): value is string =>
+          typeof value === "string" && value.length > 0 && value.length <= 512 &&
+          !/[\x00-\x1f\x7f-\x9f\u202a-\u202e\u2066-\u2069]/.test(value),
+        ))].slice(0, 16);
+        const legacyPinOrder = Number.isInteger(r.pinned_order) ? Number(r.pinned_order) : null;
+        const pinOrder = Number.isInteger(r.pin_order) ? Number(r.pin_order) : legacyPinOrder;
+        const boundedPinOrder = pinOrder !== null && pinOrder >= 0 && pinOrder < 16 ? pinOrder : null;
+        const rawPinName = typeof r.pin_name === "string" ? r.pin_name : r.pinned_name;
+        return {
+          id,
+          aliases,
+          name: typeof r.name === "string" ? r.name : null,
+          service: String(r.service ?? ""),
+          last: String(r.last ?? ""),
+          last_text: messagePreview(
+            r.last_text,
+            r.last_attachment && typeof r.last_attachment === "object"
+              ? { name: r.last_attachment.name, mime: r.last_attachment.mime }
+              : null,
+          ),
+          last_from_me: r.last_from_me === true,
+          last_handle: String(r.last_handle ?? ""),
+          last_name: typeof r.last_name === "string" ? r.last_name : null,
+          last_attachment: r.last_attachment && typeof r.last_attachment === "object"
+            ? { name: String(r.last_attachment.name ?? ""), mime: String(r.last_attachment.mime ?? "") }
+            : null,
+          pinned: r.pinned === true || boundedPinOrder !== null,
+          pin_order: boundedPinOrder,
+          pin_name: typeof rawPinName === "string" && rawPinName.trim() !== ""
+            ? rawPinName.trim().slice(0, 160) : null,
+        };
+      });
   } catch {
     return null;
   }
@@ -1341,11 +1416,33 @@ export function mergeChats(
   const applyPin = (thread: Thread): Thread => {
     const info = infoByChat.get(thread.chat);
     if (!info) return thread;
+    const aliases = info.aliases ?? [info.id];
     const pinned = info.pinned === true;
     const pin_order = Number.isInteger(info.pin_order) ? Number(info.pin_order) : null;
-    return thread.pinned === pinned && thread.pin_order === pin_order
-      ? thread
-      : { ...thread, pinned, pin_order };
+    const group = isGroupChat(thread.chat);
+    const groupInfo = groups[thread.chat]
+      ?? aliases.map((alias) => groups[alias]).find((value) => value !== undefined);
+    const knownParticipantNames = new Map<string, string>(
+      (thread.participants ?? []).map((person) => [person.handle, person.name]),
+    );
+    return {
+      ...thread,
+      aliases,
+      guid: group ? groupInfo?.guid ?? thread.guid : "",
+      name: group
+        ? (groupInfo?.name || info.name || thread.name || thread.chat)
+        : (info.last_name || info.name || thread.name || thread.chat),
+      service: info.service || thread.service,
+      last_text: info.last === thread.last_ts ? info.last_text : messagePreview(thread.last_text),
+      pinned,
+      pin_order,
+      ...(info.pin_name ? { pin_name: info.pin_name } : {}),
+      ...(group ? {
+        participants: groupInfo
+          ? groupParticipants(groupInfo, knownParticipantNames)
+          : thread.participants ?? [],
+      } : {}),
+    };
   };
   const have = new Set(threads.map((t) => t.chat));
   const out = threads.map(applyPin);
@@ -1353,12 +1450,16 @@ export function mergeChats(
     if (have.has(c.id)) continue;
     have.add(c.id);
     const group = isGroupChat(c.id);
+    const aliases = c.aliases ?? [c.id];
+    const groupInfo = groups[c.id]
+      ?? aliases.map((alias) => groups[alias]).find((value) => value !== undefined);
     const name = group
-      ? (groups[c.id]?.name || c.name || c.id)
+      ? (groupInfo?.name || c.name || c.id)
       : (c.last_name || c.name || c.id);
     out.push({
       chat: c.id,
-      guid: group ? groups[c.id]?.guid ?? "" : "",
+      aliases,
+      guid: group ? groupInfo?.guid ?? "" : "",
       name,
       handle: group ? c.last_handle || c.id : c.id,
       service: c.service,
@@ -1366,9 +1467,11 @@ export function mergeChats(
       last_text: c.last_text,
       last_from_me: c.last_from_me,
       count: 0,
-      unread: unreadCounts[c.id] ?? 0,
+      unread: aliases.reduce((sum, alias) => sum + (unreadCounts[alias] ?? 0), 0),
       pinned: c.pinned === true,
       pin_order: Number.isInteger(c.pin_order) ? Number(c.pin_order) : null,
+      ...(c.pin_name ? { pin_name: c.pin_name } : {}),
+      ...(group ? { participants: groupParticipants(groupInfo) } : {}),
     });
   }
   return out.sort(compareThreads);
@@ -1383,12 +1486,20 @@ export function fetchGroups(runner = spawnSync): Record<string, GroupInfo> | nul
     const out: Record<string, GroupInfo> = {};
     for (const r of rows) {
       if (!r || typeof r.chat !== "string") continue;
+      const participantNames = r.participant_names && typeof r.participant_names === "object"
+        && !Array.isArray(r.participant_names)
+        ? Object.fromEntries(Object.entries(r.participant_names)
+          .filter(([handle, name]) => typeof handle === "string" && handle.length <= 320
+            && typeof name === "string" && name.length <= 160)
+          .slice(0, 64)) as Record<string, string>
+        : {};
       out[r.chat] = {
         name: typeof r.name === "string" ? r.name : "",
         guid: typeof r.guid === "string" ? r.guid : "",
         participants: Array.isArray(r.participants)
           ? r.participants.filter((h: unknown) => typeof h === "string")
           : typeof r.participants === "string" ? r.participants.split(",").filter(Boolean) : [],
+        ...(Object.keys(participantNames).length ? { participantNames } : {}),
       };
     }
     return out;

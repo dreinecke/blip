@@ -64,3 +64,22 @@ attachment ROWID.
 - **Or close port 22 one layer down.** On a tailnet, an ACL that lets only the
   Blip node reach the Mac's port 22 protects every key on that Mac, not just
   Blip's, and needs no `from=` at all.
+
+## Read-only contact review
+
+`contact-review.ts` bounds request stdin and helper output to 48 KiB, validates
+Mac responses, and supplies plain display rows to QML. The Mac response cap is
+also 48 KiB; lookups/open time out after 15 seconds and scans after 35 seconds.
+Candidates are capped at eight names and 64 source cards; scans at 200 distinct
+handles. Control and bidirectional characters are removed before display.
+
+The bridge accepts only candidates, fingerprint, audit, and exact-card open.
+Handles and opaque tokens travel through stdin. Opening a card revalidates it
+and calls `/usr/bin/open` with a fixed argument array; private database IDs stay
+on the Mac. No contact mutation or compiled Swift helper is introduced.
+
+The optional scan cache is bounded to 512 KiB and accessed through no-follow,
+nonblocking descriptors with owner/type checks. Writes use a private staging
+file and descriptor-relative atomic rename. It holds contact summaries, never
+messages, and requires matching handle-set and live store fingerprints before
+reuse. It is a cache, not user configuration.

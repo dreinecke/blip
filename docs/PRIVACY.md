@@ -13,6 +13,7 @@ inventory of what lands on disk.
 | `~/.config/blip/allowlist.json` | handles allowed to raise desktop toasts | message text |
 | `~/.config/blip/mutelist.json` | handles and phrases you typed, whose conversations Blip hides entirely | message text Blip received |
 | `~/.local/state/blip/state.json` (0600, atomic) | poll watermark, read marks, per-chat unread counts and oldest-unread timestamps, self-chat ids, group names/members, opaque SHA-256 toast keys | **message bodies — ever** |
+| `~/.local/state/blip/audit-cache.json` (0600, parent 0700) | bounded contact-scan summaries: handles, candidate names, source labels, counts, opaque card tokens, and freshness fingerprints | message bodies, photos, full contact cards |
 | `~/.local/state/blip/window.json` | whether the app window was open, its size | anything else |
 | `~/.cache/blip/att/` (0700, files 0600, 500 MB LRU, no expiry) | attachments you viewed, plus images ≤ 5 MB and link-preview thumbnails in any conversation you *open* (they render inline, so they are fetched when the thread is). HEIC arrives converted to JPEG. File names carry the Mac's attachment row id and a sanitized name whose extension follows the MIME type | attachments in conversations you never opened |
 | `~/.cache/blip/linkpreview/` (0700, files 0600, 7-day TTL) | title, description and picture of pages linked in your messages, for links Messages did not decorate | anything from a page nobody linked you to |
@@ -62,11 +63,18 @@ Messages' pinning preferences read-only, and drive Messages.app through
 AppleScript. They write nothing else. Messages.app itself keeps your
 conversation history exactly as it always has.
 
+Contact review reads bounded names, account labels, matching-field counts,
+and opaque card tokens from Mac Contacts. Raw database identifiers stay on the
+Mac. **Open in Contacts on Mac** opens an exact revalidated card without
+editing it. The feature saves no display-name choices or appearance settings.
+
 ## Permissions the Mac asks for
 
 - **Full Disk Access** for `/usr/libexec/sshd-keygen-wrapper` — so an ssh
   session can read `chat.db`.
 - **Automation → Messages** for the same — so an ssh session can send.
+- Optional **Automation → Contacts** for the same — to verify that review cards
+  still exist in Contacts.
 
 Both are one-time grants in System Settings; `blip-check` reports which are
 missing. Blip never asks for Contacts, Camera, Microphone, or Location.
@@ -74,7 +82,7 @@ missing. Blip never asks for Contacts, Camera, Microphone, or Location.
 ## What crosses the network
 
 Ssh between the two machines, plus — when `link_previews` is on — an HTTPS fetch of a linked page and its preview image, made from the Linux box to that site (see above): message queries and previews, ordered
-conversation-pin metadata, attachment bytes you request, and files you send.
+conversation-pin metadata, bounded contact-review summaries, attachment bytes you request, and files you send.
 Push notifications use a
 content-free "something changed" ping — a watcher on the Mac emits a
 timestamp when `chat.db` changes; the client then fetches privately.
