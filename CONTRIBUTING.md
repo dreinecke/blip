@@ -9,6 +9,15 @@ break and expensive to rediscover.
 - **Pull requests are the front door.** Fork, branch, PR against `main`. CI
   runs `bun test`, byte-compiles the Mac tools, and shellchecks the shims;
   it must be green.
+- **Your first PR's checks wait for a maintainer.** This repo requires approval
+  before workflows run on a fork PR from a first-time contributor, so your run
+  sits at *action required* with zero jobs until someone clicks Approve. If
+  nobody does, GitHub eventually marks it **failed** with "This workflow run
+  required approval but was not approved before it expired" — that is the
+  approval expiring, not your code. It has no job logs because no job ever ran.
+  Ping the PR and it will be approved; re-running after approval gives a real
+  result. Maintainers: approve the run *before* merging, so the PR carries a
+  genuine green tick rather than an expiry (#44).
 - **Logic lives in TypeScript, QML only renders.** If you are adding
   behavior, it goes in a `.ts` file with a test in the matching
   `*.test.ts`. QML gets a binding, not an algorithm.
