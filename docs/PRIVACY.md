@@ -100,8 +100,16 @@ stdin/stdout, never argv, and never pass through the QML model.
 
 An explicit copy creates a private `.vcf` file under
 `$XDG_RUNTIME_DIR/blip/vcards` (directories 0700, files 0600) and places a file
-reference on the clipboard. Runtime directories are pinned and reject links
+reference on the clipboard as `text/uri-list` for native file pasting. Runtime directories are pinned and reject links
 or incorrect ownership/permissions. On each copy, Blip removes its files older
 than 24 hours and retains at most 32 files including the new one. Runtime
 files disappear when the login runtime directory is cleared. This is contact
 export data, not message content; no message text is persisted.
+
+Save vCard opens a folder picker (zenity), starting in the configured Downloads
+folder. The export is saved only after a folder is chosen. The destination
+is pinned, the file is created privately (0600), and publication never replaces
+an existing file or symbolic link; duplicate names receive a numbered suffix.
+Saved files are permanent user exports, outside runtime cleanup. Cancelling
+creates no file and leaves the clipboard unchanged. The folder-picker result
+is capped at 4,097 bytes with a five-minute deadline.

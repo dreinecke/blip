@@ -1,10 +1,10 @@
 #!/usr/bin/env bun
-/** Copy an explicitly selected source card as a private runtime .vcf file.
+/** Copy or save an explicitly selected source card as a private .vcf file.
  * Adapted from contact-management's vCard export; no Contacts writes. */
 import {spawnSync} from 'node:child_process';
 import {randomBytes} from 'node:crypto';
-import {closeSync,constants,fstatSync,openSync,writeSync,mkdirSync,opendirSync,lstatSync,unlinkSync} from 'node:fs';
-import {join,isAbsolute} from 'node:path';
+import {closeSync,constants,fstatSync,openSync,writeSync,mkdirSync,opendirSync,lstatSync,unlinkSync,linkSync,fsyncSync,realpathSync} from 'node:fs';
+import {join,isAbsolute,basename} from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {homedir} from 'node:os';
 import {normalizeHandle,identityKey,readStdinBounded} from './contact-review';
@@ -61,7 +61,7 @@ export function writeVcard(bytes:Buffer,runtimeRoot:string): string {
     return pathToFileURL(join(runtimeRoot,'blip','vcards',name)).href;
   } finally {closeSync(parent);}
 }
-export function copyContactVcard(request:any,runner=spawnSync,runtimeRoot=process.env.XDG_RUNTIME_DIR || '') {
+function fetchContactVcard(request:any,runner:typeof spawnSync) {
   const handle=normalizeHandle(request?.handle),token=request?.token;
   if(typeof token!=='string' || !TOKEN.test(token)) throw new Error('Invalid contact card token');
   const result=runner(join(process.env.HOME??homedir(),'bin','contacts'),['--json','resolve'], {
@@ -71,18 +71,84 @@ export function copyContactVcard(request:any,runner=spawnSync,runtimeRoot=proces
   const output=String(result.stdout||'');
   if(Buffer.byteLength(output)>MAX_RESPONSE_BYTES) throw new Error('Contact vCard response is too large');
   let body:any;try {body=JSON.parse(output);} catch {throw new Error('Invalid contact vCard response');}
-  const uri=writeVcard(vcardBytes(body,handle,token),runtimeRoot);
+  return {bytes:vcardBytes(body,handle,token),name:body.name};
+}
+export function copyContactVcard(request:any,runner=spawnSync,runtimeRoot=process.env.XDG_RUNTIME_DIR || '') {
+  const {bytes}=fetchContactVcard(request,runner);
+  const uri=writeVcard(bytes,runtimeRoot);
   const copied=runner('/usr/bin/wl-copy',['--type','text/uri-list'], {
     input:uri+'\r\n',encoding:'utf8',timeout:5000,maxBuffer:1024,
   });
   if(copied.error || copied.status!==0) throw new Error('Could not copy the vCard to the clipboard');
   return {ok:true,view:'copied',title:'Contact review',detail:'Copied vCard — paste it as a contact file',rows:[]};
 }
+/** A display name becomes only a suggested basename, never a directory. */
+export function vcardFileName(value:unknown):string {
+  let name=typeof value==='string' && value.length<=160 ? value : '';
+  name=name.replace(/[^\p{L}\p{N} _.-]/gu,' ').replace(/\s+/g,' ').replace(/^\.+/,'').trim();
+  while(Buffer.byteLength(name)>120) name=Array.from(name).slice(0,-1).join('');
+  return (name.trim() || 'Contact')+'.vcf';
+}
+/** Pin the chosen folder; create privately and publish without replacing files. */
+export function saveVcardInFolder(bytes:Buffer,folder:string,name:unknown):string {
+  if(typeof folder!=='string' || folder.length>4096 || !isAbsolute(folder) || /[\x00-\x1f\x7f-\x9f]/.test(folder))
+    throw new Error('Invalid destination folder');
+  if(!bytes.length || bytes.length>MAX_CARD_BYTES) throw new Error('Contact vCard is too large');
+  const resolved=realpathSync(folder),flags=constants.O_RDONLY|constants.O_DIRECTORY|constants.O_NOFOLLOW|constants.O_NONBLOCK;
+  let parent=openSync('/',flags);
+  let staging='';
+  try {
+    for(const component of resolved.split('/').filter(Boolean)) {
+      const child=openSync(`/proc/self/fd/${parent}/${component}`,flags);
+      closeSync(parent);parent=child;
+    }
+    if(fstatSync(parent).uid!==process.getuid!()) throw new Error('Choose a folder you own');
+    const root=`/proc/self/fd/${parent}`;
+    const temporary=join(root,'.blip-vcard-'+randomBytes(16).toString('hex'));
+    const fd=openSync(temporary,constants.O_WRONLY|constants.O_CREAT|constants.O_EXCL|constants.O_NOFOLLOW,0o600);
+    staging=temporary;
+    try {
+      let written=0;while(written<bytes.length) written+=writeSync(fd,bytes,written,bytes.length-written);
+      fsyncSync(fd);
+    } finally {closeSync(fd);}
+    const base=vcardFileName(name).slice(0,-4);
+    for(let index=1;index<=100;index++) {
+      const filename=base+(index===1?'':` (${index})`)+'.vcf';
+      try {linkSync(staging,join(root,filename));}
+      catch(error:any) {if(error.code==='EEXIST') continue;throw error;}
+      return join(resolved,filename);
+    }
+    throw new Error('Too many vCards with this name in the selected folder');
+  } finally {
+    try {if(staging) unlinkSync(staging);} finally {closeSync(parent);}
+  }
+}
+export function saveContactVcard(request:any,runner=spawnSync) {
+  const {bytes,name}=fetchContactVcard(request,runner);
+  const downloads=runner('/usr/bin/xdg-user-dir',['DOWNLOAD'],{encoding:'utf8',timeout:2000,maxBuffer:4097});
+  const location=String(downloads.stdout || '').trim();
+  const initial=downloads.status===0 && location.length<=4096 && isAbsolute(location) && !/[\x00-\x1f\x7f-\x9f]/.test(location)
+    ? location : homedir();
+  const choice=runner('/usr/bin/zenity',['--file-selection','--directory','--title=Save vCard to folder',
+    '--filename='+initial+'/'],{encoding:'utf8',timeout:300000,maxBuffer:4097});
+  if(choice.error) throw new Error((choice.error as NodeJS.ErrnoException).code==='ENOENT'
+    ? 'Save vCard requires zenity to choose a folder' : 'The folder picker failed or timed out');
+  if(choice.status===1) return {ok:true,view:'cancelled',title:'Contact review',detail:'Save cancelled',rows:[]};
+  if(choice.status!==0) throw new Error('Could not choose a destination folder');
+  const folder=String(choice.stdout || '').replace(/\r?\n$/,'');
+  const path=saveVcardInFolder(bytes,folder,name);
+  return {ok:true,view:'saved',title:'Contact review',detail:'Saved '+basename(path)+' to the selected folder',rows:[]};
+}
+export function exportContactVcard(request:any,runner=spawnSync,runtimeRoot=process.env.XDG_RUNTIME_DIR || '') {
+  if(request?.action==='save') return saveContactVcard(request,runner);
+  if(request?.action!==undefined && request.action!=='copy') throw new Error('Invalid vCard action');
+  return copyContactVcard(request,runner,runtimeRoot);
+}
 if(import.meta.main) {
   const timer=setTimeout(()=>{process.stdout.write('{"ok":false,"error":"Contact request timed out"}\n');process.exit(1);},5000);
   try {
     const request=JSON.parse(await readStdinBounded()); clearTimeout(timer);
-    process.stdout.write(JSON.stringify(copyContactVcard(request))+'\n');
+    process.stdout.write(JSON.stringify(exportContactVcard(request))+'\n');
   }
   catch(error) {
     clearTimeout(timer);
