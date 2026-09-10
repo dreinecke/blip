@@ -21,7 +21,8 @@ FloatingWindow {
   id: win
   property var hostWidget: null
   // "Blip (3)" while unread exists — selectors match the "Blip" PREFIX.
-  title: "Blip" + (hostWidget && hostWidget.unread > 0 ? " (" + hostWidget.unread + ")" : "")
+  property string restorationTitle: ""
+  title: restorationTitle || "Blip" + (hostWidget && hostWidget.unread > 0 ? " (" + hostWidget.unread + ")" : "")
   // Same fill as Omarchy's other FloatingWindow (dev gallery). A 0.70
   // alpha assumed Hyprland blur, which Omarchy 4.x ships off.
   color: Color.background
@@ -60,9 +61,52 @@ FloatingWindow {
 
   // ---- persistence: the window lives inside the shell process, so every
   // omarchy-restart-shell (every plugin deploy/update) would kill it. Remember
-  // "was open" + size in ~/.local/state/blip/window.json and restore on start.
+  // "was open", size and workspace in window.json; restore quietly on start.
   readonly property string stateDir: Quickshell.env("HOME") + "/.local/state/blip"
   property bool restoring: true
+  property bool restoreReady: false
+  property bool explicitShow: false
+  property string savedWorkspace: ""
+  // Match this shell process and this exact window, never another app's title.
+  readonly property var ownToplevel: Hyprland.toplevels.values.find(function(t) {
+    return Number(t.lastIpcObject.pid) === Quickshell.processId && t.title === win.title
+  }) || null
+  readonly property string currentWorkspace: ownToplevel && ownToplevel.workspace
+    ? String(ownToplevel.workspace.name) : ""
+  Connections {
+    target: Hyprland
+    function onRawEvent(event) {
+      // New toplevels initially have no IPC metadata (including their PID).
+      if (event.name === "openwindow" || event.name === "movewindowv2") Hyprland.refreshToplevels()
+    }
+  }
+  onCurrentWorkspaceChanged: {
+    if (currentWorkspace !== "") { savedWorkspace = currentWorkspace; saveWinState() }
+  }
+  onOwnToplevelChanged: {
+    if (ownToplevel && restorationTitle !== "") Qt.callLater(function() { restorationTitle = "" })
+  }
+  function requestShow() {
+    explicitShow = true
+    if (restoreReady) visible = true
+  }
+  Process {
+    id: prepareRestore
+    command: ["bun", Qt.resolvedUrl("window-restore.ts").toString().replace(/^file:\/\//, ""), win.savedWorkspace]
+    stdout: StdioCollector {
+      onStreamFinished: {
+        try { win.restorationTitle = JSON.parse(text).title || "" } catch (e) { }
+      }
+    }
+    onExited: (code, status) => {
+      win.restoreReady = true
+      win.restoring = false
+      // Failure leaves the window closed rather than stealing the workspace.
+      // An explicit launch can still open it normally.
+      if (code === 0 || win.explicitShow) win.visible = true
+      if (win.hostWidget && win.visible) win.hostWidget.refresh(true, false)
+    }
+  }
   FileView {
     id: winState
     path: win.stateDir + "/window.json"
@@ -71,7 +115,7 @@ FloatingWindow {
   }
   function saveWinState() {
     if (restoring) return
-    var j = JSON.stringify({ visible: visible, width: Math.round(width), height: Math.round(height) })
+    var j = JSON.stringify({ visible: visible, width: Math.round(width), height: Math.round(height), workspace: savedWorkspace })
     // detached: a Process object drops writes while a previous one is alive,
     // and hideWindow() destroying this window mid-write lost the "hidden" state
     Quickshell.execDetached(["sh", "-c",
@@ -82,9 +126,10 @@ FloatingWindow {
     try {
       var d = JSON.parse(winState.text())
       if (d && d.width >= 720 && d.height >= 480) { implicitWidth = d.width; implicitHeight = d.height }
-      if (d && d.visible === true) Qt.callLater(function() { win.visible = true; if (win.hostWidget) win.hostWidget.refresh(true, false) })
+      if (d && typeof d.workspace === "string") savedWorkspace = d.workspace
+      if (d && d.visible === true) { prepareRestore.running = true; return }
     } catch (e) { /* first run */ }
-    Qt.callLater(function() { win.restoring = false })
+    Qt.callLater(function() { win.restoring = false; win.restoreReady = true; if (win.explicitShow) win.visible = true })
   }
   onVisibleChanged: { saveWinState(); if (visible) Qt.callLater(view.focusDefault) }
   onWidthChanged: if (visible) saveWinState()
