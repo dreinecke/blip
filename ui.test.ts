@@ -670,3 +670,13 @@ test("the share sheet steps through a message's links", () => {
   expect(sheet).toContain('visible: root.shareQr !== "" || qrProc.running');
   expect(qmlFunction("showShareUrl")).not.toContain('shareQr = ""');
 });
+ test("Ctrl+number shortcuts use pin order and remain available in editors", () => {
+   const source = readFileSync(new URL("./PinnedShortcuts.qml", import.meta.url), "utf8");
+   expect(source).toContain('sequence: "Ctrl+" + (index + 1)');
+   expect(source).toContain('context: Qt.WindowShortcut');
+   expect(source).toContain('model: 9');
+   expect(source).toContain('if (thread) root.chosen(thread)');
+   expect(panel).toContain('pins: root.pinnedThreads');
+   expect(panel).toContain('active: root.surfaceOpen && !root.contactsOpen && root.shareUrl === ""');
+   expect(panel).toContain('String(root.active.chat) === String(thread.chat)) root.focusDefault()');
+ });
