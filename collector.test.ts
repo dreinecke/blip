@@ -1648,3 +1648,15 @@ describe("blip-setup: the key's from= pin", () => {
     expect(src).not.toContain("key_from=");   // no config knob: the pin follows the transport
   });
 });
+
+test("group labels prefer short names while participant details retain full names", () => {
+ const {groupName,groupParticipants,normalizeGroups,fetchGroups} = require('./collector');
+ const info={name:"",guid:"any;+;chat123",participants:["+15551234567"],participantNames:{"+15551234567":"Mary Jane Example"},participantShortNames:{"+15551234567":"Mary Jane"}};
+ expect(groupName('chat123',info,new Map())).toBe('Mary Jane');
+ expect(groupParticipants(info)[0].name).toBe('Mary Jane Example');
+ expect(groupName('chat123',{...info,name:'Custom group'},new Map())).toBe('Custom group');
+ expect(normalizeGroups({chat123:info}).chat123).toEqual(info);
+ const fetched=fetchGroups(()=>({status:0,stdout:JSON.stringify([{chat:'chat123',name:'',guid:info.guid,participants:info.participants,participant_names:info.participantNames,participant_short_names:info.participantShortNames}])}));
+ expect(fetched.chat123).toEqual(info);
+ expect(normalizeGroups({chat123:{...info,participantShortNames:[]}}).chat123.participantShortNames).toBeUndefined();
+});

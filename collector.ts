@@ -140,6 +140,7 @@ export interface GroupInfo {
   guid: string;
   participants: string[];
   participantNames?: Record<string, string>;
+  participantShortNames?: Record<string, string>;
 }
 
 export interface BlipState {
@@ -208,6 +209,12 @@ export function validPins(raw: unknown): Record<string, number | null> {
   );
 }
 
+export function nameMap(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  return Object.fromEntries(Object.entries(raw).slice(0, 64).filter(([handle, name]) =>
+    handle.length <= 320 && typeof name === "string" && name.length <= 160 && name.trim() !== ""));
+}
+
 export function normalizeGroups(raw: unknown): Record<string, GroupInfo> {
   const out: Record<string, GroupInfo> = {};
   if (!raw || typeof raw !== "object") return out;
@@ -218,6 +225,8 @@ export function normalizeGroups(raw: unknown): Record<string, GroupInfo> {
       name: typeof r.name === "string" ? r.name : "",
       guid: typeof r.guid === "string" ? r.guid : "",
       participants: Array.isArray(r.participants) ? r.participants.filter((h): h is string => typeof h === "string") : [],
+      ...(Object.keys(nameMap(r.participantNames)).length ? {participantNames:nameMap(r.participantNames)} : {}),
+      ...(Object.keys(nameMap(r.participantShortNames)).length ? {participantShortNames:nameMap(r.participantShortNames)} : {}),
     };
   }
   return out;
@@ -496,7 +505,8 @@ export function hasIdentity(m: ImsgMessage): boolean {
  */
 export function groupName(chat: string, info: GroupInfo | undefined, byHandle: Map<string, string>): string {
   if (info?.name) return info.name;
-  const members = groupParticipants(info, byHandle).map((member) => member.name);
+  const members = groupParticipants(info, byHandle).map((member) =>
+    info?.participantShortNames?.[member.handle] || member.name);
   // A "(filtered)" stranger is not a phone/email shape, so it lands here (the
   // never-a-DM-target rule stands: nothing sends to it); its label is the number.
   return members.length ? members.join(", ") : prettyHandle(chat);
@@ -1501,6 +1511,8 @@ export function fetchGroups(runner = spawnSync): Record<string, GroupInfo> | nul
           ? r.participants.filter((h: unknown) => typeof h === "string")
           : typeof r.participants === "string" ? r.participants.split(",").filter(Boolean) : [],
         ...(Object.keys(participantNames).length ? { participantNames } : {}),
+        ...(Object.keys(nameMap(r.participant_short_names)).length
+          ? {participantShortNames:nameMap(r.participant_short_names)} : {}),
       };
     }
     return out;
