@@ -13,6 +13,7 @@ import { homedir } from "node:os";
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { chatKey, isGroupChat, type ImsgMessage } from "./collector";
+import { whatsAppSearch } from "./source";
 import { fuzzyScore } from "./contact-search";
 
 const HOME = process.env.HOME ?? homedir();
@@ -162,11 +163,18 @@ export function runSearch(
   limit: number,
   runner = spawnSync,
   threads: Parameters<typeof matchConversations>[0] = [],
+  /** WhatsApp's hits, already fetched — null when that bridge said nothing.
+   *  Passed in rather than spawned here so the tests stay process-free. */
+  waRows: ImsgMessage[] | null = null,
 ): SearchOutput {
+  const wa = waRows ? shapeResults(waRows, String(query || "").trim(), limit) : [];
   const fail = (error: string, online = true): SearchOutput =>
-    ({ ok: false, online, error, results: [] });
+    // One messenger being unreachable must not empty the other's hits.
+    wa.length
+      ? { ok: true, online: true, error, results: mergeSearchResults(matchConversations(threads, String(query || "").trim()), wa) }
+      : { ok: false, online, error, results: [] };
   const q = String(query || "").trim();
-  if (q === "") return fail("empty query");
+  if (q === "") return { ok: false, online: true, error: "empty query", results: [] };
 
   // "--" so a query starting with "-" is a query, not a flag.
   // The query is message text the moment someone pastes a sentence into the
@@ -184,7 +192,10 @@ export function runSearch(
   try {
     const parsed = JSON.parse(res.stdout as string);
     if (!Array.isArray(parsed)) throw new Error("not an array");
-    const messages = shapeResults(parsed, q, limit);
+    const messages = shapeResults(parsed, q, limit)
+      .concat(wa)
+      .sort((a, b) => (a.ts < b.ts ? 1 : a.ts > b.ts ? -1 : 0))
+      .slice(0, limit);
     return {
       ok: true, online: true, error: "",
       results: mergeSearchResults(matchConversations(threads, q), messages),
@@ -219,7 +230,8 @@ if (import.meta.main) {
   const payload = process.stdin.isTTY ? { query: "", threads: [] } : parseStdinPayload(readFileSync(0, "utf8"), arg === "--stdin");
   const query = arg === "--stdin" ? payload.query : arg;
   try {
-    console.log(JSON.stringify(runSearch(query, limit, spawnSync, payload.threads)));
+    console.log(JSON.stringify(
+      runSearch(query, limit, spawnSync, payload.threads, whatsAppSearch(query, limit))));
   } catch (e) {
     console.log(JSON.stringify({ ok: false, online: true, error: String(e), results: [] }));
   }

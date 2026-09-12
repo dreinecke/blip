@@ -14,6 +14,7 @@ import { closeSync, constants, fsyncSync, lstatSync, mkdirSync, openSync, readdi
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { isGroupChat } from "./collector";
+import { bridgeFor } from "./source";
 
 const HOME = process.env.HOME ?? homedir();
 export const AVATAR_DIR = join(process.env.XDG_CACHE_HOME ?? join(HOME, ".cache"), "blip", "avatars");
@@ -60,7 +61,8 @@ export function fetchAvatar(handle: string, runner = spawnSync, opts: { retry?: 
   // every ask so a letter is not sticky for a day.
   if (!opts.retry && fresh(none, AVATAR_NONE_TTL_MS)) return { ok: false, url: "", error: "no photo" };
 
-  const res = runner(`${HOME}/bin/imsg`, avatarArgs(h), { timeout: 20000, maxBuffer: AVATAR_MAX_BYTES + (1 << 20) });
+  const bridge = bridgeFor(h);
+  const res = runner(bridge.cmd, [...bridge.args, ...avatarArgs(h)], { timeout: 20000, maxBuffer: AVATAR_MAX_BYTES + (1 << 20) });
   if (res.status === 69 || res.status === 255) return { ok: false, url: "", error: "Mac unreachable" };
   const bytes = res.stdout as Buffer;
   // Only a real image is cached; anything else (an error string, a Core Data

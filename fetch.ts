@@ -17,6 +17,7 @@
  */
 
 import { homedir } from "node:os";
+import { bridgeFor } from "./source";
 import { spawnSync } from "node:child_process";
 import {
   closeSync,
@@ -71,6 +72,13 @@ const MIME_EXT: Record<string, string> = {
   "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/x-m4a": "m4a", "audio/aac": "aac", "audio/amr": "amr",
   "application/pdf": "pdf", "text/plain": "txt", "text/vcard": "vcf", "text/calendar": "ics",
 };
+/** An attachment id becomes part of a filename, so nothing that could steer a
+ *  path survives. A chat.db rowid is digits and passes through untouched, so
+ *  no cached file is invalidated by this. */
+export function idKey(id: string): string {
+  return String(id || "").replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 120) || "id";
+}
+
 export function cacheFileName(id: string, name: string, mime: string, preview = false): string {
   // Three transforms, never colliding: `orig` is the untouched file, `jpg` a
   // sips HEIC→JPEG at full size, `prev` a resampled inline preview. A preview
@@ -84,7 +92,7 @@ export function cacheFileName(id: string, name: string, mime: string, preview = 
   // passed the opening gate and reached xdg-open by extension (Astra B#1).
   const ext = preview ? "jpg" : (MIME_EXT[String(mime || "").toLowerCase()] ?? "bin");
   base = base.replace(/\.[^.]{1,8}$/, "") + "." + ext;
-  return `${id}-${transform}-${base}`;
+  return `${idKey(id)}-${transform}-${base}`;
 }
 
 /** Oldest-mtime files to delete so the cache fits the cap. Pure for tests. */
@@ -332,7 +340,10 @@ export function fetchAttachment(
   const fail = (error: string, online = true): FetchResult =>
     ({ ok: false, online, path: "", url: "", error, ...EMPTY_IMAGE_METRICS });
 
-  if (!/^[0-9]{1,18}$/.test(id)) return fail("bad attachment id");
+  // A chat.db rowid, or a WhatsApp media id: `<fromMe>_<chat jid>_<message id>`,
+  // optionally with the sender appended inside a group.
+  const WHATSAPP_ID = /^(?:true|false)_[A-Za-z0-9@.:_-]{3,120}$/;
+  if (!/^[0-9]{1,18}$/.test(id) && !WHATSAPP_ID.test(id)) return fail("bad attachment id");
   mkdirSync(CACHE_DIR, { recursive: true, mode: 0o700 });
 
   const preview = maxBytes < FETCH_MAX_BYTES && isImageMime(mime);
@@ -363,7 +374,9 @@ export function fetchAttachment(
     ...(wantsJpeg(mime) || preview ? ["--jpeg"] : []),
     ...(preview ? ["--max-dim", String(PREVIEW_MAX_DIM)] : []),
   ];
-  const res = runner(`${HOME}/bin/imsg`, args, {
+  // The WhatsApp id names its own conversation, which is what routes it.
+  const bridge = bridgeFor(id.split("_")[1] ?? "");
+  const res = runner(bridge.cmd, [...bridge.args, ...args], {
     timeout: 120000,
     maxBuffer: FETCH_MAX_BYTES + (1 << 20),
   });

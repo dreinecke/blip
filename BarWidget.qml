@@ -504,7 +504,10 @@ BarWidget {
     // (Mac down, watcher restarting) it is the old 6 s poll.
     // offline: back off to 30 s — a Mac that is off for the night must not
     // eat a bun + ssh probe every 6 s (war room #19); "ready" restores 6 s
-    interval: root.watchAlive ? 60000 : (root.online ? 6000 : 30000)
+    // Stretches only when BOTH messengers have a live change-channel.
+    // One of them pushing is not enough: the other would then be a minute
+    // late instead of six seconds.
+    interval: (root.watchAlive && root.waWatchAlive) ? 60000 : (root.online ? 6000 : 30000)
     running: root.leader
     repeat: true
     triggeredOnStart: true
@@ -576,6 +579,46 @@ BarWidget {
         w.pushReload()
     }
   }
+  // The same invalidation channel for WhatsApp: `wa watch` polls the WAHA
+  // container on loopback and prints a bare timestamp when the newest message
+  // changes. It is a separate Process because the two can fail independently —
+  // the Mac asleep must not silence WhatsApp, and vice versa.
+  property bool waWatchAlive: false
+  property int waWatchFails: 0
+  readonly property string waScript:
+    decodeURIComponent(Qt.resolvedUrl("bridge/whatsapp/wa.ts").toString().replace(/^file:\/\//, ""))
+  Process {
+    id: waWatchProc
+    command: ["bun", root.waScript, "watch"]
+    running: root.leader
+    onStarted: waWatchLiveness.restart()
+    stdout: SplitParser {
+      onRead: function(line) {
+        var l = String(line).trim()
+        waWatchLiveness.restart()
+        if (l === "ready") { root.waWatchAlive = true; root.waWatchFails = 0; return }
+        if (l === "hb") return
+        pingDebounce.restart()
+      }
+    }
+    onExited: {
+      root.waWatchAlive = false
+      waWatchLiveness.stop()
+      root.waWatchFails = Math.min(root.waWatchFails + 1, 5)
+      waWatchRestart.restart()
+    }
+  }
+  Timer {
+    id: waWatchLiveness
+    interval: 90000
+    onTriggered: { waWatchProc.running = false }
+  }
+  Timer {
+    id: waWatchRestart
+    interval: 8000 * Math.pow(2, root.waWatchFails)
+    onTriggered: waWatchProc.running = true
+  }
+
   Timer {
     id: watchRestart
     // Exponential backoff on consecutive failures (8s → 128s cap): a Mac
@@ -830,7 +873,7 @@ BarWidget {
       return "online=" + root.online + " unread=" + root.unread + " leader=" + root.leader
         + " window=" + (w && w.visible ? (w.focused ? "focused" : "unfocused") : "hidden")
         + " threads=" + root.threads.length + " healthy=" + root.healthy
-        + " watch=" + root.watchAlive
+        + " watch=" + root.watchAlive + " wawatch=" + root.waWatchAlive
         + " read_push=" + (root.readPush !== "" ? root.readPush : "?")
         + (root.lastError !== "" ? " error=" + root.lastError : "")
     }
