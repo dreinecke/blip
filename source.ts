@@ -81,6 +81,34 @@ export function whatsAppGroups(runner = spawnSync): Record<string, unknown>[] | 
   return runWhatsApp<Record<string, unknown>>(["--json", "groups"], runner, 30000);
 }
 
+/** Which messengers answered this poll. A source that did not must keep the
+ *  unread ledger it had rather than have it recomputed away. */
+export interface Answered { imessage: boolean; whatsapp: boolean }
+
+/**
+ * Carry forward the ledger entries belonging to a source that did not answer.
+ *
+ * Without this, a Mac asleep behind a working WhatsApp bridge recomputes the
+ * unread counts from a window with no iMessage rows in it, which zeroes every
+ * iMessage count — and once that is persisted the next window is too short to
+ * find the older ones again, so the badge loses them for good rather than for
+ * the outage. Upstream never had to think about this: a failed fetch returned
+ * early and wrote nothing.
+ */
+export function keepSilentSources<T>(
+  fresh: Record<string, T>,
+  previous: Record<string, T>,
+  answered: Answered | undefined,
+): Record<string, T> {
+  if (!answered || (answered.imessage && answered.whatsapp)) return fresh;
+  const out = { ...fresh };
+  for (const [chat, value] of Object.entries(previous)) {
+    const src = sourceFor(chat);
+    if (answered[src] === false) out[chat] = value;
+  }
+  return out;
+}
+
 /** The WhatsApp half of a search. The needle travels on stdin, never argv. */
 export function whatsAppSearch(query: string, limit: number, runner = spawnSync): ImsgMessage[] | null {
   const b = bridgeFor("@c.us", "query");
@@ -104,9 +132,11 @@ export function whatsAppSearch(query: string, limit: number, runner = spawnSync)
  * already bounded by the read mark.
  */
 export function mergeSources(mac: FetchResult, wa: ImsgMessage[] | null): FetchResult {
-  if (wa === null || wa.length === 0) return mac;
+  const answered = { imessage: mac.ok, whatsapp: wa !== null };
+  if (wa === null || wa.length === 0) return { ...mac, answered };
   return {
     ...mac,
+    answered,
     ok: true,
     online: true,
     // `error` is deliberately kept: `ok` now means "something answered", so

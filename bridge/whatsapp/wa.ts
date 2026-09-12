@@ -24,8 +24,8 @@
 import { loadState } from "../../collector";
 import type { ChatInfo, ImsgMessage } from "../../collector";
 import {
-  Waha, chatId, chatName, contactJid, explain, isSkippableChat, isWhatsAppGroup,
-  loadConfig, recent, toChatInfo, toMessage,
+  Waha, chatId, chatName, contactJid, explain, isSkippableChat, isWhatsAppChat,
+  isWhatsAppGroup, loadConfig, recent, toChatInfo, toMessage,
 } from "./waha";
 import type { WaChatSummary } from "./waha";
 
@@ -234,14 +234,20 @@ async function main(): Promise<void> {
         const chat = argOf(argv, "--chat");
         if (chat) { await waha.sendSeen(contactJid(chat)); console.log('{"ok":true}'); return; }
         if (argv.includes("--all")) {
-          const rows = await waha.overview(300);
+          // Blip's OWN ledger decides which conversations this touches, not
+          // WhatsApp's receipts. Most of the older ones carry no receipt at
+          // all (ack null — unknown, which is not the same as unread), and
+          // marking those would send read receipts to people whose messages
+          // were never outstanding. "Mark all read" means the ones the badge
+          // is counting, which is a handful rather than forty.
+          const counts = loadState().unreadCounts || {};
+          const outstanding = Object.entries(counts)
+            .filter(([id, n]) => Number(n) > 0 && isWhatsAppChat(id) && !isSkippableChat(id))
+            .map(([id]) => id)
+            .slice(0, 40);
           let n = 0;
-          for (const row of rows) {
-            const id = chatId(row);
-            if (!id || isSkippableChat(id) || row.lastMessage?.fromMe === true) continue;
-            if (row.lastMessage?.ack === 3) continue;   // already read everywhere
-            if (n++ >= 40) break;                       // same ceiling the old widget used
-            try { await waha.sendSeen(id); } catch { /* one chat is not the batch */ }
+          for (const id of outstanding) {
+            try { await waha.sendSeen(contactJid(id)); n++; } catch { /* one chat is not the batch */ }
           }
           console.log(JSON.stringify({ ok: true, marked: n }));
           return;

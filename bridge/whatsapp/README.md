@@ -95,6 +95,21 @@ offline handling applies unchanged.
   `chats/overview` on loopback every three seconds costs nothing and prints the
   same content-free invalidation line `imsg watch` prints.
 
+## What a one-sided outage does
+
+`ok` now means "something answered", so a Mac that is asleep no longer empties
+the panel — the WhatsApp conversations stay and the Mac's own reason is shown
+instead. Two consequences follow from that, and neither existed upstream,
+where a failed fetch returned early and wrote nothing:
+
+- **The unread ledger of the silent messenger is carried forward** rather than
+  recomputed from a window it is absent from. Without that its counts would go
+  to zero, and a persisted zero is not recoverable from the next window.
+- **The watermark is still global**, so WhatsApp traffic during a Mac outage
+  advances it past iMessages that arrive later with older timestamps — those
+  would not raise a toast when the Mac returns. It matters only to people who
+  have an allowlist; the counts and the conversations themselves are unaffected.
+
 ## Not here yet
 
 - **Sending files.** Text only; the composer says so rather than aiming a

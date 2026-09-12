@@ -3,7 +3,7 @@ import {
   alwaysPushesRead, bridgeArgv, isBroadcast, isWhatsAppChat, isWhatsAppGroup, sourceFor,
 } from "./source-id";
 import { bothChats, isGroupChat, normalizeSendService } from "./collector";
-import { mergeSources } from "./source";
+import { keepSilentSources, mergeSources } from "./source";
 import type { ChatInfo, FetchResult, ImsgMessage } from "./collector";
 
 const HOME = "/home/someone";
@@ -97,9 +97,11 @@ describe("merging the two messengers", () => {
     expect(out.fetchedCount).toBe(2);
   });
 
-  test("a WhatsApp bridge that said nothing changes nothing", () => {
-    expect(mergeSources(mac, null)).toBe(mac);
-    expect(mergeSources(mac, [])).toBe(mac);
+  test("a WhatsApp bridge that said nothing leaves the rows alone, and says so", () => {
+    expect(mergeSources(mac, null).msgs).toBe(mac.msgs);
+    expect(mergeSources(mac, null).answered).toEqual({ imessage: true, whatsapp: false });
+    expect(mergeSources(mac, []).msgs).toBe(mac.msgs);
+    expect(mergeSources(mac, []).answered).toEqual({ imessage: true, whatsapp: true });
   });
 
   test("the Mac being unreachable no longer empties the panel, and still says why", () => {
@@ -113,6 +115,24 @@ describe("merging the two messengers", () => {
     // `ok` now means "something answered", so the reason is the only thing
     // left saying the Mac did not.
     expect(out.error).toBe("Mac unreachable");
+  });
+});
+
+describe("a messenger that did not answer", () => {
+  const previous = { "+353861234567": 3, "1@c.us": 2 };
+
+  test("keeps the unread it had, while the one that answered is recomputed", () => {
+    // The Mac is asleep: its counts must survive a window with no iMessage
+    // rows in it, or a persisted zero loses them for good.
+    expect(keepSilentSources({ "1@c.us": 5 }, previous, { imessage: false, whatsapp: true }))
+      .toEqual({ "1@c.us": 5, "+353861234567": 3 });
+    expect(keepSilentSources({ "+353861234567": 1 }, previous, { imessage: true, whatsapp: false }))
+      .toEqual({ "+353861234567": 1, "1@c.us": 2 });
+  });
+
+  test("both answering means the fresh count stands, zeros included", () => {
+    expect(keepSilentSources({}, previous, { imessage: true, whatsapp: true })).toEqual({});
+    expect(keepSilentSources({}, previous, undefined)).toEqual({});
   });
 });
 

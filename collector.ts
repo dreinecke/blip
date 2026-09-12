@@ -29,7 +29,8 @@ const HOME = process.env.HOME ?? homedir();
 /** Watermark + toast dedupe. ~/.local/state is deliberate: never inside a repo. */
 import {
   alwaysPushesRead, bridgeFor, isWhatsAppGroup, mergeSources, sourceFor,
-  whatsAppChats, whatsAppGroups, whatsAppMessages, WHATSAPP_SERVICE,
+  keepSilentSources, whatsAppChats, whatsAppGroups, whatsAppMessages,
+  WHATSAPP_SERVICE,
 } from "./source";
 
 export const STATE_PATH = `${HOME}/.local/state/blip/state.json`;
@@ -1148,6 +1149,8 @@ export interface FetchResult {
    *  count these: one dropped orphan in a full page otherwise reads as
    *  "the bridge ran out", and catch-up stops short of older unread. */
   fetchedCount: number;
+  /** Which messengers answered. Absent on a single-source fetch. */
+  answered?: { imessage: boolean; whatsapp: boolean };
   /** True when catch-up hit CATCHUP_MAX_ROWS before reaching the cutoff: the
    *  window does NOT cover every outstanding unread (Astra B#3). */
   capped?: boolean;
@@ -1722,8 +1725,15 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   const deduped = dedupeSelfEcho(fetched.msgs, selfChats);
   const muted = mutedChats(deduped, mute);
   const msgs = dropMuted(deduped, muted);
-  let exactCounts = unreadCounts(msgs, state.readMark, state.readMarks, selfChats);
-  let exactOldest = unreadOldest(msgs, state.readMark, state.readMarks, selfChats);
+  // A messenger that did not answer keeps the ledger it had: recomputing it
+  // from a window it is absent from zeroes its counts, and a persisted zero
+  // is not recoverable from the next window.
+  let exactCounts = keepSilentSources(
+    unreadCounts(msgs, state.readMark, state.readMarks, selfChats),
+    state.unreadCounts, fetched.answered);
+  let exactOldest = keepSilentSources(
+    unreadOldest(msgs, state.readMark, state.readMarks, selfChats),
+    state.unreadOldest, fetched.answered);
   // Deep runs complete the sidebar from `imsg chats`. A capped catch-up
   // needs that list too: otherwise a chat hide_spam dropped in SQL is
   // restored from the ledger (Astra B#3) and pins every later poll.
