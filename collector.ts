@@ -27,6 +27,11 @@ import { dirname } from "node:path";
 const HOME = process.env.HOME ?? homedir();
 
 /** Watermark + toast dedupe. ~/.local/state is deliberate: never inside a repo. */
+import {
+  alwaysPushesRead, bridgeFor, isWhatsAppGroup, mergeSources, sourceFor,
+  whatsAppChats, whatsAppGroups, whatsAppMessages, WHATSAPP_SERVICE,
+} from "./source";
+
 export const STATE_PATH = `${HOME}/.local/state/blip/state.json`;
 /** Handles whose inbound messages are allowed to raise a desktop toast. */
 export const ALLOWLIST_PATH = `${HOME}/.config/blip/allowlist.json`;
@@ -378,6 +383,9 @@ export function messagePreview(
  * a group so an unknown id shape can never be mistaken for a DM target.
  */
 export function isGroupChat(chat: string): boolean {
+  // A WhatsApp id is a JID, so it is decided by its suffix before the `@` test
+  // below can mistake `…@g.us` for an email address and call a room a DM.
+  if (sourceFor(chat) === "whatsapp") return isWhatsAppGroup(chat);
   if (/^\+?[0-9]{5,}$/.test(chat) || chat.indexOf("@") > 0) return false;
   return /^[0-9a-f]{32}$/i.test(chat) || /^chat[0-9]+$/i.test(chat) || chat !== "";
 }
@@ -553,13 +561,16 @@ export function groupName(chat: string, info: GroupInfo | undefined, byHandle: M
   return members.slice(0, -1).join(", ") + " & " + members[members.length - 1];
 }
 
-export type SendService = "iMessage" | "SMS" | "RCS";
+export type SendService = "iMessage" | "SMS" | "RCS" | "WhatsApp";
 
-/** Map a chat.db service string onto what `imsg-send --service` accepts. */
+/** Map a chat.db service string onto what `imsg-send --service` accepts —
+ *  or name WhatsApp, which sends through its own bridge and takes no
+ *  `--service` at all. */
 export function normalizeSendService(raw: string | undefined | null): SendService {
   const s = String(raw ?? "").trim().toLowerCase();
   if (s === "sms") return "SMS";
   if (s === "rcs") return "RCS";
+  if (s === "whatsapp") return WHATSAPP_SERVICE as SendService;
   return "iMessage";
 }
 
@@ -1020,7 +1031,12 @@ export function pushReadArgs(
 ): string[] | null {
   if (policy === "off") return null;
   if (opts.markRead) return ["--all"];
-  if (policy !== "thread") return null;
+  // ⚠️ A WhatsApp conversation pushes its read on EVERY open, whatever
+  // push_read says. That setting holds back the MAC, where marking read means
+  // opening the conversation in Messages.app and pulling its screen to the
+  // front; WhatsApp's equivalent is one HTTP call that opens nothing. Holding
+  // it back would throw away the only reason a read here reaches the phone.
+  if (policy !== "thread" && !alwaysPushesRead(String(opts.readChat || ""))) return null;
   // Only when this run turned unread into read. A poll that cleared nothing
   // has nothing to tell the Mac, and telling it anyway opens the conversation
   // there — once per poll for as long as the thread stays open.
@@ -1038,11 +1054,19 @@ export function pushReadArgs(
  */
 export function pushRead(args: string[] | null, home = HOME): void {
   if (!args) return;
-  try {
-    const child = spawn("sh", pushReadCommand(`${home}/bin/imsg-read`, args, pushReadLogPath(home)),
-      { detached: true, stdio: "ignore" });
-    child.unref();
-  } catch { /* no shim, no Mac, no matter */ }
+  // "--all" means both messengers; "--chat X" goes to whichever owns X.
+  const chats = args[0] === "--all" ? ["", "@c.us"] : [String(args[1] ?? "")];
+  for (const chat of chats) {
+    const bridge = bridgeFor(chat, "read");
+    try {
+      const child = spawn(
+        "sh",
+        pushReadCommand(bridge.cmd, [...bridge.args, ...args], pushReadLogPath(home)),
+        { detached: true, stdio: "ignore" },
+      );
+      child.unref();
+    } catch { /* no shim, no bridge, no matter */ }
+  }
 }
 
 /** Where a push's outcome is recorded. Timestamps, args and imsg-read's own
@@ -1549,6 +1573,16 @@ export function fetchGroups(runner = spawnSync): Record<string, GroupInfo> | nul
   try {
     const rows = JSON.parse(res.stdout as string);
     if (!Array.isArray(rows)) return null;
+    return groupsFromRows(rows);
+  } catch {
+    return null;
+  }
+}
+
+/** Validate `imsg groups`' rows into the cached shape. Shared, so a group
+ *  from the WhatsApp bridge is held to exactly the same bounds. */
+export function groupsFromRows(rows: unknown[]): Record<string, GroupInfo> {
+  {
     const out: Record<string, GroupInfo> = {};
     for (const r of rows) {
       if (!r || typeof r.chat !== "string") continue;
@@ -1571,9 +1605,27 @@ export function fetchGroups(runner = spawnSync): Record<string, GroupInfo> | nul
       };
     }
     return out;
-  } catch {
-    return null;
   }
+}
+
+/**
+ * Both messengers' conversation lists, and both their group tables.
+ *
+ * Each returns null only when NEITHER bridge answered: one messenger being
+ * unreachable leaves the other's conversations exactly where they were.
+ */
+export function bothChats(runner = spawnSync): ChatInfo[] | null {
+  const mac = fetchChats(runner);
+  const wa = whatsAppChats(runner);
+  if (mac === null && wa === null) return null;
+  return [...(mac ?? []), ...(wa ?? [])];
+}
+
+export function bothGroups(runner = spawnSync): Record<string, GroupInfo> | null {
+  const mac = fetchGroups(runner);
+  const wa = whatsAppGroups(runner);
+  if (mac === null && wa === null) return null;
+  return { ...(mac ?? {}), ...(wa ? groupsFromRows(wa) : {}) };
 }
 
 // ---------------------------------------------------------------- main
@@ -1591,7 +1643,13 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   const cutoff = state.unreadInitialized
     ? oldestUnread && oldestUnread < state.watermark ? oldestUnread : state.watermark
     : state.readMark;
-  const fetched = fetchMessagesAfter(cutoff, deep ? DEEP_WINDOW : POLL_WINDOW);
+  // Both messengers, merged once. The catch-up loop inside fetchMessagesAfter
+  // widens against the MAC's window alone, which is right: WhatsApp's rows are
+  // already bounded by the read mark, so there is nothing there to widen for.
+  const fetched = mergeSources(
+    fetchMessagesAfter(cutoff, deep ? DEEP_WINDOW : POLL_WINDOW),
+    whatsAppMessages(deep ? DEEP_WINDOW : POLL_WINDOW),
+  );
 
   if (!fetched.ok) {
     return {
@@ -1654,7 +1712,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   const readSeen = readChat ? readMarks[readChat]! : "";
   // Group metadata is ~1000 rows; refresh it only on a deep (panel) fetch and
   // keep the last good copy if the lookup fails.
-  const groups = (deep ? fetchGroups() : null) ?? state.groups;
+  const groups = (deep ? bothGroups() : null) ?? state.groups;
   // persist only on two independent twins; one may be a coincidence (#6)
   const selfChats = [...new Set([...state.selfChats, ...detectSelfChats(fetched.msgs, 2)])];
   // The mute list cuts here, upstream of every count: a muted conversation is
@@ -1669,7 +1727,8 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   // Deep runs complete the sidebar from `imsg chats`. A capped catch-up
   // needs that list too: otherwise a chat hide_spam dropped in SQL is
   // restored from the ledger (Astra B#3) and pins every later poll.
-  const listed = (deep || fetched.capped) ? dropMutedChats(fetchChats(), mute, muted) : null;
+  const listed = (deep || fetched.capped)
+    ? dropMutedChats(bothChats(), mute, muted) : null;
   if (fetched.capped) {
     const inWindow = new Set(msgs.map(chatKey));
     const kept = keepCappedUnread(
@@ -1760,7 +1819,10 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
 
   const warning = !persisted
     ? "state write failed; notifications paused"
-    : "";
+    // One messenger being down no longer empties the panel, so its reason has
+    // to be SAID: without this a Mac asleep behind a working WhatsApp bridge
+    // looked like a machine with no iMessages on it.
+    : (fetched.ok && fetched.error ? fetched.error : "");
   return {
     ok: true,
     online: true,

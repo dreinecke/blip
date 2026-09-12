@@ -23,6 +23,7 @@ import {
   type LinkCard,
   type Tapback,
 } from "./collector";
+import { bridgeFor } from "./source";
 export { dedupeSelfEcho };
 
 const HOME = process.env.HOME ?? homedir();
@@ -506,7 +507,8 @@ export function loadThread(
   // window (war room #14). A DM's chat_identifier IS the handle.
   const group = isGroupChat(chat);
   const args = ["--json", "--rich", "thread", "--chat", chat, String(limit)];
-  const res = runner(`${HOME}/bin/imsg`, args, {
+  const bridge = bridgeFor(chat);
+  const res = runner(bridge.cmd, [...bridge.args, ...args], {
     encoding: "utf8",
     timeout: 15000, maxBuffer: 64 * 1024 * 1024,
   });

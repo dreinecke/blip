@@ -1,4 +1,5 @@
 import "SendState.mjs" as SendState
+import "SourceId.mjs" as SourceId
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -147,6 +148,11 @@ FocusScope {
     decodeURIComponent(Qt.resolvedUrl("send-file.ts").toString().replace(/^file:\/\//, ""))
   readonly property string searchScript:
     decodeURIComponent(Qt.resolvedUrl("search.ts").toString().replace(/^file:\/\//, ""))
+  // The WhatsApp bridge. SourceId.bridgeArgv picks between this and the Mac's
+  // tools; the rule itself lives in source-id.ts, shared with the collector.
+  readonly property string waScript:
+    decodeURIComponent(Qt.resolvedUrl("bridge/whatsapp/wa.ts").toString().replace(/^file:\/\//, ""))
+  function bridgeArgv(chat, tool) { return SourceId.bridgeArgv(String(chat || ""), tool, root.home, root.waScript) }
 
   readonly property string contactScript:
     decodeURIComponent(Qt.resolvedUrl("contact-search.ts").toString().replace(/^file:\/\//, ""))
@@ -431,7 +437,9 @@ FocusScope {
     }
   }
   // Same rule as collector.isGroupChat(): anything that is not a phone/email.
-  function isGroupId(c) { c = String(c || ""); return c !== "" && !/^\+?[0-9]{5,}$/.test(c) && c.indexOf("@") < 0 }
+  // A WhatsApp room ends "@g.us", so it is decided by its suffix before the
+  // "@" test below can read it as an email address and call it a DM.
+  function isGroupId(c) { c = String(c || ""); if (SourceId.isWhatsAppChat(c)) return SourceId.isWhatsAppGroup(c); return c !== "" && !/^\+?[0-9]{5,}$/.test(c) && c.indexOf("@") < 0 }
   readonly property bool activeIsGroup: inThread && isGroupId(active.chat)
 
   /**
@@ -444,6 +452,9 @@ FocusScope {
   function isSendable(t) {
     if (!t) return false
     var c = String(t.chat || "")
+    // A WhatsApp room needs no AppleScript guid: its own JID is the send
+    // target, so it is sendable as soon as it is listed.
+    if (SourceId.isWhatsAppGroup(c)) return String(t.guid || "") !== ""
     if (isGroupId(c)) return /^[A-Za-z]+;[+-];.+$/.test(String(t.guid || ""))
     return /^\+?[0-9]{5,}$/.test(c) || c.indexOf("@") > 0
   }
@@ -1312,6 +1323,13 @@ FocusScope {
     }
 
     if (draftPath !== "") {
+      // send-file.ts stages the bytes on the Mac and sends them through
+      // Messages; the WhatsApp bridge has no equivalent yet, so say so rather
+      // than aim a WhatsApp conversation at the Mac's sender.
+      if (SourceId.isWhatsAppChat(String(root.active.chat || ""))) {
+        note = "Files cannot be sent to WhatsApp from here yet — text only"
+        return
+      }
       if (sendProc.running || fileSendProc.running) {
         note = "a message is already sending"
         return
@@ -1339,9 +1357,11 @@ FocusScope {
     var target = root.activeIsGroup
       ? ["--chat-id", String(root.active.guid)]
       : ["--to", chat]
-    // green-bubble (SMS/RCS) threads send on their own service (war room #2)
+    // green-bubble (SMS/RCS) threads send on their own service (war room #2).
+    // WhatsApp has no services to choose between, and its bridge takes no
+    // --service at all.
     var svc = String(root.active.service || "")
-    if (!root.activeIsGroup && /^(SMS|RCS)$/i.test(svc)) target = target.concat(["--service", svc.toUpperCase()])
+    if (!root.activeIsGroup && !SourceId.isWhatsAppChat(chat) && /^(SMS|RCS)$/i.test(svc)) target = target.concat(["--service", svc.toUpperCase()])
     var localId = String(++root.nextSendId)
     root.pendingRevision++
     root.pendingSends = root.pendingSends.concat([{ chat: chat, text: text, ts: stamp, localId: localId }])
@@ -1399,7 +1419,7 @@ FocusScope {
     root.reloadTries = 0
     // Body on STDIN (--text-stdin), never argv: argv is readable by every
     // process on this machine and travels through ssh into the Mac's ps.
-    sendProc.command = [root.home + "/bin/imsg-send"].concat(job.target).concat(["--yes", "--text-stdin", "--keep-dashes"])
+    sendProc.command = root.bridgeArgv(job.chat, "send").concat(job.target).concat(["--yes", "--text-stdin", "--keep-dashes"])
     sendProc.stdinEnabled = true
     sendProc.running = true
     sendProc.write(job.text)
