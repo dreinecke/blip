@@ -141,7 +141,10 @@ async function main(): Promise<void> {
           : argOf(argv, "--query")).trim().toLowerCase();
         if (!needle) { console.log("[]"); return; }
         const limit = firstNumber(argv, 80);
-        const rows = await waha.overview(300);
+        // The 60 most recent conversations, not all 300: each one costs its
+        // own call, and a search that walks the whole history is a search
+        // nobody waits for. Older hits are found by opening the conversation.
+        const rows = (await waha.overview(300)).slice(0, 60);
         const hits: ImsgMessage[] = [];
         for (const row of rows) {
           const id = chatId(row);
@@ -190,9 +193,11 @@ async function main(): Promise<void> {
         process.stdout.write("ready\n");
         let newest = "";
         let beat = Date.now();
+        let failures = 0;
         for (;;) {
           try {
             const rows = await waha.overview(50);
+            failures = 0;
             let max = "";
             for (const r of rows) {
               const ts = String(r.lastMessage?.timestamp ?? "");
@@ -202,7 +207,15 @@ async function main(): Promise<void> {
               if (newest) process.stdout.write(`${Math.floor(Date.now() / 1000)}\n`);
               newest = max;
             }
-          } catch { /* a blip in the container is not a reason to exit */ }
+          } catch {
+            // ⚠️ A watcher that swallows every failure is WORSE than no
+            // watcher: its heartbeats keep the caller believing the channel is
+            // live, so the caller's own liveness timer never fires and the
+            // safety-net poll stays stretched to a minute — forever. Three in
+            // a row and this exits, the way `imsg watch` exits when ssh drops,
+            // which is what hands the restart ladder its job.
+            if (++failures >= 3) process.exit(OFFLINE);
+          }
           if (Date.now() - beat > 30000) { process.stdout.write("hb\n"); beat = Date.now(); }
           await new Promise((r) => setTimeout(r, 3000));
         }
