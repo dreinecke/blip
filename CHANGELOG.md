@@ -13,6 +13,12 @@
   for misses, stopping once the Mac is unreachable), and `--retry` trusts a
   "no photo" marker for 15 minutes, so a picture someone just set still turns
   up.
+- **A long draft scrolls back with the mouse wheel** (#62, @apexbenny). The
+  compose box grows to five lines and then scrolls. Since 2.4.0 it follows the
+  caret, so you no longer type blind past line five, but the earlier lines of a
+  long draft could only be reached with the arrow keys. The wheel now scrolls
+  the draft, 1:1 like the conversation, and a draft that fits passes the wheel
+  on.
 
 - **`blip-setup` no longer dies at "Press Enter" when stdin is a pipe** (#71,
   @ianswope). Eight `ssh` calls ran without `-n` and drained the script's
