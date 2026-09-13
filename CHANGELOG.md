@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **README says how to remove Blip, and what it leaves behind** (#74, @ianswope).
+  Plugin, the four `~/bin` shims and their `.pre-blip.<epoch>` backups,
+  config/state/cache, the dedicated ssh key, `~/.blip` and the confined
+  `authorized_keys` line on the Mac. The `~/.ssh/config` Host block and the
+  `sshd-keygen-wrapper` privacy grants are left as deliberate, optional steps.
+
 - **Every `Text` sink declares `textFormat: Text.PlainText`** (#72, @ianswope).
   Eleven labels in `BlipView.qml` fell back to Qt's `AutoText`, which renders
   anything that looks like markup as rich text. Nothing reached them with a

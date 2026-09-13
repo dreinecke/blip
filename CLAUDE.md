@@ -12,7 +12,7 @@ treating a Mac as the gateway. Read this before touching anything.
               blip-dispatch         forced-command gate for ~/.ssh/blip_ed25519: only the five tools run.
                                     imsg: sqlite read of chat.db, `--rich` (tapbacks/read_at/reply_to/
                                     attachments/error), `watch`, `attachment`, `chats`; Recently Deleted hidden.
-(Linux side)  bridge/linux/blip-shim installed as ~/bin/{imsg,imsg-send,contacts} by scripts/blip-setup;
+(Linux side)  bridge/linux/blip-shim installed as ~/bin/{imsg,imsg-send,imsg-read,contacts} by scripts/blip-setup;
                                     reads ~/.config/blip/bridge.conf (host=, remote_bin='$HOME/.blip/bin'
                                     — single-quoted, expands on the MAC). `ssh -n` preflight; exit 69 offline.
                                     Blip only ever calls ~/bin/imsg*. No hostnames in code, ever.
