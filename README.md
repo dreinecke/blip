@@ -513,6 +513,70 @@ rather than hang:
 ~/bin/imsg chats 1 >/dev/null && echo "gateway reachable"
 ```
 
+## Removing Blip
+
+Blip installs into five places on Linux and one on the Mac. None of this
+touches Messages: Blip never writes `chat.db`, so your history is unaffected
+wherever it is removed from.
+
+**1. The plugin and its bar widget.**
+
+```bash
+omarchy plugin remove nixfred.blip --yes
+omarchy-restart-shell
+```
+
+(`omarchy plugin disable nixfred.blip` instead, to take it off the bar but keep
+the checkout.)
+
+**2. The shims.** `blip-setup` installs `blip-shim` as four tools in `~/bin`,
+backing up anything it displaced as `<tool>.pre-blip.<epoch>`:
+
+```bash
+rm -f ~/bin/imsg ~/bin/imsg-send ~/bin/imsg-read ~/bin/contacts
+ls ~/bin/*.pre-blip.* 2>/dev/null        # restore any of these you want back
+```
+
+**3. Config, state and caches.**
+
+```bash
+rm -rf ~/.config/blip       # bridge.conf, allowlist.json, mutelist.json
+rm -rf ~/.local/state/blip  # state.json, window.json, push-read.log, audit-cache.json
+rm -rf ~/.cache/blip        # fetched attachments, avatars, link previews
+rm -rf "${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/blip"   # draft images; cleared on reboot anyway
+```
+
+Message text is not on disk in any of these — see **Privacy** — but the
+attachment cache holds real media, so it is the one worth removing deliberately.
+
+**4. The dedicated ssh key.**
+
+```bash
+rm -f ~/.ssh/blip_ed25519 ~/.ssh/blip_ed25519.pub
+```
+
+`blip-setup` may also have appended a `Host` block for the Mac to
+`~/.ssh/config`, but only if that host had none. It is a plain ControlMaster
+block, harmless to keep; remove it by hand if you want it gone.
+
+**5. On the Mac.**
+
+```bash
+rm -rf ~/.blip                                    # bin/ and src/
+grep -v 'blip-dispatch' ~/.ssh/authorized_keys > ~/.ssh/authorized_keys.new \
+  && mv ~/.ssh/authorized_keys.new ~/.ssh/authorized_keys
+```
+
+Your everyday ssh key and its access are untouched — the line removed above is
+only the confined Blip key.
+
+**6. The Mac's privacy grants, optionally.** Removing Blip does not revoke
+them, and they belong to `/usr/libexec/sshd-keygen-wrapper` rather than to
+Blip — anything else you reach over ssh may depend on them, which is why they
+are not part of the steps above. To revoke anyway: System Settings ▸ Privacy &
+Security ▸ **Full Disk Access**, **Automation** and **Contacts**, removing the
+`sshd-keygen-wrapper` entry from each. See [docs/SECURITY.md](docs/SECURITY.md).
+
 ## Contact review
 
 Right-click a conversation or choose **Review contact** from its header to
