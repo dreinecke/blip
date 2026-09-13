@@ -91,10 +91,11 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: view.inThread ? view.composeEditor : view.navigationKeys
-    // FORK: the card's four edges take the master margin the list rows are
-    // built from, so the panel and its contents are inset by one number
-    // (BlipView.masterMargin).
-    padding: view.masterMargin
+    // FORK: the card is padded by HALF the master margin; BlipView's own
+    // column adds the other half, so everything inside still sits a full
+    // master from the border. The conversation list pulls back into this half
+    // to paint a hovered row's highlight (see BlipView.threadFlick).
+    padding: view.halfMargin
     readonly property var fittedSize: PanelSize.fitSize(
       root.preferredWidth || Style.space(352),
       root.preferredHeight || panel.fittedContentHeight(
