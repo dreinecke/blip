@@ -518,20 +518,22 @@ test("a pinned tile shows the unread dot", () => {
   expect(dot).toContain("color: root.mineFill");
 });
 
-// The bar icon's unread dot is iMessage blue no matter the theme. It followed
-// the theme accent, which on several Omarchy themes is red — a red dot on a
-// messaging icon reads as an error, and red is reserved for alerts anyway.
-test("the icon's unread dot is always iMessage blue", () => {
-  expect(widget).toContain('readonly property color blipAccent: "#0a84ff"');
-  expect(widget).not.toContain("blipAccent:\n    Color.accent");
+// FORK: both accents follow the theme. Upstream pins them to iMessage blue
+// (2.3.3) because several Omarchy themes use red, and red reads as an error on
+// both a dot and a bubble. These two tests guard what must hold EITHER way:
+// the signal is never painted in the theme's own foreground colour, where it
+// would stop being a signal at all.
+test("the icon's unread dot falls back to blue on a theme with no accent", () => {
+  expect(widget).toContain("themeHasAccent ? Color.accent : \"#0a84ff\"");
+  expect(widget).toContain("Color.accent.toString() !== Color.foreground.toString()");
 });
 
-// Bubbles are iMessage blue on every theme, white text on them, like Messages.
-// They followed the theme accent until 2.3.3 — red on several Omarchy themes.
-test("outgoing bubbles are always iMessage blue with white text", () => {
-  expect(panel).toContain('readonly property color accent: "#0a84ff"');
-  expect(panel).toContain('readonly property color mineText: "#ffffff"');
-  expect(panel).not.toContain("themeHasAccent");
+test("bubble text picks its colour against the fill rather than assuming white", () => {
+  // The fill is the theme's accent now, so it can be pale; white on a pale
+  // accent is unreadable. The luminance rule is what keeps it legible.
+  expect(panel).toContain("themeHasAccent ? Color.accent : \"#0a84ff\"");
+  expect(panel).toContain("0.299 * mineFill.r + 0.587 * mineFill.g + 0.114 * mineFill.b");
+  expect(panel).not.toContain('readonly property color mineText: "#ffffff"');
 });
 
 // The version shows in the header both surfaces share, read live from
