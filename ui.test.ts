@@ -27,6 +27,24 @@ describe("QML safety invariants", () => {
   // exclude <>"'), and 45 of the 46 annotated sinks already say PlainText.
   // This keeps the sink safe by construction rather than by the filter staying
   // correct, and makes the house rule checkable instead of aspirational.
+  // BlipView mirrors collector.isGroupChat() by hand ("Same rule as ...").
+  // Four copies of one rule drifted apart once already: widening only the TS
+  // side would make a short code a DM in the collector and a group in the
+  // panel, i.e. read-only with no way to reply. Pin the shape, both files.
+  test("the QML phone-shape rule matches the collector's", () => {
+    const collector = readFileSync(new URL("./collector.ts", import.meta.url), "utf8");
+    const shapes = (src: string) =>
+      // NOTE the open form: {5,} must be SEEN and compared, not skipped as a
+      // non-match, or reverting one site to it reads as "no rule here".
+      [...src.matchAll(/\/\^\\\+\?\[0-9\]\{(\d+),(\d*)\}\$\//g)].map((m) => `${m[1]},${m[2]}`);
+    const inCollector = shapes(collector);
+    const inPanel = shapes(panel);
+    expect(inCollector.length).toBeGreaterThan(0);
+    expect(inPanel.length).toBeGreaterThan(0);
+    expect(new Set([...inCollector, ...inPanel]).size).toBe(1);   // one bound everywhere
+    expect(inCollector[0]).toBe("3,15");                          // E.164: 15 digits max
+  });
+
   test("every Text/TextEdit declares a textFormat", () => {
     const offenders: string[] = [];
     for (const file of readdirSync(new URL(".", import.meta.url)).filter((f) => f.endsWith(".qml"))) {

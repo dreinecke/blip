@@ -181,6 +181,24 @@ describe("isGroupChat", () => {
   test("email = DM", () => expect(isGroupChat("someone@icloud.com")).toBe(false));
   test("chat<digits> = group (seen live)", () => expect(isGroupChat("chat640665907856941413")).toBe(true));
   test("an unknown shape is a group, never a DM target", () => expect(isGroupChat("weird-id")).toBe(true));
+  // A carrier short code is a SENDER, not a group. 5+ digits already worked
+  // (2.2.1); 3-4 digits fell through to "not a phone" and opened read-only
+  // with "group id unknown". E.164 caps a real number at 15 digits, so that
+  // is the upper bound -- and anything longer stays a group, which is the
+  // safe direction: an unknown shape must never become a DM target.
+  test("a 3-4 digit short code is a DM, not a group", () => {
+    expect(isGroupChat("2536")).toBe(false);     // T-Mobile, seen live
+    expect(isGroupChat("611")).toBe(false);      // carrier care
+    expect(isGroupChat("99123")).toBe(false);    // 5-digit, already worked
+  });
+  test("beyond E.164's 15 digits it is a group again, never a DM", () => {
+    expect(isGroupChat("1".repeat(15))).toBe(false);
+    expect(isGroupChat("1".repeat(16))).toBe(true);
+  });
+  test("a 1-2 digit id is still a group, never a DM target", () => {
+    expect(isGroupChat("1")).toBe(true);
+    expect(isGroupChat("42")).toBe(true);
+  });
   test("exit 255 (ssh failure via claude-on-mac shim) reads as offline", () => {
     const r = fetchMessages(10, (() => ({ status: 255, stdout: "", stderr: "ssh: connect" })) as never);
     expect(r.online).toBe(false);

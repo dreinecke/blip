@@ -431,7 +431,7 @@ FocusScope {
     }
   }
   // Same rule as collector.isGroupChat(): anything that is not a phone/email.
-  function isGroupId(c) { c = String(c || ""); return c !== "" && !/^\+?[0-9]{5,}$/.test(c) && c.indexOf("@") < 0 }
+  function isGroupId(c) { c = String(c || ""); return c !== "" && !/^\+?[0-9]{3,15}$/.test(c) && c.indexOf("@") < 0 }
   readonly property bool activeIsGroup: inThread && isGroupId(active.chat)
 
   /**
@@ -445,7 +445,7 @@ FocusScope {
     if (!t) return false
     var c = String(t.chat || "")
     if (isGroupId(c)) return /^[A-Za-z]+;[+-];.+$/.test(String(t.guid || ""))
-    return /^\+?[0-9]{5,}$/.test(c) || c.indexOf("@") > 0
+    return /^\+?[0-9]{3,15}$/.test(c) || c.indexOf("@") > 0
   }
 
   // Unsent compose text per chat id. It lives on the host (BarWidget.draftCache)
