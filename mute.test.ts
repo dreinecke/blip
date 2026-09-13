@@ -6,7 +6,7 @@ import {
   addToMutelist, hide, isObjectShaped, removeFromMutelist, serializeMutelist, unhide,
   writeMutelist,
 } from "./mute";
-import { loadMutelist, matchesMute, dropMutedChats, mutedChats } from "./collector";
+import { loadMutelist, matchesMute, matchesMuteId, dropMutedChats, mutedChats } from "./collector";
 import type { ChatInfo, ImsgMessage } from "./collector";
 
 const scratch = () => join(mkdtempSync(join(tmpdir(), "blip-mute-")), "mutelist.json");
@@ -105,6 +105,29 @@ describe("what hiding actually does", () => {
     expect(matchesMute(msgs[0]!, mute)).toBe(true);
     expect(matchesMute(msgs[1]!, mute)).toBe(false);
     expect(mutedChats(msgs, mute)).toEqual(["27716059553-1461139805@g.us"]);
+  });
+
+  test("a conversation you spoke in last is hidden too", () => {
+    // The bug that made Hide / Spam look like it did nothing: the cut was
+    // matched on INBOUND messages only, so fifteen of twenty-nine hidden
+    // conversations stayed on screen — every one of them a conversation whose
+    // last word was mine. An id names the conversation; direction is not part
+    // of that.
+    const path = scratch();
+    hide("447553880811@c.us", path);
+    const mute = loadMutelist(path);
+    const mine: ImsgMessage = { ...inbound("447553880811@c.us"), from_me: true };
+    expect(matchesMuteId(mine, mute)).toBe(true);
+    expect(mutedChats([mine], mute)).toEqual(["447553880811@c.us"]);
+  });
+
+  test("but a PHRASE still only matches what arrives, never what I send", () => {
+    // Quoting "ActBlue" to a friend must not mute the friend. Only naming a
+    // conversation outright cuts it in both directions.
+    const mine: ImsgMessage = { ...inbound("1@c.us", "that ActBlue thing again"), from_me: true };
+    expect(matchesMute(mine, ["ActBlue"])).toBe(true);
+    expect(matchesMuteId(mine, ["ActBlue"])).toBe(false);
+    expect(mutedChats([mine], ["ActBlue"])).toEqual([]);
   });
 
   test("and cut from the conversation list too, so it cannot come back on a deep run", () => {
