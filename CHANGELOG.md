@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+- **Contact photos stop reloading every time the window opens.** The app
+  window is rebuilt on every SUPER+M and kept its photo map to itself, so it
+  started empty and asked again for every picture, one `bun` process at a
+  time. Worse, it asked with `--retry`, which ignored the "no photo" marker
+  outright: every photoless contact (251 of 318 on the dev box) went back to
+  the Mac, ~170 ms of ssh each, on every open — about 45 s of photos
+  trickling in. Now the map lives on BarWidget (`avatarCache`, paths only),
+  one `avatar.ts --batch` answers the whole sidebar (disk first, the Mac only
+  for misses, stopping once the Mac is unreachable), and `--retry` trusts a
+  "no photo" marker for 15 minutes, so a picture someone just set still turns
+  up.
+
 - **`blip-setup` no longer dies at "Press Enter" when stdin is a pipe** (#71,
   @ianswope). Eight `ssh` calls ran without `-n` and drained the script's
   stdin, so the prompt hit EOF and `set -e` exited 1 — after the Mac install

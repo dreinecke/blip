@@ -25,7 +25,10 @@ send-file.ts                        local file + caption → imsg-send --file-st
                                     (caption ahead of the bytes; NO message text in argv anywhere). Resolves
                                     group guid from state; REFUSES unknown groups.
 avatar.ts                           handle → ~/.cache/blip/avatars (imsg avatar; JPEG/PNG magic
-                                    checked; .none negative marker; 7-day TTL).
+                                    checked; .none negative marker; 7-day TTL). `--batch`: handles on
+                                    stdin, one JSON line each, disk before Mac. `--retry` trusts a .none
+                                    for 15 min, never skips it (skipping cost ~45 s per window open).
+                                    The url map lives in BarWidget.avatarCache: the window is rebuilt.
 paste.ts                            clipboard snapshot → draft image in $XDG_RUNTIME_DIR/blip or text.
 BarWidget.qml                       the single poller, badge, toasts, IPC.
 Panel.qml                           list view + conversation view + compose. Renders only.

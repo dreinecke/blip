@@ -164,7 +164,11 @@ describe("QML safety invariants", () => {
     expect(panel.split(bind).length - 1).toBe(2);   // list row + pinned tile
     expect(panel).not.toContain('if (!root.isGroupId(String(modelData.chat || ""))) root.requestAvatar(avatarHandle)');
     expect(panel).not.toContain('if (handle === "" || isGroupId(handle)) return');
-    expect(panel).toContain('avatarProc.command = ["bun", root.avatarScript, "--retry", avatarProc.handle]');
+    expect(panel).toContain('avatarProc.command = ["bun", root.avatarScript, "--batch", "--retry"]');
+    // Photos live on the host: the window is rebuilt on every show.
+    expect(widget).toContain("property var avatarCache: ({})");
+    expect(panel).toContain("readonly property var avatarFiles: hostWidget ? hostWidget.avatarCache : localAvatarFiles");
+    expect(panel).not.toContain("root.avatarFiles = m");
     expect(panel).toContain("function retryBareAvatars()");
     expect(panel).toContain("onSurfaceOpenChanged: if (surfaceOpen) root.retryBareAvatars()");
   });
@@ -613,6 +617,16 @@ test("a security code never rides the environment", () => {
   expect(proc).toContain("write(root.copyValue)");
   expect(proc).toContain("stdinEnabled = false");     // one write, then EOF
   expect(widget).not.toContain("BLIP_CODE");
+});
+
+// #62: a draft past five lines scrolls to its caret (2.4.0) and reads back
+// with the wheel; a draft that fits hands the wheel on.
+test("a long draft scrolls with the wheel, a short one passes it on", () => {
+  const slot = panel.slice(panel.indexOf("id: composeSlot"), panel.indexOf("id: composeFlick"));
+  expect(slot).toContain("onWheel: function(wheel)");
+  expect(slot).toContain("acceptedButtons: Qt.NoButton");
+  expect(slot).toContain("if (max === 0) { wheel.accepted = false; return }");
+  expect(slot).toContain("composeFlick.contentY = Math.max(0, Math.min(max, composeFlick.contentY - d))");
 });
 
 // A follower bar must never start a collector of its own.

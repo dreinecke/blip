@@ -53,6 +53,11 @@ BarWidget {
   // Unsent compose text per chat id, shared by the panel and the app window.
   // In memory only: message text never lands on disk.
   property var draftCache: ({})
+  // Contact photo per handle (file:// url, "" = letters), shared by the panel
+  // and the app window. The window is REBUILT on every show, so a map kept in
+  // BlipView started empty on each SUPER+M and asked for every photo again.
+  // Cache paths only, never image bytes.
+  property var avatarCache: ({})
 
   readonly property bool hasUnread: unread > 0
 

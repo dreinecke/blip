@@ -803,18 +803,33 @@ FocusScope {
     onExited: Qt.callLater(root.pumpPreview)
   }
 
-  property var avatarFiles: ({})     // handle → file:// url, "" = no photo
+  // handle → file:// url, "" = no photo. Lives on the host (BarWidget.avatarCache)
+  // like the drafts: the app window is rebuilt on every show, and a map kept
+  // here started empty each time, so every SUPER+M fetched every photo again.
+  property var localAvatarFiles: ({})
+  readonly property var avatarFiles: hostWidget ? hostWidget.avatarCache : localAvatarFiles
+  function putAvatarFiles(m) {
+    if (hostWidget) hostWidget.avatarCache = m
+    else localAvatarFiles = m
+  }
+  function setAvatar(handle, url) {
+    var m = Object.assign({}, root.avatarFiles)
+    m[handle] = url
+    root.putAvatarFiles(m)
+  }
   property var avatarQueue: []
-  property bool avatarBusy: false // hold the request identity until stdout is consumed
+  property var avatarInFlight: []
   function requestAvatar(handle) {
     handle = String(handle || "")
     if (handle === "") return          // groups are welcome: avatar.ts asks for the group's own photo
-    if (avatarFiles[handle] !== undefined || avatarQueue.indexOf(handle) >= 0) return
+    if (avatarFiles[handle] !== undefined || avatarQueue.indexOf(handle) >= 0 || avatarInFlight.indexOf(handle) >= 0) return
     avatarQueue.push(handle)
-    pumpAvatar()
+    // Rows ask as they are created; callLater lets one frame's worth of rows
+    // share a single batch instead of the first row going alone.
+    Qt.callLater(root.pumpAvatar)
   }
   // Letters stick in avatarFiles as "". Opening the panel/window again drops
-  // those and re-asks, so a photo set a minute ago is not stuck until tomorrow.
+  // those and re-asks, so a photo set a few minutes ago is not stuck until tomorrow.
   function retryBareAvatars() {
     var m = Object.assign({}, root.avatarFiles)
     var keys = []
@@ -822,34 +837,49 @@ FocusScope {
       if (m[k] === "") { keys.push(k); delete m[k] }
     }
     if (keys.length === 0) return
-    root.avatarFiles = m
+    root.putAvatarFiles(m)
     for (var i = 0; i < keys.length; i++) root.requestAvatar(keys[i])
   }
   onSurfaceOpenChanged: if (surfaceOpen) root.retryBareAvatars()
   function pumpAvatar() {
-    if (avatarBusy || avatarProc.running || avatarQueue.length === 0) return
-    avatarBusy = true
-    avatarProc.handle = avatarQueue.shift()
-    // --retry skips the 24h "no photo" marker so a picture set after the
-    // first ask (a new group photo, a Contacts card) shows up this session.
-    avatarProc.command = ["bun", root.avatarScript, "--retry", avatarProc.handle]
+    if (avatarProc.running || avatarQueue.length === 0) return
+    avatarInFlight = avatarQueue.slice(0, 1024)
+    avatarQueue = avatarQueue.slice(avatarInFlight.length)
+    // One process answers the whole batch: disk hits first, the Mac only for
+    // the rest. --retry trusts a "no photo" marker for 15 minutes rather than
+    // a day, so a picture set after the first ask still shows up. Handles go
+    // on stdin, one per line.
+    avatarProc.command = ["bun", root.avatarScript, "--batch", "--retry"]
+    avatarProc.stdinEnabled = true
     avatarProc.running = true
+    avatarProc.write(avatarInFlight.join("\n") + "\n")
+    avatarProc.stdinEnabled = false
   }
   Process {
     id: avatarProc
-    property string handle: ""
-    stdout: StdioCollector {
-      onStreamFinished: {
-        var url = ""
-        try { var d = JSON.parse(text.trim()); if (d.ok === true) url = String(d.url || "") } catch (e) {}
-        var m = Object.assign({}, root.avatarFiles)
-        m[avatarProc.handle] = url
-        root.avatarFiles = m
-        root.avatarBusy = false
-        Qt.callLater(root.pumpAvatar)
+    // One JSON line per handle, as each is answered, so cached photos land
+    // while the misses still wait on the Mac. The handle rides in the line.
+    stdout: SplitParser {
+      onRead: function(line) {
+        try {
+          var d = JSON.parse(String(line))
+          if (typeof d.handle === "string" && root.avatarInFlight.indexOf(d.handle) >= 0)
+            root.setAvatar(d.handle, d.ok === true ? String(d.url || "") : "")
+        } catch (e) {}
       }
     }
-    onExited: Qt.callLater(root.pumpAvatar)
+    onExited: {
+      // Anything the run never answered (it crashed, bun is missing) becomes
+      // letters, which the next open retries, instead of never being asked again.
+      var m = null
+      for (var i = 0; i < root.avatarInFlight.length; i++) {
+        var h = root.avatarInFlight[i]
+        if (root.avatarFiles[h] === undefined) { m = m || Object.assign({}, root.avatarFiles); m[h] = "" }
+      }
+      if (m) root.putAvatarFiles(m)
+      root.avatarInFlight = []
+      Qt.callLater(root.pumpAvatar)
+    }
   }
   /** Only media/documents are handed to xdg-open. Anything a sender could
    *  make executable (scripts, .desktop, unknown blobs) is saved and named,
@@ -2402,7 +2432,7 @@ FocusScope {
                         sourceSize.width: 192
                         sourceSize.height: 192
                         onStatusChanged: if (status === Image.Error && pinnedAvatar.avatarHandle !== "") {
-                          var m = Object.assign({}, root.avatarFiles); m[pinnedAvatar.avatarHandle] = ""; root.avatarFiles = m
+                          root.setAvatar(pinnedAvatar.avatarHandle, "")
                         }
                       }
                       Item {
@@ -2650,7 +2680,7 @@ FocusScope {
                         sourceSize.height: 96
                         // a stale/corrupt cache file → initials, and no retry this session
                         onStatusChanged: if (status === Image.Error && avatarCircle.avatarHandle !== "") {
-                          var m = Object.assign({}, root.avatarFiles); m[avatarCircle.avatarHandle] = ""; root.avatarFiles = m
+                          root.setAvatar(avatarCircle.avatarHandle, "")
                         }
                       }
                       Item {
@@ -3498,6 +3528,25 @@ FocusScope {
               color: Style.controlFill(composeField.activeFocus, composeField.hovered, root.foreground, root.mineFill)
               borderSpec: composeField._composeBorder
               radius: Style.cornerRadius
+            }
+
+            // A long draft reads back with the wheel (#62). The caret keeps what
+            // you type in view; this is for the lines above it. Direct 1:1
+            // MouseArea.onWheel like the conversation. NoButton, so clicks and
+            // selection still reach the field; a draft that fits passes the
+            // wheel on to whatever is behind it.
+            MouseArea {
+              anchors.fill: parent
+              z: 1
+              acceptedButtons: Qt.NoButton
+              onWheel: function(wheel) {
+                var max = Math.max(0, composeFlick.contentHeight - composeFlick.height)
+                if (max === 0) { wheel.accepted = false; return }
+                var line = Math.ceil(composeField.font.pixelSize * 1.35)
+                var d = wheel.pixelDelta.y !== 0 ? wheel.pixelDelta.y : wheel.angleDelta.y / 120 * line
+                composeFlick.contentY = Math.max(0, Math.min(max, composeFlick.contentY - d))
+                wheel.accepted = true
+              }
             }
 
             // A TextArea scrolls to its caret ONLY when it lives in a Flickable.

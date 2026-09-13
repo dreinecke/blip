@@ -14,7 +14,7 @@ import {
   safeUrl,
   sniffImage,
 } from "./linkpreview";
-import { AVATAR_DIR, AVATAR_NONE_TTL_MS, AVATAR_TTL_MS, avatarArgs, avatarKey, fetchAvatar } from "./avatar";
+import { AVATAR_DIR, AVATAR_NONE_TTL_MS, AVATAR_RETRY_MS, AVATAR_TTL_MS, avatarArgs, avatarKey, fetchAvatar, fetchAvatarBatch } from "./avatar";
 import { readFileSync, writeFileSync, unlinkSync, utimesSync, mkdtempSync, mkdirSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
@@ -607,17 +607,52 @@ describe("contact photos", () => {
     unlinkSync(marker);
   });
 
-  test("retry ignores a fresh no-photo marker so a newly set picture is found", () => {
+  // The window asks with retry on every open. Skipping the marker outright
+  // sent every photoless contact back to the Mac each time (~45 s on gus).
+  test("retry trusts a no-photo marker for fifteen minutes, then asks again", () => {
     let calls = 0;
     const miss = (() => ({ status: 1, stdout: Buffer.alloc(0), stderr: "" })) as never;
     const hit = (() => { calls++; return { status: 0, stdout: Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]), stderr: "" }; }) as never;
     const h = `retry-${Date.now()}@example.com`;
     expect(fetchAvatar(h, miss).ok).toBe(false);
-    expect(fetchAvatar(h, hit).ok).toBe(false);            // marker still fresh
+    expect(fetchAvatar(h, hit, { retry: true }).ok).toBe(false);  // a reopen: the marker answers, no ssh
     expect(calls).toBe(0);
-    expect(fetchAvatar(h, hit, { retry: true }).ok).toBe(true);
+    const marker = `${AVATAR_DIR}/${avatarKey(h)}.none`;
+    const old = new Date(Date.now() - AVATAR_RETRY_MS - 60_000);
+    utimesSync(marker, old, old);
+    expect(fetchAvatar(h, hit).ok).toBe(false);                   // a plain ask still trusts it for a day
+    expect(calls).toBe(0);
+    expect(fetchAvatar(h, hit, { retry: true }).ok).toBe(true);   // retry finds the new picture
     expect(calls).toBe(1);
+    expect(AVATAR_RETRY_MS).toBeLessThan(AVATAR_NONE_TTL_MS);
     unlinkSync(`${AVATAR_DIR}/${avatarKey(h)}.jpg`);
+  });
+
+  test("a batch answers the disk first, each handle once, and asks the Mac only for misses", () => {
+    const jpeg = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+    let asked: string[] = [];
+    const runner = ((_c: string, args: string[]) => { asked.push(args[args.length - 1]); return { status: 0, stdout: jpeg, stderr: "" }; }) as never;
+    const t = Date.now();
+    const cached = `batch-a-${t}@example.com`, miss = `batch-b-${t}@example.com`;
+    fetchAvatar(cached, runner);
+    asked = [];
+    const out: Array<{ handle: string; ok: boolean; url: string }> = [];
+    fetchAvatarBatch(`${miss}\n${cached}\r\n${cached}\n\n`, (l) => out.push(JSON.parse(l)), runner, { retry: true });
+    expect(out.map((o) => o.handle)).toEqual([cached, miss]);
+    expect(out.every((o) => o.ok && o.url.startsWith("file://"))).toBe(true);
+    expect(asked).toEqual([miss]);
+    unlinkSync(`${AVATAR_DIR}/${avatarKey(cached)}.jpg`);
+    unlinkSync(`${AVATAR_DIR}/${avatarKey(miss)}.jpg`);
+  });
+
+  test("a batch stops asking once the Mac is unreachable", () => {
+    let calls = 0;
+    const runner = (() => { calls++; return { status: 255, stdout: Buffer.alloc(0), stderr: "" }; }) as never;
+    const t = Date.now();
+    const out: Array<{ handle: string; error: string }> = [];
+    fetchAvatarBatch(`off-a-${t}@example.com\noff-b-${t}@example.com\noff-c-${t}@example.com\n`, (l) => out.push(JSON.parse(l)), runner);
+    expect(calls).toBe(1);
+    expect(out.map((o) => o.error)).toEqual(["Mac unreachable", "Mac unreachable", "Mac unreachable"]);
   });
 
   test("a group id asks for the GROUP's photo (--chat), a person for Contacts (--)", () => {
