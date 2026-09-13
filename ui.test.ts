@@ -536,12 +536,15 @@ test("bubble text picks its colour against the fill rather than assuming white",
   expect(panel).not.toContain('readonly property color mineText: "#ffffff"');
 });
 
-// The version shows in the header both surfaces share, read live from
-// manifest.json by the host — one source, one place, never two numbers.
-test("the header shows the version from manifest.json", () => {
+// FORK: the header does not draw the version (Dave, 2026-09-13). The host
+// still reads it from manifest.json and still exposes it, so the number has
+// one source if anything ever wants it again — what this guards is that the
+// reader was not ripped out along with the label.
+test("the version is still read from manifest.json, and no longer drawn", () => {
   expect(widget).toContain('Qt.resolvedUrl("manifest.json")');
   expect(widget).toContain("root.version = String(JSON.parse(text()).version");
-  expect(panel).toContain("text: root.version");
+  expect(panel).toContain("readonly property string version:");
+  expect(panel).not.toContain("text: root.version");
 });
 
 // A release bumps three files. If one is missed the badge lies, or the
