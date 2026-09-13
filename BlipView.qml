@@ -173,6 +173,11 @@ FocusScope {
   // conversation list a gutter to bleed a hovered row's highlight into.
   readonly property real masterMargin: Style.spacing.popupPadding
   readonly property real halfMargin: Math.round(masterMargin / 2)
+  /** What the popout's CARD is padded by. The gutter below adds the rest, and
+   *  the two are defined as a pair so they always sum to exactly the master
+   *  margin — halving a margin twice loses a pixel whenever it is odd, and the
+   *  theme's popup padding is rounded, so it can be. */
+  readonly property real cardPadding: masterMargin - halfMargin
   /** What each direct child of the outer column insets itself by. Every one
    *  of them carries it EXCEPT the conversation list, which spans the full
    *  card so a hovered row's highlight can bleed into this gutter and still
@@ -2106,8 +2111,14 @@ FocusScope {
         // highlight into that half and still leave a margin of its own.
         anchors.leftMargin: 0
         anchors.rightMargin: 0
-        anchors.topMargin: root.splitView ? Style.space(10) : 0
-        anchors.bottomMargin: root.splitView ? Style.space(10) : 0
+        // ⚠️ The side gutters are carried by each CHILD (so the conversation
+        // list can skip its own), but the top and bottom are the column's —
+        // nothing needs to bleed vertically. They were left at zero when the
+        // sides moved, which made Blip's top and bottom insets half its left
+        // and right instead of matching a stock panel's (Dave spotted it,
+        // 2026-09-13).
+        anchors.topMargin: root.splitView ? Style.space(10) : root.sideGutter
+        anchors.bottomMargin: root.splitView ? Style.space(10) : root.sideGutter
         // Stock Omarchy panels space their header, separator and body by 14;
         // that spacing IS the margin above and below the rule under the title.
         spacing: Style.space(14)

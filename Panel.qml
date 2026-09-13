@@ -95,7 +95,7 @@ Panel {
     // column adds the other half, so everything inside still sits a full
     // master from the border. The conversation list pulls back into this half
     // to paint a hovered row's highlight (see BlipView.threadFlick).
-    padding: view.halfMargin
+    padding: view.cardPadding
     readonly property var fittedSize: PanelSize.fitSize(
       root.preferredWidth || Style.space(352),
       root.preferredHeight || panel.fittedContentHeight(
