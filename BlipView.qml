@@ -2437,6 +2437,7 @@ FocusScope {
                         anchors.centerIn: parent
                         visible: pinnedAvatarImg.status !== Image.Ready && !pinnedAvatarComposite.active
                         text: root.avatarInitials(modelData)
+                        textFormat: Text.PlainText
                         color: root.foreground
                         font.family: root.fontFamily
                         font.pixelSize: root.fontBody
@@ -2684,6 +2685,7 @@ FocusScope {
                         anchors.centerIn: parent
                         visible: avatarImg.status !== Image.Ready && !avatarCircleComposite.active
                         text: root.avatarInitials(modelData)
+                        textFormat: Text.PlainText
                         color: root.foreground
                         font.family: root.fontFamily
                         font.pixelSize: root.fontCaption
@@ -2922,6 +2924,7 @@ FocusScope {
               Layout.fillWidth: true
               visible: root.inThread && root.loading
               text: "loading…"
+              textFormat: Text.PlainText
               horizontalAlignment: Text.AlignHCenter
               color: root.dim
               font.family: root.fontFamily
@@ -2947,6 +2950,7 @@ FocusScope {
                   Layout.fillWidth: true
                   visible: String(modelData.day || "") !== ""
                   text: String(modelData.day || "")
+                  textFormat: Text.PlainText
                   horizontalAlignment: Text.AlignHCenter
                   color: root.dim
                   font.family: root.fontFamily
@@ -3627,6 +3631,7 @@ FocusScope {
             Text {
               anchors.centerIn: parent
               text: "↑"
+              textFormat: Text.PlainText
               color: parent.armed ? "#ffffff" : root.dim
               font.family: root.fontFamily
               font.pixelSize: root.fontBody
@@ -3753,6 +3758,7 @@ FocusScope {
           Text {
             Layout.fillWidth: true
             text: "SHARE LINK" + (root.shareUrls.length > 1 ? "  ·  " + (root.shareIndex + 1) + " of " + root.shareUrls.length : "")
+            textFormat: Text.PlainText
             color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.6)
             font.family: root.fontFamily; font.pixelSize: root.fontCaption; font.letterSpacing: 1
           }
@@ -3762,6 +3768,7 @@ FocusScope {
             delegate: Text {
               required property var modelData
               text: modelData < 0 ? "‹" : "›"
+              textFormat: Text.PlainText
               color: root.foreground
               font.family: root.fontFamily; font.pixelSize: root.fontBody; font.bold: true
               HoverHandler { cursorShape: Qt.PointingHandCursor }
@@ -3772,6 +3779,7 @@ FocusScope {
         Text {
           Layout.fillWidth: true
           text: root.linkHost(root.shareUrl)
+          textFormat: Text.PlainText
           color: root.foreground
           font.family: root.fontFamily; font.pixelSize: root.fontBody; font.bold: true
           elide: Text.ElideRight
@@ -3779,6 +3787,7 @@ FocusScope {
         Text {
           Layout.fillWidth: true
           text: root.shareUrl
+          textFormat: Text.PlainText
           color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.7)
           font.family: root.fontFamily; font.pixelSize: root.fontCaption
           elide: Text.ElideMiddle
@@ -3819,6 +3828,7 @@ FocusScope {
             Text {
               anchors.centerIn: parent
               text: modelData.label
+              textFormat: Text.PlainText
               color: root.foreground
               font.family: root.fontFamily; font.pixelSize: root.fontBodySmall
             }
@@ -3837,6 +3847,7 @@ FocusScope {
           Layout.fillWidth: true
           horizontalAlignment: Text.AlignHCenter
           text: (root.shareUrls.length > 1 ? "← → link  ·  " : "") + "1–3 or ↑↓ Enter  ·  Esc closes"
+          textFormat: Text.PlainText
           color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.45)
           font.family: root.fontFamily; font.pixelSize: root.fontCaption
         }
