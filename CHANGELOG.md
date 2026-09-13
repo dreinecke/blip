@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **Every `Text` sink declares `textFormat: Text.PlainText`** (#72, @ianswope).
+  Eleven labels in `BlipView.qml` fell back to Qt's `AutoText`, which renders
+  anything that looks like markup as rich text. Nothing reached them with a
+  `<` today; a UI test now fails on any `Text`/`TextEdit` without a format.
+
 - Read-only contact review opens directly from conversations. Inspect matching
   source cards and open an exact card in Contacts on Mac. A bounded duplicate
   scan reuses results only while the handle set and Mac fingerprint match.

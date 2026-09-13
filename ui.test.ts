@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { parseUiFontSize, scaleFontPx } from "./ui-font";
 
 // The renderer moved from Panel.qml into BlipView.qml in 1.8.0 (shared with the app window).
@@ -20,6 +20,38 @@ function qmlFunction(name: string) {
 }
 
 describe("QML safety invariants", () => {
+  // Qt's default is Text.AutoText, which sniffs the string and renders it as
+  // rich text if it looks like markup — so an unannotated sink is one upstream
+  // filter away from parsing HTML out of a message. Nothing reaches these
+  // sinks with a "<" today (collector.allUrls/firstUrl and the QML mirrors all
+  // exclude <>"'), and 45 of the 46 annotated sinks already say PlainText.
+  // This keeps the sink safe by construction rather than by the filter staying
+  // correct, and makes the house rule checkable instead of aspirational.
+  test("every Text/TextEdit declares a textFormat", () => {
+    const offenders: string[] = [];
+    for (const file of readdirSync(new URL(".", import.meta.url)).filter((f) => f.endsWith(".qml"))) {
+      const src = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
+      const re = /\b(?:TextEdit|Text)\s*\{/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(src)) !== null) {
+        // walk to the block's closing brace, tracking depth
+        let depth = 0, i = m.index + m[0].length - 1, body = "";
+        for (; i < src.length; i++) {
+          const c = src[i];
+          if (c === "{") depth++;
+          else if (c === "}") { depth--; if (depth === 0) break; }
+          body += c;
+        }
+        // properties of THIS element, not of a nested child
+        const own = body.replace(/\{[^{}]*\}/g, "");
+        if (!/\btextFormat\s*:/.test(own)) {
+          offenders.push(`${file}:${src.slice(0, m.index).split("\n").length}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   test("group sends use the cached AppleScript GUID", () => {
     expect(panel).toContain('["--chat-id", String(root.active.guid)]');
     expect(panel).toContain('["--to", chat]');
