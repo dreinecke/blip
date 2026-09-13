@@ -571,6 +571,19 @@ test("the clicked toast copies its own code", () => {
   expect(widget).toContain("copyValue = String(code || pendingCode.code)");
 });
 
+// The code reaches wl-copy on stdin, never through the environment: wl-copy
+// stays resident to serve the selection, so an env var is readable in
+// /proc/<wl-copy>/environ for as long as the clipboard holds the code --
+// outliving both the toast and the five-minute window copyCode() enforces.
+test("a security code never rides the environment", () => {
+  const proc = widget.slice(widget.indexOf("id: codeCopyProc"), widget.indexOf("id: codeCopyProc") + 400);
+  expect(proc).not.toContain("environment:");
+  expect(proc).toContain('command: ["wl-copy"]');
+  expect(proc).toContain("write(root.copyValue)");
+  expect(proc).toContain("stdinEnabled = false");     // one write, then EOF
+  expect(widget).not.toContain("BLIP_CODE");
+});
+
 // A follower bar must never start a collector of its own.
 test("follower bars forward right/middle clicks to the leader", () => {
   expect(widget).toContain('code === Qt.RightButton ? "read" : "refresh"');
