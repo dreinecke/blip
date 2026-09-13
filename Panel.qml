@@ -91,6 +91,10 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: view.inThread ? view.composeEditor : view.navigationKeys
+    // FORK: the card's four edges take the master margin the list rows are
+    // built from, so the panel and its contents are inset by one number
+    // (BlipView.masterMargin).
+    padding: view.masterMargin
     readonly property var fittedSize: PanelSize.fitSize(
       root.preferredWidth || Style.space(352),
       root.preferredHeight || panel.fittedContentHeight(
