@@ -1,7 +1,10 @@
 # Changelog
 
-## Unreleased
+## 2.5.0 — 2026-09-13 — photos at once, and sends that stay put
 
+- **Sending a link no longer opens the share sheet** (#54, @jondkinney). A
+  sent URL used to pop the QR / copy / LocalSend sheet over the conversation
+  as soon as it went through. The sheet now opens only when you ask for it.
 - **Contact photos stop reloading every time the window opens.** The app
   window is rebuilt on every SUPER+M and kept its photo map to itself, so it
   started empty and asked again for every picture, one `bun` process at a
