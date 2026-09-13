@@ -170,7 +170,7 @@ Linux side. If the Mac is asleep, the widget dims and says so.
     blip() { hyprctl clients -j | jq -r ".[] | select(.title | startswith(\"Blip\")) | .address" | head -1; }
     a=$(blip)
     if [ -z "$a" ]; then
-      qs -p /usr/share/omarchy/shell ipc call nixfred.blip app >/dev/null
+      omarchy-shell nixfred.blip app >/dev/null
       for i in 1 2 3 4 5 6 7 8 9 10 11 12; do a=$(blip); [ -n "$a" ] && break; sleep 0.15; done
       [ -n "$a" ] && hyprctl dispatch "hl.dsp.focus({ window = \"address:$a\" })"
     elif [ "$(hyprctl activewindow -j | jq -r .address)" = "$a" ]; then
