@@ -114,7 +114,9 @@ what it is handed. Keep it that way.
   recorded (Service.qml says so itself). 2.3.3 put the code in the body on
   the strength of that hint and was wrong. The message's ordinary preview
   toast is dropped for the same reason;
-  `copycode` hands it to wl-copy via an env var and stdin, `typecode` sends
+  `copycode` hands it to wl-copy on STDIN — never an env var: wl-copy stays
+  resident to serve the selection, so the digits would outlive the copy in
+  `/proc/<wl-copy>/environ`, past the five minutes. `typecode` sends
   it to the focused window as `send_key_state` events over Hyprland's socket.
   Never argv. NEVER wtype for this: Hyprland merges a virtual keyboard's keys
   with the physical modifiers still held from the hotkey, and the digits

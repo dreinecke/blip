@@ -722,12 +722,19 @@ BarWidget {
              + "Click to copy"
     fireToasts([{ chat: "", name: "Security code from " + who, text: body, ts: pendingCode.ts, key: "", code: pendingCode.code, at: Date.now() }])
   }
-  // sh reads the code from its environment, hands it to the tool on stdin.
+  // The code goes straight to wl-copy on stdin. An environment variable
+  // outlived the copy: wl-copy stays resident to serve the selection, so the
+  // code sat readable in /proc/<wl-copy>/environ for as long as the clipboard
+  // held it -- past the five minutes copyCode() enforces, and past the toast
+  // that offered it. stdin is read once and closed.
   property string copyValue: ""          // what the NEXT copy hands to wl-copy
   Process {
     id: codeCopyProc
-    environment: ({ BLIP_CODE: root.copyValue })
-    command: ["sh", "-c", "printf %s \"$BLIP_CODE\" | wl-copy"]
+    command: ["wl-copy"]
+    onStarted: {
+      write(root.copyValue)
+      stdinEnabled = false
+    }
     onExited: root.copyValue = ""
   }
   /** Copy a code. A toast passes the code it DISPLAYED, so clicking an older
@@ -738,6 +745,7 @@ BarWidget {
     // An older toast's code is copied only within ITS five minutes (Astra A#9).
     if (code && String(code) !== pendingCode.code && Date.now() - notifyProc.toastCodeAt > 300000) return "code expired"
     copyValue = String(code || pendingCode.code)
+    codeCopyProc.stdinEnabled = true
     codeCopyProc.running = true
     return "copied"
   }
