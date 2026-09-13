@@ -159,6 +159,14 @@ FocusScope {
     decodeURIComponent(Qt.resolvedUrl("search.ts").toString().replace(/^file:\/\//, ""))
   // The WhatsApp bridge. SourceId.bridgeArgv picks between this and the Mac's
   // tools; the rule itself lives in source-id.ts, shared with the collector.
+  // FORK (Dave, 2026-09-13): ONE margin drives the panel's four edges, the
+  // list row's side insets and the gap between an avatar and the name. Half of
+  // it drives the vertical rhythm around each row's separator and the gap
+  // before the timestamp. Panel.qml takes the panel's padding from here too,
+  // so there is one number and one place to change it.
+  readonly property real masterMargin: Math.round(Style.spacing.popupPadding * 1.5)
+  readonly property real halfMargin: Math.round(masterMargin / 2)
+
   readonly property string muteScript:
     decodeURIComponent(Qt.resolvedUrl("mute.ts").toString().replace(/^file:\/\//, ""))
   readonly property string waScript:
@@ -2671,21 +2679,19 @@ FocusScope {
                   RowLayout {
                     id: rowRow
                     anchors.fill: parent
-                    anchors.margins: Style.space(6)
-                    // FORK (Dave, 2026-09-13): the same inset on both sides, so
-                    // the timestamp sits as far from the right edge as the
-                    // avatar does from the left. It is the row's margin plus
-                    // what the unread dot's slot used to take — the dot is gone
-                    // (unread is the NAME now), and the inset stays, or every
-                    // avatar in the list would have shifted left when it went.
-                    readonly property real sideInset:
-                      Style.space(6) + Style.space(9) + Style.space(8)
-                    anchors.leftMargin: sideInset
-                    anchors.rightMargin: sideInset
-                    spacing: Style.space(8)
-                    // FORK: three times the old gap between the avatar and the
-                    // text, which is the one gap in the row that was tight.
-                    readonly property real textGap: spacing * 3
+                    // FORK (Dave, 2026-09-13): the row adds NO side inset of
+                    // its own. The panel's own padding is the master margin, so
+                    // an avatar lines up with the left edge of the search box
+                    // above it and a timestamp with its right edge.
+                    anchors.leftMargin: 0
+                    anchors.rightMargin: 0
+                    // Half the master above and below, which is the space each
+                    // side of the separator between two conversations.
+                    anchors.topMargin: root.halfMargin
+                    anchors.bottomMargin: root.halfMargin
+                    spacing: 0
+                    // The gap between the avatar and the name.
+                    readonly property real textGap: root.masterMargin
 
                     // avatar circle — the contact's photo when Contacts has one,
                     // initials otherwise (the iMessage sidebar look)
@@ -2756,9 +2762,7 @@ FocusScope {
 
                     ColumnLayout {
                       Layout.fillWidth: true
-                      // The layout's own spacing already sits between the
-                      // avatar and this column; the rest makes up textGap.
-                      Layout.leftMargin: rowRow.textGap - rowRow.spacing
+                      Layout.leftMargin: rowRow.textGap
                       spacing: Style.space(1)
                       RowLayout {
                         Layout.fillWidth: true
@@ -2794,7 +2798,7 @@ FocusScope {
                         // FORK (Dave, 2026-09-13): wrap clear of the timestamp
                         // rather than running under it, leaving the same gap
                         // beside it that the avatar has beside the name.
-                        Layout.rightMargin: timeLabel.width + rowRow.textGap
+                        Layout.rightMargin: timeLabel.width + root.halfMargin
                         text: (modelData.last_from_me ? "You: " : "") + String(modelData.last_text || "")
                         textFormat: Text.PlainText
                         wrapMode: Text.Wrap
@@ -2813,7 +2817,7 @@ FocusScope {
                     // FORK: it stops where the timestamp does, rather than
                     // running on to the panel's edge past it.
                     anchors.right: parent.right
-                    anchors.rightMargin: rowRow.sideInset
+                    anchors.rightMargin: 0
                     // Align the hairline with the text, beyond the avatar.
                     anchors.left: parent.left
                     anchors.leftMargin: rowRow.x + avatarCircle.x + avatarCircle.width + rowRow.textGap
