@@ -95,6 +95,9 @@ FocusScope {
   readonly property int fontCaption: Math.max(1, Math.round(Style.font.caption * uiFontScale))
   readonly property int fontBodySmall: Math.max(1, Math.round(Style.font.bodySmall * uiFontScale))
   readonly property int fontBody: Math.max(1, Math.round(Style.font.body * uiFontScale))
+  /** The hero icon's size. Like every other size here it goes through the
+   *  scale, so `ui_font_size` moves it with the rest of the panel. */
+  readonly property int fontDisplay: Math.max(1, Math.round(Style.font.display * uiFontScale))
   // Secondary text: the foreground at 0.66, as Omarchy's own placeholder text
   // is. Not Qt.darker: darker is dimmer only on a dark theme — on a light one
   // it made timestamps heavier than the messages they sit under.
@@ -164,13 +167,36 @@ FocusScope {
   // it drives the vertical rhythm around each row's separator and the gap
   // before the timestamp. Panel.qml takes the panel's padding from here too,
   // so there is one number and one place to change it.
-  readonly property real masterMargin: Math.round(Style.spacing.popupPadding * 1.5)
+  // FORK (Dave, 2026-09-13): the theme's popup padding, so Blip's four edges
+  // are exactly a stock Omarchy panel's. The panel card takes HALF of it and
+  // each child of the column below adds the other half, which leaves the
+  // conversation list a gutter to bleed a hovered row's highlight into.
+  readonly property real masterMargin: Style.spacing.popupPadding
   readonly property real halfMargin: Math.round(masterMargin / 2)
   /** What each direct child of the outer column insets itself by. Every one
    *  of them carries it EXCEPT the conversation list, which spans the full
    *  card so a hovered row's highlight can bleed into this gutter and still
    *  leave half a master margin to the panel's border. */
   readonly property real sideGutter: root.splitView ? Style.space(18) : root.halfMargin
+
+  // The header buttons carry their name, and PanelActionButton is square by
+  // default, so each is measured by a TextMetrics of the same font and given
+  // that width — the label decides the size, not a number typed in.
+  TextMetrics {
+    id: markAllMetrics
+    font.family: root.fontFamily; font.pixelSize: root.fontCaption
+    text: "\u{F012C} Mark all read"
+  }
+  TextMetrics {
+    id: newMsgMetrics
+    font.family: root.fontFamily; font.pixelSize: root.fontCaption
+    text: "\u{F0415} New message"
+  }
+  TextMetrics {
+    id: openAppMetrics
+    font.family: root.fontFamily; font.pixelSize: root.fontCaption
+    text: "\u{F03CC} Open app"
+  }
 
   readonly property string muteScript:
     decodeURIComponent(Qt.resolvedUrl("mute.ts").toString().replace(/^file:\/\//, ""))
@@ -2082,99 +2108,71 @@ FocusScope {
         anchors.rightMargin: 0
         anchors.topMargin: root.splitView ? Style.space(10) : 0
         anchors.bottomMargin: root.splitView ? Style.space(10) : 0
-        spacing: Style.space(root.splitView ? 14 : 8)
-        RowLayout {
+        // Stock Omarchy panels space their header, separator and body by 14;
+        // that spacing IS the margin above and below the rule under the title.
+        spacing: Style.space(14)
+        // FORK (Dave, 2026-09-13): the stock Omarchy panel header — an icon,
+        // a title, and a subtitle under it — through the shell's own PanelHero,
+        // so Blip introduces itself the way Bluetooth and the rest do. The
+        // three actions ride its trailing edge, which is where that component
+        // puts a control and reserves the width for it.
+        PanelHero {
           Layout.fillWidth: true
           Layout.leftMargin: root.sideGutter
           Layout.rightMargin: root.sideGutter
-          spacing: Style.space(8)
-          Text {
-            text: "Blip"
-            textFormat: Text.PlainText
-            color: root.foreground
+          title: "Blip"
+          // The same speech bubbles the bar icon draws, so the panel and the
+          // bar never disagree about what state Blip is in.
+          meta: root.online ? "IMESSAGE AND WHATSAPP" : "MAC UNREACHABLE — BRIDGE OFFLINE"
+          foreground: root.foreground
+          fontFamily: root.fontFamily
+          iconComponent: Text {
+            text: !root.online ? "\u{F0F9E}" : (root.unread > 0 ? "\u{F0B79}" : "\u{F0B7B}")
+            color: root.online ? root.foreground : root.urgent
             font.family: root.fontFamily
-            font.pixelSize: root.fontTitle
-            font.bold: true
+            font.pixelSize: root.fontDisplay
           }
-          // FORK: the unread count is not written out (Dave, 2026-09-13) — the
-          // bar badge already carries it and the list shows it conversation by
-          // conversation. The line stays for the state that is NOT visible
-          // anywhere else, which is the bridge being down, and keeps its
-          // fillWidth either way so the buttons stay at the right edge.
-          Text {
-            Layout.fillWidth: true
-            text: root.online ? "" : "MAC UNREACHABLE — BRIDGE OFFLINE"
-            textFormat: Text.PlainText
-            color: root.dim
-            font.family: root.fontFamily
-            font.pixelSize: root.fontCaption
-            font.bold: true
-            font.letterSpacing: 1.2
-            elide: Text.ElideRight
-          }
-          // FORK: the version tag is not shown (Dave, 2026-09-13). The host
-          // still reads it from manifest.json, so `root.version` is there for
-          // a tooltip or a debug line whenever it is wanted.
-          // FORK (Dave, 2026-09-13): all three carry their name, not only a
-          // glyph. PanelActionButton is square by default, so each one is
-          // measured by a TextMetrics of the same font and given that width —
-          // the label decides the size rather than a number typed in here.
-          TextMetrics {
-            id: markAllMetrics
-            font.family: root.fontFamily; font.pixelSize: root.fontCaption
-            text: "\u{F012C} Mark all read"
-          }
-          TextMetrics {
-            id: newMsgMetrics
-            font.family: root.fontFamily; font.pixelSize: root.fontCaption
-            text: "\u{F0415} New message"
-          }
-          TextMetrics {
-            id: openAppMetrics
-            font.family: root.fontFamily; font.pixelSize: root.fontCaption
-            text: "\u{F03CC} Open app"
-          }
-          PanelActionButton {
-            // A button beside the other two rather than a link on a row of its
-            // own — same affordance as the rest, and one less row between the
-            // title and the search box.
-            id: markAllBtn
-            visible: root.online && root.listShowing && root.unread > 0
-                     && !root.searchShowing && !root.newMode
-            iconText: markAllMetrics.text
-            fontSize: root.fontCaption
-            tooltipText: "Here only — your phone keeps its own badge"
-            bordered: true
-            foreground: root.foreground
-            hoverColor: root.accent
-            fontFamily: root.fontFamily
-            Layout.preferredWidth: markAllMetrics.width + root.masterMargin
-            Layout.preferredHeight: size
-            onClicked: root.markAllRead()
-          }
-          PanelActionButton {
-            visible: root.online && !root.newMode && !root.searchShowing
-            iconText: newMsgMetrics.text
-            fontSize: root.fontCaption
-            bordered: true
-            foreground: root.foreground
-            hoverColor: root.accent
-            fontFamily: root.fontFamily
-            Layout.preferredWidth: newMsgMetrics.width + root.masterMargin
-            Layout.preferredHeight: size
-            onClicked: root.startNew()
-          }
-          PanelActionButton {
-            visible: root.online && !root.splitView
-            iconText: openAppMetrics.text
-            fontSize: root.fontCaption
-            bordered: true
-            foreground: root.foreground
-            hoverColor: root.accent
-            fontFamily: root.fontFamily
-            Layout.preferredWidth: openAppMetrics.width + root.masterMargin
-            Layout.preferredHeight: size
-            onClicked: root.openApp()
+          trailingControl: RowLayout {
+            spacing: Style.space(8)
+            PanelActionButton {
+              id: markAllBtn
+              visible: root.online && root.listShowing && root.unread > 0
+                       && !root.searchShowing && !root.newMode
+              iconText: markAllMetrics.text
+              fontSize: root.fontCaption
+              tooltipText: "Here only — your phone keeps its own badge"
+              bordered: true
+              foreground: root.foreground
+              hoverColor: root.accent
+              fontFamily: root.fontFamily
+              Layout.preferredWidth: markAllMetrics.width + root.masterMargin
+              Layout.preferredHeight: size
+              onClicked: root.markAllRead()
+            }
+            PanelActionButton {
+              visible: root.online && !root.newMode && !root.searchShowing
+              iconText: newMsgMetrics.text
+              fontSize: root.fontCaption
+              bordered: true
+              foreground: root.foreground
+              hoverColor: root.accent
+              fontFamily: root.fontFamily
+              Layout.preferredWidth: newMsgMetrics.width + root.masterMargin
+              Layout.preferredHeight: size
+              onClicked: root.startNew()
+            }
+            PanelActionButton {
+              visible: root.online && !root.splitView
+              iconText: openAppMetrics.text
+              fontSize: root.fontCaption
+              bordered: true
+              foreground: root.foreground
+              hoverColor: root.accent
+              fontFamily: root.fontFamily
+              Layout.preferredWidth: openAppMetrics.width + root.masterMargin
+              Layout.preferredHeight: size
+              onClicked: root.openApp()
+            }
           }
         }
 
