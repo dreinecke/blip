@@ -34,16 +34,15 @@ describe("QML safety invariants", () => {
       const re = /\b(?:TextEdit|Text)\s*\{/g;
       let m: RegExpExecArray | null;
       while ((m = re.exec(src)) !== null) {
-        // walk to the block's closing brace, tracking depth
-        let depth = 0, i = m.index + m[0].length - 1, body = "";
-        for (; i < src.length; i++) {
+        // walk to the block's closing brace, keeping only text at depth 1:
+        // properties of THIS element, never of a nested child at any depth
+        let depth = 0, own = "";
+        for (let i = m.index + m[0].length - 1; i < src.length; i++) {
           const c = src[i];
           if (c === "{") depth++;
           else if (c === "}") { depth--; if (depth === 0) break; }
-          body += c;
+          else if (depth === 1) own += c;
         }
-        // properties of THIS element, not of a nested child
-        const own = body.replace(/\{[^{}]*\}/g, "");
         if (!/\btextFormat\s*:/.test(own)) {
           offenders.push(`${file}:${src.slice(0, m.index).split("\n").length}`);
         }
