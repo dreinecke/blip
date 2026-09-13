@@ -13,6 +13,47 @@
   `authorized_keys` line on the Mac. The `~/.ssh/config` Host block and the
   `sshd-keygen-wrapper` privacy grants are left as deliberate, optional steps.
 
+- **A copied security code no longer lingers in `/proc`** (#73, @ianswope).
+  `copycode` handed the digits to `wl-copy` through an environment variable,
+  and `wl-copy` stays resident to serve the selection, so the code sat in its
+  `/proc/<pid>/environ` for as long as the clipboard held it — past Blip's
+  five-minute window. It now goes to `wl-copy` on stdin.
+- **A failed send keeps its bubble and says why** (#50, @jondkinney). A text
+  Messages rejected used to vanish on the next reload. It now stays in the
+  conversation marked Not Delivered with a short reason, and two sends in the
+  same second no longer erase each other. Still memory-only, never on disk.
+- **The composer is accessible, checks spelling, and keeps its arrow keys**
+  (#51, @jondkinney). Screen readers see a named multiline field; misspellings
+  are underlined from a local Hunspell check (optional; the draft travels on
+  stdin, never argv); Left/Right/Up/Down edit the draft instead of leaving it,
+  and PageUp/PageDown step through the history bubbles.
+- **The bar panel is resizable and remembers its size** (#52, @jondkinney).
+  Drag the corner grip; the size persists, capped at 500 px wide and 80 % of
+  the display's height. The list header is one compact row — Blip, status,
+  version, then the controls — with an outlined search icon; conversation rows
+  get their separators back and 40 px avatars.
+- **`Ctrl+1`–`Ctrl+9` open your pinned conversations, and there is a back
+  arrow** (#53, @jondkinney). Works while typing; empty slots are ignored. The
+  conversation view shows a visible back button in place of the Esc label.
+- **Unnamed groups are named after their people and get a composite avatar**
+  (#55, @jondkinney, plus a follow-up). A group with no title shows "Ann, Bob &
+  Cy" instead of an opaque id, and up to four participant photos or initials
+  share one circle in the list and the pins. Custom group photos still win.
+  The fallback was unreachable at first — `imsg chats` reports the raw chat id
+  as the name — and is fixed so it actually runs.
+- **Contact review grows up** (#59, #60, #61, @jondkinney). Duplicate scans
+  go past 200 contacts in bounded batches and page every finding. An exact
+  source card opens in a full read-only view; right-click a field to copy it,
+  or Ctrl+C a selection. Copy or save the card as a `.vcf`, named after the
+  contact, into a folder you choose. Nothing is ever written to Contacts.
+- **The app window comes back on its own workspace, without stealing focus**
+  (#48, @jefehoser). After a shell restart an open window is recreated where
+  it was, quietly; a closed window stays closed.
+- **`blip-check` no longer fires a consent prompt you did not ask for** (#36, reported by @jacobaross).
+  The optional read-push probe talks to System Events, which pops its own
+  Automation prompt, and on macOS 26.6.2 that grant could not be switched back
+  off. It now runs only with `--markread`. Re-run `blip-setup` so the Mac picks
+  it up.
 - **Every `Text` sink declares `textFormat: Text.PlainText`** (#72, @ianswope).
   Eleven labels in `BlipView.qml` fell back to Qt's `AutoText`, which renders
   anything that looks like markup as rich text. Nothing reached them with a
