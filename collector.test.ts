@@ -1705,6 +1705,36 @@ describe("blip-setup: the key's from= pin", () => {
   });
 });
 
+// blip-setup pauses twice for a `read -r -p`. An ssh that runs a remote command
+// inherits the script's stdin and drains it, so with stdin from a pipe or a
+// redirect those reads hit EOF and `set -e` kills the script at the "Press
+// Enter" prompt — AFTER the Mac install and the key enrolment have already
+// run, which is the confusing part. `-n` is what keeps stdin for the prompts;
+// the first reachability probe already had it.
+describe("blip-setup: ssh never eats the script's stdin", () => {
+  const src = readFileSync(new URL("./scripts/blip-setup", import.meta.url), "utf8");
+  // Executable lines only: comments and echoed prose mention ssh as text.
+  const runnable = src.split("\n")
+    .filter((l) => !/^\s*#/.test(l))
+    .filter((l) => !/^\s*echo\s/.test(l));
+
+  test("every ssh that runs a remote command passes -n", () => {
+    const offenders = runnable.filter((l) => {
+      const m = l.match(/(?:^|[;&|(]|\$\()\s*(?:(?:if|elif|while|until|then|else|do)\s+)?!?\s*ssh\s+(.*)$/);
+      if (!m) return false;
+      const args = m[1];
+      if (/^-O\s/.test(args)) return false;        // control command: runs nothing remote
+      return !/(^|\s)-n(\s|$)/.test(args);
+    });
+    expect(offenders).toEqual([]);
+  });
+
+  test("the prompts that would starve are still there", () => {
+    expect(src).toContain("Press Enter to run the permission check");
+    expect(src).toContain("then press Enter to re-check");
+  });
+});
+
 test("group labels prefer short names while participant details retain full names", () => {
  const {groupName,groupParticipants,normalizeGroups,fetchGroups} = require('./collector');
  const info={name:"",guid:"any;+;chat123",participants:["+15551234567"],participantNames:{"+15551234567":"Mary Jane Example"},participantShortNames:{"+15551234567":"Mary Jane"}};
