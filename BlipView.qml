@@ -2075,10 +2075,14 @@ FocusScope {
             font.pixelSize: root.fontTitle
             font.bold: true
           }
+          // FORK: the unread count is not written out (Dave, 2026-09-13) — the
+          // bar badge already carries it and the list shows it conversation by
+          // conversation. The line stays for the state that is NOT visible
+          // anywhere else, which is the bridge being down, and keeps its
+          // fillWidth either way so the buttons stay at the right edge.
           Text {
             Layout.fillWidth: true
-            text: (!root.online ? "Mac unreachable — bridge offline"
-              : root.unread > 0 ? root.unread + " unread" : "all caught up").toUpperCase()
+            text: root.online ? "" : "MAC UNREACHABLE — BRIDGE OFFLINE"
             textFormat: Text.PlainText
             color: root.dim
             font.family: root.fontFamily
@@ -2090,22 +2094,35 @@ FocusScope {
           // FORK: the version tag is not shown (Dave, 2026-09-13). The host
           // still reads it from manifest.json, so `root.version` is there for
           // a tooltip or a debug line whenever it is wanted.
+          // FORK (Dave, 2026-09-13): all three carry their name, not only a
+          // glyph. PanelActionButton is square by default, so each one is
+          // measured by a TextMetrics of the same font and given that width —
+          // the label decides the size rather than a number typed in here.
           TextMetrics {
             id: markAllMetrics
-            font.family: root.fontFamily
-            font.pixelSize: root.fontCaption
-            text: "mark all read"
+            font.family: root.fontFamily; font.pixelSize: root.fontCaption
+            text: "✔ Mark all read"
+          }
+          TextMetrics {
+            id: newMsgMetrics
+            font.family: root.fontFamily; font.pixelSize: root.fontCaption
+            text: "＋ New message"
+          }
+          TextMetrics {
+            id: openAppMetrics
+            font.family: root.fontFamily; font.pixelSize: root.fontCaption
+            text: "⇱ Open app"
           }
           PanelActionButton {
-            // FORK: a button beside the other two rather than a link on a row
-            // of its own (Dave, 2026-09-13) — same affordance as ＋ and ⇱, and
-            // one less row between the title and the search box.
+            // A button beside the other two rather than a link on a row of its
+            // own — same affordance as the rest, and one less row between the
+            // title and the search box.
             id: markAllBtn
             visible: root.online && root.listShowing && root.unread > 0
                      && !root.searchShowing && !root.newMode
-            iconText: "mark all read"
+            iconText: markAllMetrics.text
             fontSize: root.fontCaption
-            tooltipText: "Mark everything read here"
+            tooltipText: "Here only — your phone keeps its own badge"
             bordered: true
             foreground: root.foreground
             hoverColor: root.accent
@@ -2116,22 +2133,26 @@ FocusScope {
           }
           PanelActionButton {
             visible: root.online && !root.newMode && !root.searchShowing
-            iconText: "＋"
-            tooltipText: "New message (n)"
+            iconText: newMsgMetrics.text
+            fontSize: root.fontCaption
             bordered: true
             foreground: root.foreground
             hoverColor: root.accent
             fontFamily: root.fontFamily
+            Layout.preferredWidth: newMsgMetrics.width + Style.space(16)
+            Layout.preferredHeight: size
             onClicked: root.startNew()
           }
           PanelActionButton {
             visible: root.online && !root.splitView
-            iconText: "⇱"
-            tooltipText: "Open the app window"
+            iconText: openAppMetrics.text
+            fontSize: root.fontCaption
             bordered: true
             foreground: root.foreground
             hoverColor: root.accent
             fontFamily: root.fontFamily
+            Layout.preferredWidth: openAppMetrics.width + Style.space(16)
+            Layout.preferredHeight: size
             onClicked: root.openApp()
           }
         }
@@ -2651,25 +2672,20 @@ FocusScope {
                     id: rowRow
                     anchors.fill: parent
                     anchors.margins: Style.space(6)
-                    // FORK (Dave, 2026-09-13): the timestamp sits the same
-                    // distance from the right edge as the AVATAR does from the
-                    // left — which is the row's own margin plus the unread
-                    // dot's slot, not the margin alone. Derived rather than
-                    // typed, so it stays true if either changes.
-                    anchors.rightMargin: anchors.margins + unreadDot.width + spacing
+                    // FORK (Dave, 2026-09-13): the same inset on both sides, so
+                    // the timestamp sits as far from the right edge as the
+                    // avatar does from the left. It is the row's margin plus
+                    // what the unread dot's slot used to take — the dot is gone
+                    // (unread is the NAME now), and the inset stays, or every
+                    // avatar in the list would have shifted left when it went.
+                    readonly property real sideInset:
+                      Style.space(6) + Style.space(9) + Style.space(8)
+                    anchors.leftMargin: sideInset
+                    anchors.rightMargin: sideInset
                     spacing: Style.space(8)
                     // FORK: three times the old gap between the avatar and the
                     // text, which is the one gap in the row that was tight.
                     readonly property real textGap: spacing * 3
-
-                    // the iMessage blue dot — present only while the thread has
-                    // unread inbound; the slot stays so names line up.
-                    Rectangle {
-                      id: unreadDot
-                      width: Style.space(9); height: width; radius: width / 2
-                      color: root.mineFill
-                      opacity: modelData.unread > 0 ? 1 : 0
-                    }
 
                     // avatar circle — the contact's photo when Contacts has one,
                     // initials otherwise (the iMessage sidebar look)
@@ -2752,15 +2768,17 @@ FocusScope {
                           text: String(modelData.name || modelData.chat)
                           textFormat: Text.PlainText
                           elide: Text.ElideRight
-                          color: root.foreground
+                          // FORK (Dave, 2026-09-13): the NAME carries unread —
+                          // bold and in the accent — and the separate dot is
+                          // gone. Upstream keeps the name a constant semibold
+                          // and puts the signal in the dot beside it.
+                          color: modelData.unread > 0 ? root.accent : root.foreground
                           font.family: root.fontFamily
                           font.pixelSize: root.fontBodySmall
-                          // Messages keeps the name semibold ALWAYS; unread is
-                          // carried by the dot and the blue timestamp, not by
-                          // the name suddenly changing weight.
                           font.weight: modelData.unread > 0 ? Font.Bold : Font.DemiBold
                         }
                         Text {
+                          id: timeLabel
                           text: root.fmtTime(modelData.last_ts)
                           textFormat: Text.PlainText
                           color: modelData.unread > 0 ? root.mineFill : root.dim
@@ -2773,6 +2791,10 @@ FocusScope {
                       // mail client; two lines of preview reads like Messages.
                       Text {
                         Layout.fillWidth: true
+                        // FORK (Dave, 2026-09-13): wrap clear of the timestamp
+                        // rather than running under it, leaving the same gap
+                        // beside it that the avatar has beside the name.
+                        Layout.rightMargin: timeLabel.width + rowRow.textGap
                         text: (modelData.last_from_me ? "You: " : "") + String(modelData.last_text || "")
                         textFormat: Text.PlainText
                         wrapMode: Text.Wrap
@@ -2788,8 +2810,11 @@ FocusScope {
                   }
                   Rectangle {
                     anchors.bottom: parent.bottom
+                    // FORK: it stops where the timestamp does, rather than
+                    // running on to the panel's edge past it.
                     anchors.right: parent.right
-                    // Align the hairline with the text, beyond the dot and avatar.
+                    anchors.rightMargin: rowRow.sideInset
+                    // Align the hairline with the text, beyond the avatar.
                     anchors.left: parent.left
                     anchors.leftMargin: rowRow.x + avatarCircle.x + avatarCircle.width + rowRow.textGap
                     height: 1

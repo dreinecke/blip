@@ -122,10 +122,13 @@ describe("QML safety invariants", () => {
     const showApp = widget.slice(widget.indexOf("function showApp()"), widget.indexOf("function anySurfaceOpen"));
     expect(showApp.indexOf("root.close()")).toBeLessThan(showApp.indexOf("ensureWindow()"));
     expect(showApp.indexOf("root.close()")).toBeGreaterThan(-1);
-    // The tooltip names the action, not a key: SUPER+M is an optional
-    // binding from the README, and Omarchy's own tooltips name no keys.
-    expect(panel).toContain('tooltipText: "Open the app window"');
-    expect(panel).not.toContain("SUPER+M)");
+    // FORK: the header buttons carry their name as the LABEL, so the tooltip
+    // that used to repeat the action is gone. What must not come back is a KEY
+    // in one: SUPER+M is an optional binding from the README, and Omarchy's
+    // own tooltips name no keys.
+    expect(panel).toContain("iconText: openAppMetrics.text");
+    expect(panel).toContain('text: "⇱ Open app"');
+    expect(panel).not.toContain('tooltipText: "SUPER+M"');
   });
 
   test("group rows and tiles show the GROUP's photo, never the last speaker's", () => {
