@@ -359,6 +359,59 @@ describe("selectToasts", () => {
     expect(out[0]!.name).toBe("Alex Rivera");
   });
 
+  // A toast for the conversation already open in front of you is noise, and
+  // the same run suppresses its badge -- so without this gate the two
+  // disagree: a notification fires saying there is something to read, and
+  // there is nothing to click through to.
+  test("does not toast the conversation being read", () => {
+    const out = selectToasts(
+      [msg({ chat: "+15550100002", handle: "+15550100002", ts: "2026-08-30 11:00:00" })],
+      "2026-08-30 10:00:00",
+      allow,
+      [],
+      ["+15550100002"],
+    );
+    expect(out).toEqual([]);
+  });
+
+  test("still toasts every OTHER conversation while one is open", () => {
+    const out = selectToasts(
+      [
+        msg({ chat: "+15550100002", handle: "+15550100002", ts: "2026-08-30 11:00:00" }),
+        msg({ chat: "+15550100003", handle: "+15550100003", ts: "2026-08-30 11:00:01" }),
+      ],
+      "2026-08-30 10:00:00",
+      [...allow, "+15550100003"],     // both allowlisted: gate 4 is what differs
+      [],
+      ["+15550100002"],
+    );
+    expect(out.map((t) => t.chat)).toEqual(["+15550100003"]);
+  });
+
+  // Reading the canonical row covers its aliases, exactly as the read marks
+  // do: a re-keyed group's retired chat row is the same conversation on screen.
+  test("an alias of the open conversation is not toasted either", () => {
+    const out = selectToasts(
+      [msg({ chat: "+15550100002", handle: "+15550100002", ts: "2026-08-30 11:00:00" })],
+      "2026-08-30 10:00:00",
+      allow,
+      [],
+      ["chat640665907856941413", "+15550100002"],   // canonical + alias
+    );
+    expect(out).toEqual([]);
+  });
+
+  test("nothing open toasts as before", () => {
+    const out = selectToasts(
+      [msg({ chat: "+15550100002", handle: "+15550100002", ts: "2026-08-30 11:00:00" })],
+      "2026-08-30 10:00:00",
+      allow,
+      [],
+      [],
+    );
+    expect(out).toHaveLength(1);
+  });
+
   test("drops senders that are not allowlisted", () => {
     // Bank alerts and 2FA codes are the reason this gate exists.
     const out = selectToasts(
