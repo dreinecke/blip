@@ -166,6 +166,11 @@ FocusScope {
   // so there is one number and one place to change it.
   readonly property real masterMargin: Math.round(Style.spacing.popupPadding * 1.5)
   readonly property real halfMargin: Math.round(masterMargin / 2)
+  /** What each direct child of the outer column insets itself by. Every one
+   *  of them carries it EXCEPT the conversation list, which spans the full
+   *  card so a hovered row's highlight can bleed into this gutter and still
+   *  leave half a master margin to the panel's border. */
+  readonly property real sideGutter: root.splitView ? Style.space(18) : root.halfMargin
 
   readonly property string muteScript:
     decodeURIComponent(Qt.resolvedUrl("mute.ts").toString().replace(/^file:\/\//, ""))
@@ -2064,16 +2069,24 @@ FocusScope {
       Layout.fillWidth: !root.splitView
       Layout.preferredWidth: root.splitView ? root.sidebarWidth : -1
       ColumnLayout {
+        id: outerColumn
         anchors.fill: parent
         // Gutters for the app: the popout's card supplies its own padding,
         // the window's panes had text flush against the borders (Fred).
-        anchors.leftMargin: root.splitView ? Style.space(18) : 0
-        anchors.rightMargin: root.splitView ? Style.space(18) : 0
+        // FORK (Dave, 2026-09-13): the popout's card is padded by HALF the
+        // master margin and this column adds the other half, so everything
+        // here still sits a full master margin from the border — while the
+        // conversation list, which pulls back out below, can paint its hover
+        // highlight into that half and still leave a margin of its own.
+        anchors.leftMargin: 0
+        anchors.rightMargin: 0
         anchors.topMargin: root.splitView ? Style.space(10) : 0
         anchors.bottomMargin: root.splitView ? Style.space(10) : 0
         spacing: Style.space(root.splitView ? 14 : 8)
         RowLayout {
           Layout.fillWidth: true
+          Layout.leftMargin: root.sideGutter
+          Layout.rightMargin: root.sideGutter
           spacing: Style.space(8)
           Text {
             text: "Blip"
@@ -2109,17 +2122,17 @@ FocusScope {
           TextMetrics {
             id: markAllMetrics
             font.family: root.fontFamily; font.pixelSize: root.fontCaption
-            text: "✔ Mark all read"
+            text: "\u{F012C} Mark all read"
           }
           TextMetrics {
             id: newMsgMetrics
             font.family: root.fontFamily; font.pixelSize: root.fontCaption
-            text: "＋ New message"
+            text: "\u{F0415} New message"
           }
           TextMetrics {
             id: openAppMetrics
             font.family: root.fontFamily; font.pixelSize: root.fontCaption
-            text: "⇱ Open app"
+            text: "\u{F03CC} Open app"
           }
           PanelActionButton {
             // A button beside the other two rather than a link on a row of its
@@ -2135,7 +2148,7 @@ FocusScope {
             foreground: root.foreground
             hoverColor: root.accent
             fontFamily: root.fontFamily
-            Layout.preferredWidth: markAllMetrics.width + Style.space(16)
+            Layout.preferredWidth: markAllMetrics.width + root.masterMargin
             Layout.preferredHeight: size
             onClicked: root.markAllRead()
           }
@@ -2147,7 +2160,7 @@ FocusScope {
             foreground: root.foreground
             hoverColor: root.accent
             fontFamily: root.fontFamily
-            Layout.preferredWidth: newMsgMetrics.width + Style.space(16)
+            Layout.preferredWidth: newMsgMetrics.width + root.masterMargin
             Layout.preferredHeight: size
             onClicked: root.startNew()
           }
@@ -2159,19 +2172,32 @@ FocusScope {
             foreground: root.foreground
             hoverColor: root.accent
             fontFamily: root.fontFamily
-            Layout.preferredWidth: openAppMetrics.width + Style.space(16)
+            Layout.preferredWidth: openAppMetrics.width + root.masterMargin
             Layout.preferredHeight: size
             onClicked: root.openApp()
           }
         }
 
-        PanelSeparator { Layout.fillWidth: true; foreground: root.foreground }
+        PanelSeparator {
+          Layout.fillWidth: true
+          Layout.leftMargin: root.sideGutter
+          Layout.rightMargin: root.sideGutter
+          foreground: root.foreground
+        }
 
         // ---------------------------------------------------- scroll body
         Flickable {
           id: threadFlick
           Layout.fillWidth: true
           Layout.fillHeight: true
+          // FORK: back out to half a master from the border, so a hovered row's
+          // highlight has that half to itself on each side of its content and
+          // still leaves a margin to the panel's edge. Every row then puts the
+          // other half back (rowRow), which is what keeps an avatar lined up
+          // with the search box above it.
+          // A master margin below the separator, of which the column's own
+          // spacing is already part.
+          Layout.topMargin: Math.max(0, root.masterMargin - outerColumn.spacing)
           contentWidth: width
           contentHeight: listContent.implicitHeight
           clip: true
@@ -2206,7 +2232,10 @@ FocusScope {
 
           ColumnLayout {
             id: listContent
-            width: parent.width
+            // The gutter lives HERE rather than on the Flickable, so every
+            // conversation row can paint its highlight out into it.
+            x: root.sideGutter
+            width: Math.max(0, parent.width - root.sideGutter * 2)
             // One spacing in split view: inThread flips there with every preview,
             // and the sidebar must not shift. The popout tightens up in a thread.
             spacing: root.splitView ? Style.space(10) : (root.inThread ? Style.space(2) : Style.space(6))
@@ -2402,8 +2431,12 @@ FocusScope {
               columns: 3
               columnSpacing: Style.space(8)
               rowSpacing: Style.space(10)
-              Layout.topMargin: Style.space(8)
-              Layout.bottomMargin: Style.space(8)
+              // FORK: a master margin from the search box above and from the
+              // first conversation below, the column's own spacing — and, on
+              // the underside, the row's top padding — already counted in.
+              Layout.topMargin: Math.max(0, root.masterMargin - listContent.spacing)
+              Layout.bottomMargin:
+                Math.max(0, root.masterMargin - listContent.spacing - root.halfMargin)
 
               Repeater {
                 id: pinnedRepeater
@@ -2658,10 +2691,22 @@ FocusScope {
 
                   Layout.fillWidth: true
                   implicitHeight: rowRow.implicitHeight + Style.space(root.splitView ? 30 : 18)
-                  radius: Style.cornerRadius
-                  color: highlighted
-                    ? root.hoverFill
-                    : "transparent"
+                  color: "transparent"
+
+                  // FORK (Dave, 2026-09-13): the hover highlight is its own
+                  // rectangle, half a master margin WIDER than the row on each
+                  // side, so it has the same breathing space beside the avatar
+                  // and the timestamp that it already had above and below them.
+                  // It bleeds into the gutter the list column leaves for it and
+                  // stops half a master short of the panel's border.
+                  Rectangle {
+                    anchors.fill: parent
+                    anchors.leftMargin: -root.halfMargin
+                    anchors.rightMargin: -root.halfMargin
+                    z: -1
+                    radius: Style.cornerRadius
+                    color: threadRow.highlighted ? root.hoverFill : "transparent"
+                  }
 
                   HoverHandler {
                     id: rowHover
@@ -2679,10 +2724,9 @@ FocusScope {
                   RowLayout {
                     id: rowRow
                     anchors.fill: parent
-                    // FORK (Dave, 2026-09-13): the row adds NO side inset of
-                    // its own. The panel's own padding is the master margin, so
-                    // an avatar lines up with the left edge of the search box
-                    // above it and a timestamp with its right edge.
+                    // The row's own column already carries the gutter, so an
+                    // avatar is level with the left edge of the search box
+                    // above it and the timestamp with its right edge.
                     anchors.leftMargin: 0
                     anchors.rightMargin: 0
                     // Half the master above and below, which is the space each
@@ -2862,6 +2906,8 @@ FocusScope {
         spacing: Style.space(8)
         RowLayout {
           Layout.fillWidth: true
+          Layout.leftMargin: root.sideGutter
+          Layout.rightMargin: root.sideGutter
           spacing: Style.space(8)
           PanelActionButton {
             visible: root.inThread && !root.splitView
@@ -2911,12 +2957,19 @@ FocusScope {
           }
         }
 
-        PanelSeparator { Layout.fillWidth: true; foreground: root.foreground }
+        PanelSeparator {
+          Layout.fillWidth: true
+          Layout.leftMargin: root.sideGutter
+          Layout.rightMargin: root.sideGutter
+          foreground: root.foreground
+        }
 
         // ---------------------------------------------------- scroll body
         Flickable {
           id: flick
           Layout.fillWidth: true
+          Layout.leftMargin: root.sideGutter
+          Layout.rightMargin: root.sideGutter
           Layout.fillHeight: true
           contentWidth: width
           contentHeight: content.implicitHeight
@@ -3508,6 +3561,8 @@ FocusScope {
         // ------------------------------------------------------ COMPOSE
         PanelSeparator {
           Layout.fillWidth: true
+          Layout.leftMargin: root.sideGutter
+          Layout.rightMargin: root.sideGutter
           visible: root.inThread
           foreground: root.foreground
         }
@@ -3515,6 +3570,8 @@ FocusScope {
         // queued attachment — one per message; ✕ removes it
         RowLayout {
           Layout.fillWidth: true
+          Layout.leftMargin: root.sideGutter
+          Layout.rightMargin: root.sideGutter
           visible: root.inThread && root.draftPath !== ""
           spacing: 0
           Rectangle {
@@ -3542,6 +3599,8 @@ FocusScope {
 
         RowLayout {
           Layout.fillWidth: true
+          Layout.leftMargin: root.sideGutter
+          Layout.rightMargin: root.sideGutter
           Layout.maximumWidth: parent.width
           visible: root.inThread
           // Match the popup's bottom inset above the composer as well.

@@ -127,7 +127,8 @@ describe("QML safety invariants", () => {
     // in one: SUPER+M is an optional binding from the README, and Omarchy's
     // own tooltips name no keys.
     expect(panel).toContain("iconText: openAppMetrics.text");
-    expect(panel).toContain('text: "⇱ Open app"');
+    // The shell's own icon set (Nerd Font Material), not an emoji.
+    expect(panel).toContain('text: "\\u{F03CC} Open app"');
     expect(panel).not.toContain('tooltipText: "SUPER+M"');
   });
 
