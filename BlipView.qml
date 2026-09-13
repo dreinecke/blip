@@ -2087,13 +2087,32 @@ FocusScope {
             font.letterSpacing: 1.2
             elide: Text.ElideRight
           }
-          Text {
-            visible: root.version !== ""
-            text: root.version
-            textFormat: Text.PlainText
-            color: root.dim
+          // FORK: the version tag is not shown (Dave, 2026-09-13). The host
+          // still reads it from manifest.json, so `root.version` is there for
+          // a tooltip or a debug line whenever it is wanted.
+          TextMetrics {
+            id: markAllMetrics
             font.family: root.fontFamily
             font.pixelSize: root.fontCaption
+            text: "mark all read"
+          }
+          PanelActionButton {
+            // FORK: a button beside the other two rather than a link on a row
+            // of its own (Dave, 2026-09-13) — same affordance as ＋ and ⇱, and
+            // one less row between the title and the search box.
+            id: markAllBtn
+            visible: root.online && root.listShowing && root.unread > 0
+                     && !root.searchShowing && !root.newMode
+            iconText: "mark all read"
+            fontSize: root.fontCaption
+            tooltipText: "Mark everything read here"
+            bordered: true
+            foreground: root.foreground
+            hoverColor: root.accent
+            fontFamily: root.fontFamily
+            Layout.preferredWidth: markAllMetrics.width + Style.space(16)
+            Layout.preferredHeight: size
+            onClicked: root.markAllRead()
           }
           PanelActionButton {
             visible: root.online && !root.newMode && !root.searchShowing
@@ -2191,32 +2210,19 @@ FocusScope {
             }
 
             // ---------------------------------------------- LIST VIEW
+            // Mark-all-read moved up into the header (see markAllBtn); this
+            // row is now only the NEW MESSAGE heading. Marking read is local:
+            // it moves readMark/readMarks in state.json so the badge and dots
+            // clear. Nothing goes back to the Mac — AppleScript cannot flip
+            // is_read (see "not possible" in CLAUDE.md).
             RowLayout {
               Layout.fillWidth: true
-              visible: root.online && root.listShowing
-                && (root.newMode || root.unread > 0 && !root.searchShowing)
+              visible: root.online && root.listShowing && root.newMode
               PanelSectionHeader {
                 Layout.fillWidth: true
-                text: root.newMode ? "NEW MESSAGE" : ""
+                text: "NEW MESSAGE"
                 foreground: root.foreground
                 fontFamily: root.fontFamily
-              }
-              // Local only: moves readMark/readMarks in state.json so the
-              // badge and dots clear. Nothing is written back to the Mac —
-              // AppleScript cannot flip is_read (see "not possible" in CLAUDE.md).
-              // TapHandler, not MouseArea: the thread rows' proven pattern —
-              // the MouseArea version could lose clicks to the dismiss layer.
-              Text {
-                id: markAllBtn
-                visible: root.unread > 0 && !root.searchShowing && !root.newMode
-                text: "mark all read"
-                textFormat: Text.PlainText
-                color: markAllHover.hovered ? root.mineFill : root.cyan
-                font.family: root.fontFamily
-                font.pixelSize: root.fontCaption
-                font.underline: markAllHover.hovered
-                HoverHandler { id: markAllHover; cursorShape: Qt.PointingHandCursor }
-                TapHandler { onTapped: root.markAllRead() }
               }
             }
 
@@ -2645,11 +2651,21 @@ FocusScope {
                     id: rowRow
                     anchors.fill: parent
                     anchors.margins: Style.space(6)
+                    // FORK (Dave, 2026-09-13): the timestamp sits the same
+                    // distance from the right edge as the AVATAR does from the
+                    // left — which is the row's own margin plus the unread
+                    // dot's slot, not the margin alone. Derived rather than
+                    // typed, so it stays true if either changes.
+                    anchors.rightMargin: anchors.margins + unreadDot.width + spacing
                     spacing: Style.space(8)
+                    // FORK: three times the old gap between the avatar and the
+                    // text, which is the one gap in the row that was tight.
+                    readonly property real textGap: spacing * 3
 
                     // the iMessage blue dot — present only while the thread has
                     // unread inbound; the slot stays so names line up.
                     Rectangle {
+                      id: unreadDot
                       width: Style.space(9); height: width; radius: width / 2
                       color: root.mineFill
                       opacity: modelData.unread > 0 ? 1 : 0
@@ -2724,6 +2740,9 @@ FocusScope {
 
                     ColumnLayout {
                       Layout.fillWidth: true
+                      // The layout's own spacing already sits between the
+                      // avatar and this column; the rest makes up textGap.
+                      Layout.leftMargin: rowRow.textGap - rowRow.spacing
                       spacing: Style.space(1)
                       RowLayout {
                         Layout.fillWidth: true
@@ -2772,7 +2791,7 @@ FocusScope {
                     anchors.right: parent.right
                     // Align the hairline with the text, beyond the dot and avatar.
                     anchors.left: parent.left
-                    anchors.leftMargin: rowRow.x + avatarCircle.x + avatarCircle.width + rowRow.spacing
+                    anchors.leftMargin: rowRow.x + avatarCircle.x + avatarCircle.width + rowRow.textGap
                     height: 1
                     color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.12)
                     visible: !threadRow.highlighted
