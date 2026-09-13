@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **`blip-setup` no longer dies at "Press Enter" when stdin is a pipe** (#71,
+  @ianswope). Eight `ssh` calls ran without `-n` and drained the script's
+  stdin, so the prompt hit EOF and `set -e` exited 1 — after the Mac install
+  and key enrolment had already succeeded, which read as a failed setup. A
+  test now fails on any remote-command `ssh` in the wizard without `-n`.
 - **README says how to remove Blip, and what it leaves behind** (#74, @ianswope).
   Plugin, the four `~/bin` shims and their `.pre-blip.<epoch>` backups,
   config/state/cache, the dedicated ssh key, `~/.blip` and the confined
