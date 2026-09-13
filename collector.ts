@@ -758,9 +758,24 @@ export function matchesMute(m: ImsgMessage, mute: string[]): boolean {
   return false;
 }
 
+/** Just the identity half of the rule: is this conversation named outright? */
+export function matchesMuteId(m: ImsgMessage, mute: string[]): boolean {
+  if (mute.length === 0) return false;
+  const chat = chatKey(m);
+  return mute.some((entry) => entry === chat || entry === m.handle);
+}
+
 /**
- * Conversations the mute list silences — matched on INBOUND messages only, so
- * quoting "ActBlue" to a friend never mutes the friend.
+ * Conversations the mute list silences.
+ *
+ * A PHRASE is matched on inbound messages only, so quoting "ActBlue" to a
+ * friend never mutes the friend. An exact conversation ID is matched whichever
+ * way the message went: naming a conversation outright is not a guess about
+ * its content, and a conversation whose newest messages are all mine would
+ * otherwise stay on screen after being hidden — which is exactly what Hide /
+ * Spam looked like doing nothing (2026-09-13: fifteen of twenty-nine hidden
+ * conversations were still listed, every one of them a conversation whose last
+ * word was Dave's).
  *
  * One match mutes the whole chat, not the single message: a fundraising blast
  * carries its opt-out footer on some messages and not others, and half a
@@ -769,7 +784,9 @@ export function matchesMute(m: ImsgMessage, mute: string[]): boolean {
 export function mutedChats(msgs: ImsgMessage[], mute: string[]): string[] {
   if (mute.length === 0) return [];
   const out = new Set<string>();
-  for (const m of msgs) if (!m.from_me && matchesMute(m, mute)) out.add(chatKey(m));
+  for (const m of msgs) {
+    if (matchesMuteId(m, mute) || (!m.from_me && matchesMute(m, mute))) out.add(chatKey(m));
+  }
   return [...out];
 }
 
