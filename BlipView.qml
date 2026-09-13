@@ -106,18 +106,27 @@ FocusScope {
   readonly property real contentHeightHint: listContent.implicitHeight
   /** The view wants keyboard navigation focus back (list mode). */
   signal navigationFocusRequested()
-  // Foreground and background follow the Omarchy theme (Color.* is the live
-  // theme singleton and hot-reloads on switch). The ACCENT does not: it is
-  // iMessage blue, always. Bubbles followed the theme accent until 2.3.3, and
-  // on the themes where that accent is red "my" messages read as errors;
-  // Fred, 2026-09-04: "Yes make the bubbles blue too" — blue bubbles are the
-  // look, not a theme preference. White text on that blue, as Messages does.
-  readonly property color accent: "#0a84ff"
+  // The whole palette follows the Omarchy theme (Color.* is the live theme
+  // singleton and hot-reloads on switch), the accent included.
+  //
+  // FORK: upstream pins the accent to iMessage blue — Fred, 2026-09-04, "Yes
+  // make the bubbles blue too", because on the themes whose accent is red
+  // "my" messages read as failed sends. That is a real risk and Dave took it
+  // knowingly on 2026-09-13, having looked at his own theme. A theme with no
+  // distinct accent (accent == foreground) still falls back to blue, or "my"
+  // bubbles would be indistinguishable from everything else.
+  readonly property bool themeHasAccent: Color.accent.toString() !== Color.foreground.toString()
+  readonly property color accent: themeHasAccent ? Color.accent : "#0a84ff"
   readonly property color cyan: accent            // legacy name; accents/links
   readonly property color okColor: accent
 
   readonly property color mineFill: accent
-  readonly property color mineText: "#ffffff"
+  // Bubble text picks black or white by which CONTRASTS better with the fill:
+  // (L+0.05)/0.15 against 1.05/(L+0.05), which cross near L≈0.35. White is
+  // right on iMessage blue and wrong on a pale accent, and with the fill back
+  // to the theme's it can be either. (Upstream's rule before 2.3.3.)
+  readonly property color mineText:
+    (0.299 * mineFill.r + 0.587 * mineFill.g + 0.114 * mineFill.b) > 0.35 ? "#1a1a1a" : "#ffffff"
   readonly property color theirsFill: Qt.rgba(foreground.r, foreground.g, foreground.b, 0.14)
   // Omarchy's hover-cursor fill for rows and the bubble band alike: the theme's
   // colour and alpha (foreground at 0.08 by default), not a hard-coded copy of them.
@@ -150,6 +159,8 @@ FocusScope {
     decodeURIComponent(Qt.resolvedUrl("search.ts").toString().replace(/^file:\/\//, ""))
   // The WhatsApp bridge. SourceId.bridgeArgv picks between this and the Mac's
   // tools; the rule itself lives in source-id.ts, shared with the collector.
+  readonly property string muteScript:
+    decodeURIComponent(Qt.resolvedUrl("mute.ts").toString().replace(/^file:\/\//, ""))
   readonly property string waScript:
     decodeURIComponent(Qt.resolvedUrl("bridge/whatsapp/wa.ts").toString().replace(/^file:\/\//, ""))
   function bridgeArgv(chat, tool) { return SourceId.bridgeArgv(String(chat || ""), tool, root.home, root.waScript) }
@@ -3681,6 +3692,39 @@ FocusScope {
       text: "Review contact"
       onTriggered: if (root.contactContext) contactReview.review(root.contactContext)
     }
+    MenuItem {
+      // The conversation goes into ~/.config/blip/mutelist.json, which the
+      // collector re-reads every poll and applies upstream of everything: the
+      // row leaves the list, the badge stops counting it, and no toast can
+      // come from it. Undone by taking the line out of that file — there is
+      // deliberately nothing on screen listing what is hidden.
+      text: "Hide / Spam"
+      onTriggered: if (root.contactContext) root.hideConversation(String(root.contactContext.chat || ""))
+    }
+  }
+
+  function hideConversation(chat) {
+    if (chat === "" || muteProc.running) return
+    muteProc.hiding = chat
+    muteProc.command = ["bun", root.muteScript, "add", chat]
+    muteProc.running = true
+  }
+  Process {
+    id: muteProc
+    property string hiding: ""
+    onExited: function(code, status) {
+      var ok = code === 0 && status === 0
+      root.copyFeedback = ok
+        ? "Hidden. Undo it in ~/.config/blip/mutelist.json"
+        : "Could not hide that conversation"
+      copyFeedbackTimer.restart()
+      // Straight back to the list if the hidden conversation is the one open,
+      // and a refresh either way so the row goes now rather than at the next
+      // poll six seconds from here.
+      if (ok && root.inThread && String(root.active.chat) === muteProc.hiding) root.back()
+      if (ok && root.hostWidget) root.hostWidget.refresh(true, false)
+      muteProc.hiding = ""
+    }
   }
   ContactReview {
     id: contactReview
@@ -3709,7 +3753,7 @@ FocusScope {
     radius: Style.cornerRadius
     color: Color.background
     border.width: 1
-    border.color: root.copyFeedback === "Copied to clipboard" ? root.accent : root.urgent
+    border.color: root.copyFeedback.indexOf("Could not") === 0 ? root.urgent : root.accent
     Text {
       id: copyFeedbackText
       width: Math.max(0, parent.width - Style.space(24))
