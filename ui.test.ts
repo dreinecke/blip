@@ -128,7 +128,7 @@ describe("QML safety invariants", () => {
     // own tooltips name no keys.
     expect(panel).toContain("iconText: openAppMetrics.text");
     // The shell's own icon set (Nerd Font Material), not an emoji.
-    expect(panel).toContain('text: "\\u{F03CC} Open app"');
+    expect(panel).toContain('text: "\\u{F03CC} App"');
     expect(panel).not.toContain('tooltipText: "SUPER+M"');
   });
 
@@ -520,6 +520,23 @@ test("a pinned tile shows the unread dot", () => {
   const dot = panel.slice(panel.indexOf("id: pinnedUnreadDot"), panel.indexOf("id: pinnedUnreadDot") + 700);
   expect(dot).toContain("visible: modelData.unread > 0");
   expect(dot).toContain("color: root.mineFill");
+});
+
+// FORK (Dave, 2026-09-14): an unread conversation in the list is marked three
+// ways — the name, a ring around the picture, and a tint behind the whole row —
+// and the row tint must stay FAINTER than the hover fill. If the two ever match,
+// hovering an unread row looks like nothing happened.
+test("an unread conversation is tinted and ringed, and hover still reads over it", () => {
+  expect(panel).toContain("readonly property color unreadFill: Util.alpha(accent, Style.hoverFillAlpha * 0.6)");
+  expect(panel).toContain(
+    "color: threadRow.highlighted ? root.hoverFill\n                         : (threadRow.modelData.unread > 0 ? root.unreadFill : \"transparent\")");
+  // The ring is drawn over the photo, so it comes AFTER the image and the
+  // initials inside the avatar circle — a border on the circle itself would sit
+  // behind the masked image that fills it.
+  const circle = panel.slice(panel.indexOf("id: avatarCircle"), panel.indexOf("id: avatarCircle") + 4200);
+  expect(circle).toContain("border.color: root.accent");
+  expect(circle).toContain("visible: modelData.unread > 0");
+  expect(circle.indexOf("border.color: root.accent")).toBeGreaterThan(circle.indexOf("id: avatarImg"));
 });
 
 // FORK: both accents follow the theme. Upstream pins them to iMessage blue
