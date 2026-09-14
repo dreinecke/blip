@@ -134,6 +134,11 @@ FocusScope {
   // Omarchy's hover-cursor fill for rows and the bubble band alike: the theme's
   // colour and alpha (foreground at 0.08 by default), not a hard-coded copy of them.
   readonly property color hoverFill: Style.hoverFillFor(foreground, accent)
+  // FORK (Dave, 2026-09-14): an unread conversation carries a whisper of the
+  // accent behind it at all times, in the shape the hover highlight uses. It is
+  // deliberately fainter than the hover fill, so hovering an unread row still
+  // reads as a change rather than as nothing happening.
+  readonly property color unreadFill: Util.alpha(accent, Style.hoverFillAlpha * 0.6)
   readonly property color theirsText: foreground
 
   // Links inside a bubble take the bubble's readable text color instead of
@@ -186,22 +191,29 @@ FocusScope {
 
   // The header buttons carry their name, and PanelActionButton is square by
   // default, so each is measured by a TextMetrics of the same font and given
-  // that width — the label decides the size, not a number typed in.
+  // that width plus `buttonPadding` — the label decides the size, not a number
+  // typed in. FORK (Dave, 2026-09-14): the names are short so three of them fit
+  // the header without crowding it, and the padding is stated once here rather
+  // than repeated beside each button.
   TextMetrics {
     id: markAllMetrics
     font.family: root.fontFamily; font.pixelSize: root.fontCaption
-    text: "\u{F012C} Mark all read"
+    text: "\u{F012C} Mark All"
   }
   TextMetrics {
     id: newMsgMetrics
     font.family: root.fontFamily; font.pixelSize: root.fontCaption
-    text: "\u{F0415} New message"
+    text: "\u{F0415} New"
   }
   TextMetrics {
     id: openAppMetrics
     font.family: root.fontFamily; font.pixelSize: root.fontCaption
-    text: "\u{F03CC} Open app"
+    text: "\u{F03CC} App"
   }
+
+  // Inner padding either side of a button's label, together: one and a half
+  // masters, so a two-word label still has clear air beside its border.
+  readonly property real buttonPadding: root.masterMargin + root.halfMargin
 
   readonly property string muteScript:
     decodeURIComponent(Qt.resolvedUrl("mute.ts").toString().replace(/^file:\/\//, ""))
@@ -2156,7 +2168,7 @@ FocusScope {
               foreground: root.foreground
               hoverColor: root.accent
               fontFamily: root.fontFamily
-              Layout.preferredWidth: markAllMetrics.width + root.masterMargin
+              Layout.preferredWidth: markAllMetrics.width + root.buttonPadding
               Layout.preferredHeight: size
               onClicked: root.markAllRead()
             }
@@ -2168,7 +2180,7 @@ FocusScope {
               foreground: root.foreground
               hoverColor: root.accent
               fontFamily: root.fontFamily
-              Layout.preferredWidth: newMsgMetrics.width + root.masterMargin
+              Layout.preferredWidth: newMsgMetrics.width + root.buttonPadding
               Layout.preferredHeight: size
               onClicked: root.startNew()
             }
@@ -2180,7 +2192,7 @@ FocusScope {
               foreground: root.foreground
               hoverColor: root.accent
               fontFamily: root.fontFamily
-              Layout.preferredWidth: openAppMetrics.width + root.masterMargin
+              Layout.preferredWidth: openAppMetrics.width + root.buttonPadding
               Layout.preferredHeight: size
               onClicked: root.openApp()
             }
@@ -2714,7 +2726,8 @@ FocusScope {
                     anchors.rightMargin: -root.halfMargin
                     z: -1
                     radius: Style.cornerRadius
-                    color: threadRow.highlighted ? root.hoverFill : "transparent"
+                    color: threadRow.highlighted ? root.hoverFill
+                         : (threadRow.modelData.unread > 0 ? root.unreadFill : "transparent")
                   }
 
                   HoverHandler {
@@ -2810,6 +2823,18 @@ FocusScope {
                         font.family: root.fontFamily
                         font.pixelSize: root.fontCaption
                         font.bold: true
+                      }
+                      // FORK (Dave, 2026-09-14): an accent ring marks a picture
+                      // whose conversation is unread. It is drawn LAST so it
+                      // sits over the photo — the circle's own border would be
+                      // hidden behind the masked image that fills it.
+                      Rectangle {
+                        anchors.fill: parent
+                        radius: width / 2
+                        color: "transparent"
+                        border.width: 2
+                        border.color: root.accent
+                        visible: modelData.unread > 0
                       }
                     }
 
