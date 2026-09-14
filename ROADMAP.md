@@ -185,7 +185,9 @@ panel (3 lenses × finding, against current main) confirmed 11 closed and
   (responder-chain validation — test with Messages frontmost); the item acts
   on the SELECTED message and selecting an arbitrary bubble from Linux is the
   open problem; the picker needs navigating for the emoji; and it steals
-  focus. Groups remain unaddressable.
+  focus. Groups remain unaddressable. #69 is discussing a working
+  Accessibility-on-balloons approach (SIP on); nothing from that issue is
+  in-tree yet.
 
 - [ ] **3–4 digit short codes classify as groups** — `isGroupChat()` treats a
   digits-only id shorter than 5 as "not a phone", so a carrier-style sender

@@ -359,6 +359,10 @@ to whatever has focus otherwise.
   the "…" suggests a picker that needs further navigation for the emoji;
   Messages must come forward, so it steals focus the way `--chat` read-push
   does; and a GROUP still cannot be addressed at all (next bullet).
+  #69 is the live discussion: a working Accessibility-on-balloons patch
+  (SIP on, the same grant `imsg-read` already holds) is reported there.
+  Nothing from that issue is in-tree; do not treat the menu-item note
+  above as a claim that outbound tapbacks ship.
 - Selecting a GROUP on the Mac from Linux. `imessage://` addresses a handle;
   a group's `chat<digits>` id has no URL form. So per-conversation read-push
   is DMs only; groups clear through `--all`. NOT closed for good: Bluetooth MAP
