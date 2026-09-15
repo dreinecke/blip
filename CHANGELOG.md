@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- **The app window stays on its workspace after idle.** Walking away used to
+  remap Blip onto whichever workspace was on screen. A user move is still the
+  new home; a screensaver or display-off remap is sent back quietly.
+
 ## 2.5.0 — 2026-09-13 — photos at once, and sends that stay put
 
 - **Sending a link no longer opens the share sheet** (#54, @jondkinney). A

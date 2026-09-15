@@ -662,6 +662,21 @@ test("window focus is an exact title match, not a prefix", () => {
   expect(win).not.toContain('.indexOf("Blip") === 0');
 });
 
+// Idle remaps a new client onto the focused workspace. Adopting that as home
+// is what made a walk-away move Blip. A user move is the new home; a remap
+// is sent back. Keep in lockstep with workspaceDecision() in window-restore.ts.
+test("idle remaps do not adopt the focused workspace", () => {
+  expect(window).not.toContain("savedWorkspace = currentWorkspace; saveWinState()");
+  expect(window).toContain('if (reason === "move") return "save"');
+  expect(window).toContain('if (reason === "map" || reason === "monitor") return "return"');
+  expect(window).toContain('runRestore("home", savedWorkspace)');
+  expect(window).toContain('runRestore("return", savedWorkspace, addr || ourAddress())');
+  expect(window).toContain('["bun", win.restoreScript, "prepare", win.savedWorkspace]');
+  expect(window).toContain("/^Blip( \\([0-9]+\\))?$/.test(title)");
+  expect(window).toContain("id: strayReturn");
+  expect(window).toContain("sameAddress");
+});
+
 // Esc over the share sheet closes the sheet; a stale search never stays clickable;
 // a long sender name never widens the delegate.
 test("share-sheet Escape, search generations, bounded sender labels", () => {

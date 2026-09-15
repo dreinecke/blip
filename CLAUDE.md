@@ -286,6 +286,9 @@ what it is handed. Keep it that way.
   BarWidget's `ensureWindow()`/`hideWindow()` toggle the Loader's `active`;
   BlipWindow persists size + was-open in `~/.local/state/blip/window.json`
   and restores on creation. Do not "simplify" this back to `visible`.
+  Idle/DPMS maps a new client on the focused workspace; that is not a new
+  home. Save workspace only from a user `movewindowv2`. Keep a live-title
+  home rule so a remap returns where the window was.
 - **After an Omarchy plugin HOT-RELOAD, `qs ipc` keeps serving the OLD
   BarWidget.** Proved 2026-08-31 with a build tag (A after reload to B; C
   after D): the destroyed widget's IpcHandler stays bound to the target,
