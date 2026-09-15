@@ -651,6 +651,32 @@ test("follower bars forward right/middle clicks to the leader", () => {
   expect(widget).toContain('code === Qt.RightButton ? "read" : "refresh"');
 });
 
+// QsWindow.window is null while a freshly built bar completes its widgets, so
+// on a monitor hotplug EVERY screen's widget briefly satisfied `!ownScreen`
+// and crowned itself. One screen (or none) must still default to leader —
+// that is what keeps a widget outside any window alive — but with more than
+// one, an unresolved widget waits rather than racing its siblings.
+test("an unresolved window only claims the crown when it is the only screen", () => {
+  const elect = widget.slice(widget.indexOf("readonly property var ownScreen"),
+                             widget.indexOf("id: followerState"));
+  expect(elect).toContain("Quickshell.screens.length <= 1");
+  expect(elect).toContain("!!ownScreen &&");
+  expect(elect).not.toMatch(/leader:\s*!ownScreen/);
+});
+
+// The follower watchers ARE killed by the leader gate — and then their own
+// backoff timer brings them back. `watchProc.running = true` replaces the
+// `running: root.leader` binding permanently, so from the first restart a
+// follower watched, refreshed and toasted forever: one duplicate desktop
+// notification per extra screen, until the shell was restarted.
+test("the watch restart restores the leader binding, never a bare true", () => {
+  expect(widget).toContain("running: root.leader");
+  expect(widget).not.toMatch(/watchProc\.running\s*=\s*true\b/);
+  const restart = widget.slice(widget.indexOf("id: watchRestart"),
+                               widget.indexOf("// ---", widget.indexOf("id: watchRestart")));
+  expect(restart).toMatch(/running\s*=\s*Qt\.binding\(function\s*\(\)\s*\{\s*return root\.leader\s*\}\)/);
+});
+
 // A URL out of a message is message content: stdin to the preview fetcher, never argv.
 test("link preview URLs never ride argv", () => {
   expect(panel).toContain('["bun", root.previewScript, "--stdin"]');
