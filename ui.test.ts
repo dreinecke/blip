@@ -169,7 +169,7 @@ describe("QML safety invariants", () => {
     expect(panel).toContain("readonly property var avatarFiles: hostWidget ? hostWidget.avatarCache : localAvatarFiles");
     expect(panel).not.toContain("root.avatarFiles = m");
     expect(panel).toContain("function retryBareAvatars()");
-    expect(panel).toContain("onSurfaceOpenChanged: if (surfaceOpen) root.retryBareAvatars()");
+    expect(panel).toContain("if (surfaceOpen) root.retryBareAvatars()");
   });
 
   test("ui_font_size scales Blip text without touching Omarchy", () => {
@@ -490,6 +490,41 @@ describe("QML safety invariants", () => {
     const panelQml = readFileSync(new URL("./Panel.qml", import.meta.url), "utf8");
     expect(panelQml).toContain("focusTarget: view.inThread ? view.composeEditor : view.navigationKeys");
     expect(panelQml).toContain("onNavigationFocusRequested: view.navigationKeys.forceActiveFocus()");
+  });
+
+  test("the conversation list builds only the rows near the viewport", () => {
+    // A Repeater inside a Flickable instantiates AND renders every row it is
+    // handed, and the popout's layer surface is destroyed on close — so all
+    // ~300 conversations were rebuilt on every open. Measured 2026-09-15 with
+    // a frame-gap probe: 441-627 ms of blocked GUI thread, which froze the
+    // card's 140 ms fade half-way (the panel "hung slightly transparent").
+    expect(panel).toContain(
+      "model: root.online && root.listShowing && !root.searchShowing && !root.newMode ? root.rowsBuilt : 0");
+    expect(panel).toContain("readonly property int rowsBuilt: Math.min(rowBudget, unpinnedThreads.length)");
+    // the COUNT, never a slice: a Repeater handed a new array destroys and
+    // rebuilds every delegate, which is the cost being avoided
+    expect(panel).not.toContain("root.unpinnedThreads.slice(");
+    expect(panel).toContain("readonly property var modelData: root.unpinnedThreads[index] || root.absentThread");
+    // cursorChat is "" when there is no cursor, and so is an absent row's chat
+    expect(panel).toContain(
+      'readonly property bool hasCursor: root.cursorChat !== "" && root.cursorChat === String(modelData.chat)');
+    // closing drops what scrolling built, so the next open is cheap again
+    expect(panel).toContain("else rowBudget = rowBatch");
+  });
+
+  test("the row budget grows for the wheel and for the keyboard", () => {
+    expect(panel).toContain("onContentYChanged: root.growRowsForScroll()");
+    const grow = qmlFunction("growRowsForScroll");
+    expect(grow).toContain("threadFlick.contentY + threadFlick.height * 2 < threadFlick.contentHeight");
+    // one batch per frame: contentHeight only catches up after a layout pass,
+    // so a synchronous loop would build every row it was trying not to build
+    expect(grow).toContain("rowGrowth.restart()");
+    // End and paging address a row by index, past what is built
+    expect(panel).toContain("onCursorChanged: if (ensureRows(cursor + 2)) cursorCatchUp.restart()");
+    expect(qmlFunction("ensureRows")).toContain(
+      "rowBudget = Math.min(Math.max(n, rowBudget + rowBatch), unpinnedThreads.length)");
+    // scrollCursorIntoView measures a row, so the new one needs a frame first
+    expect(panel).toContain("Timer { id: cursorCatchUp; interval: 16; onTriggered: root.scrollCursorIntoView() }");
   });
 
   test("an old toast can still reopen its conversation (omarchy-exec-argv)", () => {

@@ -308,6 +308,22 @@ what it is handed. Keep it that way.
   caching, dropping the EXIF block so nothing double-rotates; the QML flag
   covers files cached before that, and the fall-back when jpegtran fails.
   Never move this to the Mac side: `sips` cannot auto-orient.
+- **The conversation list builds only the rows near the viewport.** A Repeater
+  inside a Flickable instantiates AND renders every row it is handed, and the
+  popout's layer surface is destroyed on close, so all ~300 conversations were
+  rebuilt on every open: 441-627 ms of blocked GUI thread (frame-gap probe,
+  2026-09-15), which froze the card's 140 ms fade half-way — "it hangs slightly
+  transparent before fully opening". `rowBudget` starts at 24 and grows as the
+  reader scrolls toward the end of what is built (`growRowsForScroll`, one
+  batch per frame — `contentHeight` only catches up after a layout pass, so a
+  synchronous loop rebuilds everything it was avoiding) or when the cursor
+  addresses a row past it (`ensureRows`, for End and paging). Closing resets
+  it. The model is the COUNT, never a slice: a Repeater handed a new array
+  destroys and rebuilds every delegate, which is the whole cost — with an int
+  model a `threads` refresh re-evaluates bindings instead. Two traps: an
+  absent row's `chat` is `""`, which is also `cursorChat` with no cursor, so
+  `hasCursor` tests both; and `scrollCursorIntoView` measures a row, so a
+  cursor move that just BUILT one has to wait a frame (`cursorCatchUp`).
 - **Never let one delegate's implicit width exceed the panel.** A single
   RowLayout of N attachment chips summed implicit widths and silently
   stretched the whole conversation column to 2× panel width — every

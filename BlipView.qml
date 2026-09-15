@@ -188,6 +188,8 @@ FocusScope {
   property string pasteChat: ""
 
   readonly property var threads: hostWidget ? hostWidget.threads : []
+  // Stand-in for a row whose thread is gone for a tick (see the list delegate).
+  readonly property var absentThread: ({ chat: "", handle: "", name: "", unread: 0, participants: [] })
   readonly property var pinnedThreads: root.threads.filter(function(t) { return t.pinned === true })
   readonly property var unpinnedThreads: root.threads.filter(function(t) { return t.pinned !== true })
   readonly property bool online: hostWidget ? hostWidget.online : false
@@ -350,6 +352,56 @@ FocusScope {
   // return to it), but a row must not LOOK selected while typing happens
   // elsewhere — Up from the top and a click in the field both got here.
   readonly property bool cursorShown: !searchField.activeFocus
+
+  // ---- how many conversation rows actually exist ----------------------
+  //
+  // The list is a Repeater inside a Flickable, so every row it is handed is
+  // instantiated AND rendered every frame — the ~290 below the fold included.
+  // The popout's layer surface is destroyed on close, which releases the
+  // scene graph, so opening rebuilt all of them from scratch: ~500 ms of
+  // blocked GUI thread, during which the card's 140 ms fade froze half-way
+  // and the panel sat there translucent before snapping in. Measured
+  // 2026-09-15 with a FrameAnimation frame-gap probe, 300 conversations:
+  // 441/476/484/496/580/627 ms of gap on open. Capped at 20 rows: no gap at
+  // all, and the model assignment fell from 228 ms to 19 ms.
+  //
+  // So only the rows near the viewport exist. `rowBudget` grows as the reader
+  // scrolls toward the end of what is built, and resets when the surface
+  // closes — the next open is cheap again. The model is the COUNT, not a
+  // slice: a Repeater given a new array destroys and rebuilds every delegate,
+  // which is the cost being avoided, while an int model only appends the new
+  // ones (and a `threads` refresh now re-evaluates bindings instead of
+  // rebuilding 300 rows).
+  readonly property int rowBatch: 24        // ≈2 viewports at either density
+  property int rowBudget: rowBatch
+  readonly property int rowsBuilt: Math.min(rowBudget, unpinnedThreads.length)
+  /** Make sure row `n` exists. True when that actually built anything, so the
+   *  caller can defer the work that needs the new row laid out. */
+  function ensureRows(n) {
+    if (n <= rowBudget || rowBudget >= unpinnedThreads.length) return false
+    rowBudget = Math.min(Math.max(n, rowBudget + rowBatch), unpinnedThreads.length)
+    return true
+  }
+  /** Within a viewport of the last built row → build the next batch. */
+  function growRowsForScroll() {
+    if (!listShowing || searchShowing || newMode || rowBudget >= unpinnedThreads.length) return
+    if (threadFlick.contentY + threadFlick.height * 2 < threadFlick.contentHeight) return
+    rowBudget = Math.min(rowBudget + rowBatch, unpinnedThreads.length)
+    // One batch per frame, re-checked once it has been laid out: a jump
+    // straight to the end (the scrollbar dragged down) needs several, and
+    // contentHeight only catches up after the layout pass, so a synchronous
+    // loop here would build every row it was trying not to build.
+    rowGrowth.restart()
+  }
+  Timer { id: rowGrowth; interval: 16; onTriggered: root.growRowsForScroll() }
+  // scrollCursorIntoView is synchronous because a cursor move does not
+  // normally touch the model. When it just built the row, it does — give the
+  // layout a frame before measuring where the row landed.
+  Timer { id: cursorCatchUp; interval: 16; onTriggered: root.scrollCursorIntoView() }
+  // A cursor jump (End, paging) can address a row past what is built. Pinned
+  // threads sort ahead of unpinned in `threads`, so the cursor index is never
+  // smaller than the row's index here — over-asking is safe.
+  onCursorChanged: if (ensureRows(cursor + 2)) cursorCatchUp.restart()
   // The bubble the arrows have selected in a conversation (-1 = none) and the
   // delegate drawing it — registered by the row itself, like cursorRow. The
   // selection is a TARGET for actions (copy, open, reply), not a scroll state.
@@ -840,7 +892,11 @@ FocusScope {
     root.putAvatarFiles(m)
     for (var i = 0; i < keys.length; i++) root.requestAvatar(keys[i])
   }
-  onSurfaceOpenChanged: if (surfaceOpen) root.retryBareAvatars()
+  onSurfaceOpenChanged: {
+    if (surfaceOpen) root.retryBareAvatars()
+    // Closed: drop the rows scrolling built, so the next open is cheap again.
+    else rowBudget = rowBatch
+  }
   function pumpAvatar() {
     if (avatarProc.running || avatarQueue.length === 0) return
     avatarInFlight = avatarQueue.slice(0, 1024)
@@ -2125,6 +2181,7 @@ FocusScope {
           boundsBehavior: Flickable.StopAtBounds
           interactive: contentHeight > height
           ScrollBar.vertical: ScrollBar { policy: ScrollBar.AsNeeded }
+          onContentYChanged: root.growRowsForScroll()
 
           // Wheel scrolling is DIRECT, 1:1 — no animation. Two animated
           // schemes (restarted easing, SmoothedAnimation chase) both fought
@@ -2608,13 +2665,19 @@ FocusScope {
               spacing: 0
               Repeater {
                 id: chronologicalRepeater
-                model: root.online && root.listShowing && !root.searchShowing && !root.newMode ? root.unpinnedThreads : []
+                model: root.online && root.listShowing && !root.searchShowing && !root.newMode ? root.rowsBuilt : 0
                 delegate: Rectangle {
                   id: threadRow
-                  required property var modelData
                   required property int index
+                  // The count and the array change in either order; a row that
+                  // is briefly past the end of the list renders as nothing
+                  // rather than throwing on every binding it has.
+                  readonly property var modelData: root.unpinnedThreads[index] || root.absentThread
                   readonly property bool highlighted: rowHover.hovered || (hasCursor && root.cursorShown)
-                  readonly property bool hasCursor: root.cursorChat === String(modelData.chat)
+                  // cursorChat is "" when there is no cursor, which is also an
+                  // absent row's chat — without the first test a placeholder
+                  // would light up and claim cursorRow.
+                  readonly property bool hasCursor: root.cursorChat !== "" && root.cursorChat === String(modelData.chat)
                   onHasCursorChanged: if (hasCursor) root.cursorRow = threadRow
 
                   Layout.fillWidth: true
