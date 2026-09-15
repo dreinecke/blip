@@ -5,6 +5,19 @@
 - **The app window stays on its workspace after idle.** Walking away used to
   remap Blip onto whichever workspace was on screen. A user move is still the
   new home; a screensaver or display-off remap is sent back quietly.
+- **GIFs move.** An animated GIF arrived as a still, and did so twice over. The
+  inline-preview path asks the Mac to resample every image with sips, which
+  flattens an animation to a single frame — a 1.4 MB GIF reached Linux as a
+  198 KB JPEG, the motion gone before the panel ever saw it. Animated formats
+  now skip that path and cross as their own bytes, into the same cache slot a
+  click uses. And a QML `Image` paints one frame whatever you hand it, so
+  animated attachments render through `AnimatedImage` instead; stills stay on
+  `Image`, which is what applies `autoTransform` (the EXIF fall-back for
+  anything cached before orientation was baked in at fetch time). Only the
+  active renderer loads, so no photo decodes twice, and the decode is still
+  bounded in both axes. GIF dimensions now come off the header too — they read
+  0×0 before, leaving the bubble nothing to size itself from.
+
 
 ## 2.5.0 — 2026-09-13 — photos at once, and sends that stay put
 
