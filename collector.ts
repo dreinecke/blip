@@ -704,26 +704,39 @@ export function toastKey(m: ImsgMessage): string {
 /**
  * Pick the messages that earn a desktop notification.
  *
- * Gated three ways, because chat.db is mostly bank alerts and 2FA codes:
+ * Gated four ways, because chat.db is mostly bank alerts and 2FA codes:
  *   1. inbound only, and strictly newer than the watermark
  *   2. sender (chat OR handle) is on the allowlist
  *   3. not already toasted — this is what stops the self-thread echo storm,
  *      where the user's own sent replies come back as from_me=false
+ *   4. not the conversation being READ right now. A toast for the thread
+ *      already open in front of you is noise, and the badge is suppressed
+ *      for it in the same run, so the two would otherwise disagree: nothing
+ *      to click, and a notification saying there is.
+ *
+ * `reading` is the canonical chat being read PLUS its aliases, or empty. The
+ * caller decides what "being read" means — BarWidget.activeReadChat() already
+ * refuses a thread that is still loading, one whose load failed, and one
+ * merely peeked from the sidebar cursor — so an id arriving here has cleared
+ * all of that and needs no second opinion.
  */
 export function selectToasts(
   msgs: ImsgMessage[],
   watermark: string,
   allow: string[],
   toasted: string[],
+  reading: string[] = [],
 ): Toast[] {
   if (!watermark) return [];          // never toast the backlog on first run
   const allowed = new Set(allow);
   const seen = new Set(toasted);
+  const open = new Set(reading);
   const out: Toast[] = [];
 
   for (const m of msgs) {
     if (m.from_me) continue;
     if (m.ts <= watermark) continue;
+    if (open.has(chatKey(m))) continue;
     if (!allowed.has(chatKey(m)) && !allowed.has(m.handle)) continue;
     const key = toastKey(m);
     if (seen.has(key)) continue;
@@ -1725,7 +1738,11 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   exactOldest = foldChatRecord(exactOldest, chatAliases, (a, b) => (a < b ? a : b));
   const foldedWindow = foldThreadAliases(windowThreads, chatAliases);
   const threads = chats ? mergeChats(foldedWindow, chats, groups, exactCounts) : applyPins(foldedWindow, pins);
-  const toast = selectToasts(msgs, state.watermark, loadAllowlist(), state.toasted);
+  // The conversation on screen covers its alias rows, exactly as the read
+  // marks above do: a message arriving under a retired chat row is the same
+  // conversation you are looking at.
+  const readingNow = readChat ? [readChat, ...aliasesOf(chatAliases, readChat)] : [];
+  const toast = selectToasts(msgs, state.watermark, loadAllowlist(), state.toasted, readingNow);
   const failures = selectFailures(fetched.msgs, state.toasted, nowTs);
   const links = selectIncomingLinks(msgs, state.watermark, state.toasted, selfChats);
   const codes = selectCodes(msgs, state.watermark, state.toasted, selfChats);

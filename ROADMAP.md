@@ -202,7 +202,9 @@ panel (3 lenses × finding, against current main) confirmed 11 closed and
   150→8192 rows across sequential ssh calls. Cache the reconciliation
   boundary per chat.
 - [x] Window marks read only while focused (2.2.0, Hyprland active toplevel).
-- [ ] Toasts fire for the conversation being read (bar popout case).
+- [x] Toasts fire for the conversation being read — `selectToasts()` never
+  saw `readChat`, so BOTH surfaces toasted, not just the bar popout. It is
+  now a fourth gate, alias-aware like the read marks beside it.
 - [x] Self-chat promotion needs two twins to persist (2.2.0).
 - [x] Failure toasts re-fired (ring normalizer dropped the `fail:` prefix) (2.2.0).
 - [x] `country_code=` in bridge.conf for non-NANP numbers (2.2.0).
