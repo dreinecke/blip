@@ -53,7 +53,10 @@ export interface ImsgMessage {
   id?: number | string;
   /** Stable Messages GUID when available. */
   guid?: string;
-  ts: string;          // "YYYY-MM-DD HH:MM:SS" — lexically sortable, which we rely on
+  // UTC, ISO-8601, to the second: "2026-09-07T18:33:12Z". Fixed width, so
+  // lexical order IS chronological order — which every ledger, watermark and
+  // sort in this file relies on. Local time is a DISPLAY concern (thread.ts).
+  ts: string;
   from_me: boolean;
   /** True only when the Mac bridge knows this is the configured self chat. */
   self_chat?: boolean;
@@ -235,7 +238,11 @@ export function normalizeGroups(raw: unknown): Record<string, GroupInfo> {
 export function loadState(path = STATE_PATH): BlipState {
   try {
     const s = JSON.parse(readFileSync(path, "utf8")) as Partial<BlipState>;
-    const watermark = typeof s.watermark === "string" ? s.watermark : "";
+    // Every persisted stamp predating the UTC wire format is naive Mac-local
+    // wall clock. Left alone it would sort BELOW every new stamp on the same
+    // day (" " < "T"), so the whole preview window would read as newer than
+    // the mark. toUtcStamp() re-anchors it; see there for the exactness.
+    const watermark = toUtcStamp(typeof s.watermark === "string" ? s.watermark : "");
     const unreadCounts = s.unreadCounts && typeof s.unreadCounts === "object"
       ? Object.fromEntries(
         Object.entries(s.unreadCounts).filter(([, n]) => typeof n === "number" && Number.isFinite(n) && n >= 0),
@@ -243,7 +250,9 @@ export function loadState(path = STATE_PATH): BlipState {
       : {};
     const unreadOldest = s.unreadOldest && typeof s.unreadOldest === "object"
       ? Object.fromEntries(
-        Object.entries(s.unreadOldest).filter(([, ts]) => typeof ts === "string" && ts !== ""),
+        Object.entries(s.unreadOldest)
+          .filter(([, ts]) => typeof ts === "string" && ts !== "")
+          .map(([chat, ts]) => [chat, toUtcStamp(ts as string)]),
       )
       : {};
     // A count-only ledger from an interrupted/experimental build cannot be
@@ -254,14 +263,20 @@ export function loadState(path = STATE_PATH): BlipState {
       watermark,
       // Pre-two-mark state files have no readMark. Inheriting the watermark is
       // the safe migration: it reports zero unread rather than a fake backlog.
-      readMark: typeof s.readMark === "string" ? s.readMark : watermark,
+      readMark: toUtcStamp(typeof s.readMark === "string" ? s.readMark : watermark),
       unreadCounts,
       unreadOldest,
       unreadInitialized: s.unreadInitialized === true && ledgerComplete,
       selfChats: Array.isArray(s.selfChats)
         ? s.selfChats.filter((chat): chat is string => typeof chat === "string")
         : [],
-      readMarks: s.readMarks && typeof s.readMarks === "object" ? { ...s.readMarks } : {},
+      readMarks: s.readMarks && typeof s.readMarks === "object"
+        ? Object.fromEntries(
+          Object.entries(s.readMarks)
+            .filter(([, ts]) => typeof ts === "string" && ts !== "")
+            .map(([chat, ts]) => [chat, toUtcStamp(ts as string)]),
+        )
+        : {},
       // Every cached group goes through the same shape fetchGroups() enforces:
       // a participants OBJECT in state.json threw inside groupName() on every
       // poll until the next deep refresh (Astra B#6).
@@ -1097,11 +1112,11 @@ export const FAILURE_TOAST_WINDOW_MS = 15 * 60 * 1000;
 export function selectFailures(
   msgs: ImsgMessage[],
   toasted: string[],
-  nowTs = localNowTs(),
+  now = nowTs(),
 ): Toast[] {
   const seen = new Set(toasted);
   const out: Toast[] = [];
-  const cutoff = localNowTs(new Date(Date.parse(nowTs.replace(" ", "T")) - FAILURE_TOAST_WINDOW_MS));
+  const cutoff = nowTs(new Date(Date.parse(now) - FAILURE_TOAST_WINDOW_MS));
   for (const m of msgs) {
     if (!m.from_me || typeof m.error !== "number" || m.error === 0) continue;
     if (m.ts < cutoff) continue;
@@ -1201,7 +1216,10 @@ export function fetchMessages(limit: number, runner = spawnSync): FetchResult {
   try {
     const parsed = JSON.parse(res.stdout as string);
     if (!Array.isArray(parsed)) throw new Error("not an array");
-    return { ok: true, online: true, error: "", msgs: (parsed as ImsgMessage[]).filter(hasIdentity), fetchedCount: parsed.length };
+    // Normalise stamps HERE, the one door messages come through, so nothing
+    // downstream has to know which bridge version produced them.
+    const msgs = (parsed as ImsgMessage[]).filter(hasIdentity).map(normalizeMsgStamps);
+    return { ok: true, online: true, error: "", msgs, fetchedCount: parsed.length };
   } catch (e) {
     return { ok: false, online: true, error: `bad JSON from imsg: ${e}`, msgs: [], fetchedCount: 0 };
   }
@@ -1243,11 +1261,47 @@ export function fetchMessagesAfter(
  *     impossible).
  * A row without the `read` field (older imsg) falls back to local-only.
  */
-/** Local wall clock as a chat.db-style "YYYY-MM-DD HH:MM:SS" stamp. */
-export function localNowTs(now = new Date()): string {
-  const p = (n: number, w = 2) => String(n).padStart(w, "0");
-  return `${now.getFullYear()}-${p(now.getMonth() + 1)}-${p(now.getDate())} ` +
-         `${p(now.getHours())}:${p(now.getMinutes())}:${p(now.getSeconds())}`;
+/**
+ * Now, in the bridge's wire format: UTC ISO-8601 to the second.
+ *
+ * This used to be the LINUX wall clock compared against MAC wall-clock
+ * stamps — the same numbers only while both machines sat in one timezone.
+ * A Mac an hour ahead put every read mark ahead of every message (nothing
+ * ever unread); an hour behind and the backlog re-toasted. Both clocks are
+ * UTC now, so the comparison means what it reads as.
+ */
+export function nowTs(now = new Date()): string {
+  return now.toISOString().replace(/\.\d{3}Z$/, "Z");
+}
+
+/**
+ * Re-anchor a pre-UTC stamp ("2026-09-07 14:33:12") to the wire format,
+ * reading it as THIS machine's local time. A stamp already in the wire
+ * format is returned untouched; junk becomes "".
+ *
+ * Two callers, one rule — every stamp inside Blip is UTC:
+ *   - loadState(), for marks written by an older release;
+ *   - the fetch boundary, for a Mac still running the pre-UTC bridge.
+ * Both matter TOGETHER: migrating the marks while the bridge still emitted
+ * naive stamps would sort every message below every mark (" " < "T") and
+ * silently empty the badge and the toasts.
+ *
+ * Exact whenever the Mac shares the Linux timezone — every setup in which
+ * the naive format looked correct in the first place. Where they differ a
+ * mark lands off by the offset for one poll; the toast ring keys on message
+ * identity rather than time, so that cannot re-toast a backlog.
+ */
+export function toUtcStamp(ts: string): string {
+  if (!ts || ts.includes("T")) return ts;          // already UTC, or unset
+  const ms = Date.parse(ts.replace(" ", "T"));     // naive → this machine's local
+  return Number.isNaN(ms) ? "" : nowTs(new Date(ms));
+}
+
+/** Every stamp a message carries, normalised to the wire format. */
+export function normalizeMsgStamps<T extends ImsgMessage>(m: T): T {
+  if (typeof m.ts === "string" && !m.ts.includes("T")) m = { ...m, ts: toUtcStamp(m.ts) };
+  if (typeof m.read_at === "string" && !m.read_at.includes("T")) m = { ...m, read_at: toUtcStamp(m.read_at) };
+  return m;
 }
 
 export function isUnread(m: ImsgMessage, mark: string): boolean {
@@ -1352,7 +1406,7 @@ export function fetchChats(runner = spawnSync): ChatInfo[] | null {
           aliases,
           name: typeof r.name === "string" ? r.name : null,
           service: String(r.service ?? ""),
-          last: String(r.last ?? ""),
+          last: toUtcStamp(String(r.last ?? "")),
           last_text: messagePreview(
             r.last_text,
             r.last_attachment && typeof r.last_attachment === "object"
@@ -1592,7 +1646,10 @@ export function fetchGroups(runner = spawnSync): Record<string, GroupInfo> | nul
 // ---------------------------------------------------------------- main
 
 export function collect(deep: boolean, markRead = false, readChat = "", seenTs = ""): BlipOutput {
-  const now = new Date().toISOString();
+  // When this POLL ran — the output's own metadata, not a message stamp.
+  // Distinct from nowTs() below, which is the clock message stamps are
+  // measured against and therefore has to be in the wire format.
+  const producedAt = new Date().toISOString();
   const state = loadState();
   // On migration, seed the ledger all the way back to what the user last read.
   // Thereafter cover both new arrivals and every outstanding unread row. That
@@ -1611,7 +1668,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
       ok: false,
       online: fetched.online,
       error: fetched.error,
-      ts: now,
+      ts: producedAt,
       unread: 0,
       threads: [],
       toast: [],
@@ -1638,7 +1695,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   // clamped to the local clock, and each chat that reaches past it gets a
   // PER-CHAT mark at its own max — every visible message is covered,
   // nothing beyond now leaks onto other threads.
-  const nowTs = localNowTs();
+  const now = nowTs();
   const chatMax: Record<string, string> = {};
   for (const m of fetched.msgs) {
     const c = chatKey(m);
@@ -1646,7 +1703,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   }
   // Badge counts against readMark (what the user has seen); toasts fire against
   // watermark (what the collector has seen). See BlipState.
-  const readMark = markRead ? (highest <= nowTs ? highest : nowTs) : state.readMark;
+  const readMark = markRead ? (highest <= now ? highest : now) : state.readMark;
   // Opening one conversation clears only that thread's dot — marked with
   // THAT chat's newest ts, never the global max.
   const readMarks = { ...state.readMarks };
@@ -1662,7 +1719,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     // ts > seen and stays unread. Fallback without --seen: through now, or
     // the chat's own future row.
     const own = chatMax[readChat] ?? "";
-    readMarks[readChat] = seenTs !== "" ? seenTs : (own > nowTs ? own : nowTs);
+    readMarks[readChat] = seenTs !== "" ? seenTs : (own > now ? own : now);
   }
   const readSeen = readChat ? readMarks[readChat]! : "";
   // Group metadata is ~1000 rows; refresh it only on a deep (panel) fetch and
@@ -1743,7 +1800,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   // conversation you are looking at.
   const readingNow = readChat ? [readChat, ...aliasesOf(chatAliases, readChat)] : [];
   const toast = selectToasts(msgs, state.watermark, loadAllowlist(), state.toasted, readingNow);
-  const failures = selectFailures(fetched.msgs, state.toasted, nowTs);
+  const failures = selectFailures(fetched.msgs, state.toasted, now);
   const links = selectIncomingLinks(msgs, state.watermark, state.toasted, selfChats);
   const codes = selectCodes(msgs, state.watermark, state.toasted, selfChats);
   const unread = Object.values(exactCounts).reduce((n, count) => n + count, 0);
@@ -1752,7 +1809,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   // swallow the messages that arrived during it.
   // A row dated tomorrow (tz skew) must not become the mark everything is
   // measured against — nothing would badge or toast until "tomorrow" (Astra B#4).
-  const highestNow = highest <= nowTs ? highest : nowTs;
+  const highestNow = highest <= now ? highest : now;
   const persisted = saveState({
     watermark: highestNow,
     // First ever run: adopt the current high-water rather than reporting the
@@ -1782,7 +1839,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     ok: true,
     online: true,
     error: warning,
-    ts: now,
+    ts: producedAt,
     unread,
     threads,
     // Never emit notifications that could not be committed to the dedupe ring.

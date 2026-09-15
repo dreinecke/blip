@@ -195,9 +195,15 @@ panel (3 lenses × finding, against current main) confirmed 11 closed and
   hand-written mirrors in `BlipView.qml` — so all four moved together and a
   test now pins them to one bound. Beyond 15 digits an id is a group again,
   which keeps "an unknown shape is never a DM target" true.
-- [ ] **Timestamps are Mac-local wall-clock strings** compared against the
-  Linux clock (DST fall-back hour, a UTC Mac). Move the bridge to epoch/UTC
-  and convert on display. Cross-cutting; do it as its own release.
+- [x] **Timestamps are Mac-local wall-clock strings** compared against the
+  Linux clock (DST fall-back hour, a UTC Mac) — fixed: the bridge emits
+  ISO-8601 UTC (`fmt_ts`), `fmt_ts_local` keeps the human CLI renders on the
+  Mac's clock, and every label is converted to the reader's zone at display
+  (`localDay`/`formatStamp` in thread.ts, `fmtTime` in BlipView). Stamps are
+  normalised at the two fetch doors, so a Mac on the old bridge still works;
+  `state.json` marks migrate on load. Covered by `timezone.test.ts` and
+  `bridge/mac/test_wire_time.py` (both pin a zone; the rest of the suite runs
+  at UTC, where the bug is invisible).
 - [ ] **One never-opened unread pins the catch-up loop** — every poll walks
   150→8192 rows across sequential ssh calls. Cache the reconciliation
   boundary per chat.
