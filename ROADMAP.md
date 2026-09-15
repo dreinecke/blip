@@ -189,10 +189,12 @@ panel (3 lenses × finding, against current main) confirmed 11 closed and
   Accessibility-on-balloons approach (SIP on); nothing from that issue is
   in-tree yet.
 
-- [ ] **3–4 digit short codes classify as groups** — `isGroupChat()` treats a
-  digits-only id shorter than 5 as "not a phone", so a carrier-style sender
-  opens read-only with "group id unknown". Widen to `{3,15}` (E.164 max is
-  15) once tested against a real one. 5+ digit codes load correctly since 2.2.1.
+- [x] **3–4 digit short codes classify as groups** — widened to `{3,15}`
+  (E.164 max is 15), tested against a real one (`2536`, T-Mobile). The rule
+  lived in four places — `isGroupChat()`, `sendServiceForMessages()` and two
+  hand-written mirrors in `BlipView.qml` — so all four moved together and a
+  test now pins them to one bound. Beyond 15 digits an id is a group again,
+  which keeps "an unknown shape is never a DM target" true.
 - [ ] **Timestamps are Mac-local wall-clock strings** compared against the
   Linux clock (DST fall-back hour, a UTC Mac). Move the bridge to epoch/UTC
   and convert on display. Cross-cutting; do it as its own release.

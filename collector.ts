@@ -378,7 +378,7 @@ export function messagePreview(
  * a group so an unknown id shape can never be mistaken for a DM target.
  */
 export function isGroupChat(chat: string): boolean {
-  if (/^\+?[0-9]{5,}$/.test(chat) || chat.indexOf("@") > 0) return false;
+  if (/^\+?[0-9]{3,15}$/.test(chat) || chat.indexOf("@") > 0) return false;
   return /^[0-9a-f]{32}$/i.test(chat) || /^chat[0-9]+$/i.test(chat) || chat !== "";
 }
 
@@ -590,7 +590,7 @@ export function sendServiceForMessages(msgs: ImsgMessage[]): SendService {
   const chat = chatKey(newest);
   if (newest.from_me && failed(newest)
       && normalizeSendService(newest.service) === "iMessage"
-      && /^\+?[0-9]{5,}$/.test(chat)) {
+      && /^\+?[0-9]{3,15}$/.test(chat)) {
     return "SMS";
   }
   for (let i = sorted.length - 1; i >= 0; i--) {
