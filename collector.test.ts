@@ -1830,6 +1830,16 @@ describe("blip-setup: ssh never eats the script's stdin", () => {
   });
 });
 
+// `scp bridge/mac/*` also matched __pycache__ once anyone had run the Mac
+// tests; scp without -r exits 1 on a directory, and under set -e setup died
+// before install.sh ran, leaving the Mac on the OLD tools with no hint why.
+test("blip-setup copies only regular files to the Mac", () => {
+  const src = readFileSync(new URL("./scripts/blip-setup", import.meta.url), "utf8");
+  const runnable = src.split("\n").filter((l) => !/^\s*#/.test(l) && !/^\s*echo\s/.test(l)).join("\n");
+  expect(runnable).not.toMatch(/scp\s+-q\s+"\$here"\/bridge\/mac\/\*/);
+  expect(runnable).toContain('find "$here/bridge/mac" -maxdepth 1 -type f -print0');
+});
+
 test("group labels prefer short names while participant details retain full names", () => {
  const {groupName,groupParticipants,normalizeGroups,fetchGroups} = require('./collector');
  const info={name:"",guid:"any;+;chat123",participants:["+15551234567"],participantNames:{"+15551234567":"Mary Jane Example"},participantShortNames:{"+15551234567":"Mary Jane"}};
