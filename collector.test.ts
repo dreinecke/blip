@@ -40,8 +40,10 @@ import {
   toastKey,
   unreadCounts,
   unreadOldest,
+  compareThreads,
   type ImsgMessage,
   type ChatInfo,
+  type Thread,
 } from "./collector";
 
 const tmp = () => mkdtempSync(join(tmpdir(), "blip-test-"));
@@ -172,6 +174,60 @@ describe("buildThreads", () => {
     expect(threads[0]!.chat).toBe("+15550100006");
     expect(threads[0]!.name).toBe("+15550100006");
     expect(threads[0]!.handle).toBe("+15550100006");
+  });
+});
+
+describe("compareThreads — FORK (2026-09-19): unread conversations first", () => {
+  const thread = (chat: string, ts: string, unread = 0, pinned = false, pinOrder: number | null = null): Thread => ({
+    chat, guid: "", name: chat, handle: chat, service: "iMessage",
+    last_ts: ts, last_text: "", last_from_me: false, count: 1, unread, pinned, pin_order: pinOrder,
+  });
+
+  test("an unread conversation sorts above a NEWER read one", () => {
+    const threads = [thread("read", "2026-09-19 12:00:00"), thread("unread", "2026-09-18 09:00:00", 2)];
+    threads.sort(compareThreads);
+    expect(threads.map((t) => t.chat)).toEqual(["unread", "read"]);
+  });
+
+  test("each group keeps newest-first order within itself", () => {
+    const threads = [
+      thread("read-new", "2026-09-19 12:00:00"),
+      thread("unread-old", "2026-09-17 08:00:00", 1),
+      thread("unread-new", "2026-09-18 09:00:00", 5),
+      thread("read-old", "2026-09-16 07:00:00"),
+    ];
+    threads.sort(compareThreads);
+    expect(threads.map((t) => t.chat))
+      .toEqual(["unread-new", "unread-old", "read-new", "read-old"]);
+  });
+
+  test("pins stay above unread conversations, and pin order still decides between pins", () => {
+    const threads = [
+      thread("unread", "2026-09-19 12:00:00", 1),
+      thread("pin-b", "2026-09-19 12:00:00", 0, true, 1),
+      thread("pin-a", "2026-09-01 00:00:00", 3, true, 0),
+    ];
+    threads.sort(compareThreads);
+    expect(threads.map((t) => t.chat)).toEqual(["pin-a", "pin-b", "unread"]);
+  });
+
+  test("all-read threads order by recency alone (the pre-fork rule)", () => {
+    const threads = [thread("old", "2026-01-01 00:00:00"), thread("new", "2026-09-19 00:00:00")];
+    threads.sort(compareThreads);
+    expect(threads.map((t) => t.chat)).toEqual(["new", "old"]);
+  });
+
+  test("buildThreads applies the rule: unread threads float to the top", () => {
+    const threads = buildThreads(
+      [
+        msg({ chat: "read-recent", handle: "read-recent", ts: "2026-08-30 11:00:00" }),
+        msg({ chat: "unread-quiet", handle: "unread-quiet", ts: "2026-08-28 09:00:00" }),
+        msg({ chat: "read-old", handle: "read-old", ts: "2026-08-29 10:00:00" }),
+      ],
+      "2026-08-27 00:00:00",
+      { "read-recent": "2026-08-30 12:00:00", "read-old": "2026-08-29 11:00:00" },
+    );
+    expect(threads.map((t) => t.chat)).toEqual(["unread-quiet", "read-recent", "read-old"]);
   });
 });
 

@@ -182,6 +182,8 @@ export interface BlipOutput {
   online: boolean;
   error: string;
   ts: string;
+  /** FORK (Dave, 2026-09-19): conversations with at least one unread message,
+   *  not the total number of unread messages. */
   unread: number;
   threads: Thread[];
   toast: Toast[];
@@ -679,7 +681,9 @@ export function buildThreads(
   return threads;
 }
 
-/** Messages keeps pinned conversations ahead of the activity-sorted list. */
+/** Messages keeps pinned conversations ahead of the activity-sorted list.
+ *  FORK (Dave, 2026-09-19): within each block, unread conversations sort above
+ *  read ones — the sidebar never intersperses the two. */
 export function compareThreads(a: Thread, b: Thread): number {
   if (a.pinned !== b.pinned) return a.pinned ? -1 : 1;
   if (a.pinned && b.pinned) {
@@ -689,6 +693,8 @@ export function compareThreads(a: Thread, b: Thread): number {
     if (a.pin_order !== null && b.pin_order === null) return -1;
     if (a.pin_order === null && b.pin_order !== null) return 1;
   }
+  const aUnread = a.unread > 0, bUnread = b.unread > 0;
+  if (aUnread !== bUnread) return aUnread ? -1 : 1;
   return a.last_ts < b.last_ts ? 1 : a.last_ts > b.last_ts ? -1 : 0;
 }
 
@@ -1815,7 +1821,10 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   const failures = selectFailures(fetched.msgs, state.toasted, nowTs);
   const links = selectIncomingLinks(msgs, state.watermark, state.toasted, selfChats);
   const codes = selectCodes(msgs, state.watermark, state.toasted, selfChats);
-  const unread = Object.values(exactCounts).reduce((n, count) => n + count, 0);
+  // FORK (Dave, 2026-09-19): the badge counts CONVERSATIONS with unread, not
+  // messages. exactCounts is already folded to one key per conversation, so
+  // its nonzero entries are exactly the unread conversations.
+  const unread = Object.values(exactCounts).filter((count) => count > 0).length;
 
   // Both marks advance only on a good fetch, so an outage cannot silently
   // swallow the messages that arrived during it.

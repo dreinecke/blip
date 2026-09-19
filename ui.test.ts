@@ -539,6 +539,32 @@ test("an unread conversation is tinted and ringed, and hover still reads over it
   expect(circle.indexOf("border.color: root.accent")).toBeGreaterThan(circle.indexOf("id: avatarImg"));
 });
 
+// FORK (Dave, 2026-09-19): the badge counts CONVERSATIONS with at least one
+// unread message, not the total unread messages. Three places recompute it —
+// the collector result, the optimistic single-thread read, and a follower
+// bar's state.json read — and they must all use the same unit.
+test("the badge counts conversations with unread, not total messages", () => {
+  expect(widget).toContain("function countUnreadThreads(list)");
+  expect(widget).toContain("root.unread = root.countUnreadThreads(list)");
+  expect(widget).toContain("unread = countUnreadThreads(list)");
+  // the follower reads the folded ledger: one key per conversation
+  expect(widget).toContain("if ((Number(counts[k]) || 0) > 0) n++");
+  // the message-summing reduce is gone entirely
+  expect(widget).not.toContain("n + (Number(t.unread) || 0)");
+});
+
+// FORK (Dave, 2026-09-19): the sidebar lists unread conversations above read
+// ones. collector.ts owns the rule; overlayThreads re-sorts shallow results
+// with this QML twin, and the twin must agree or a shallow poll reshuffles
+// the list a second after a deep run ordered it.
+test("the QML comparator floats unread threads like collector.ts does", () => {
+  const cmp = widget.slice(widget.indexOf("function compareThreads"), widget.indexOf("function compareThreads") + 800);
+  expect(cmp).toContain("var au = (Number(a.unread) || 0) > 0, bu = (Number(b.unread) || 0) > 0");
+  expect(cmp).toContain("if (au !== bu) return au ? -1 : 1");
+  // the unread rule sits AFTER the pin block: pins keep their chosen place
+  expect(cmp.indexOf("if (au !== bu)")).toBeGreaterThan(cmp.indexOf("if (ap && bp)"));
+});
+
 // FORK: both accents follow the theme. Upstream pins them to iMessage blue
 // (2.3.3) because several Omarchy themes use red, and red reads as an error on
 // both a dot and a bubble. These two tests guard what must hold EITHER way:

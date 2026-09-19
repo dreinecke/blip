@@ -12,7 +12,8 @@ import Quickshell.Hyprland
 // widget owns the single poller; the panel reads its state rather than running
 // its own collector.
 //
-// Badge counts EVERY unread. Toasts fire only for allowlisted handles
+// FORK (Dave, 2026-09-19): the badge counts CONVERSATIONS with at least one
+// unread message, not the total unread messages. Toasts fire only for allowlisted handles
 // (~/.config/blip/allowlist.json) — chat.db is mostly bank alerts and 2FA codes,
 // and none of that deserves an interruption.
 //
@@ -73,8 +74,10 @@ BarWidget {
       try {
         var st = JSON.parse(text())
         var counts = st.unreadCounts || {}
+        // one key per conversation (the ledger is folded before saving), so
+        // nonzero keys are the unread conversations — the fork's badge unit.
         var n = 0
-        for (var k in counts) n += Number(counts[k]) || 0
+        for (var k in counts) if ((Number(counts[k]) || 0) > 0) n++
         root.unread = n; root.online = true; root.healthy = true
       } catch (e) {}
     }
@@ -261,6 +264,13 @@ BarWidget {
     out.sort(root.compareThreads)   // mirrors collector.ts compareThreads
     return out
   }
+  // FORK (Dave, 2026-09-19): the badge counts conversations with unread, not
+  // messages — three conversations of five messages each read 3.
+  function countUnreadThreads(list) {
+    var n = 0
+    for (var i = 0; i < list.length; i++) if ((Number(list[i].unread) || 0) > 0) n++
+    return n
+  }
   function compareThreads(a, b) {
     var ap = a.pinned === true, bp = b.pinned === true
     if (ap !== bp) return ap ? -1 : 1
@@ -271,6 +281,10 @@ BarWidget {
       if (!an && bn) return -1
       if (an && !bn) return 1
     }
+    // FORK (Dave, 2026-09-19): unread conversations sort above read ones,
+    // mirroring collector.ts — a shallow overlay must not reshuffle the list.
+    var au = (Number(a.unread) || 0) > 0, bu = (Number(b.unread) || 0) > 0
+    if (au !== bu) return au ? -1 : 1
     var at = String(a.last_ts || ""), bt = String(b.last_ts || "")
     return at < bt ? 1 : at > bt ? -1 : 0
   }
@@ -364,7 +378,7 @@ BarWidget {
     })
     noteLocalRead(c, lastTs)
     threads = list
-    unread = list.reduce(function(n, t) { return n + (Number(t.unread) || 0) }, 0)
+    unread = countUnreadThreads(list)
     refresh(true, false, c, lastTs)
   }
 
@@ -452,7 +466,7 @@ BarWidget {
               root.threadsJson = j
               root.threads = list
             }
-            root.unread = list.reduce(function(n, t) { return n + (Number(t.unread) || 0) }, 0)
+            root.unread = root.countUnreadThreads(list)
             root.healthy = d.persisted !== false
             // A message that carries a security code gets the code toast only:
             // its ordinary preview would put the digits into the daemon's
@@ -911,8 +925,8 @@ BarWidget {
   function tooltip() {
     var parts = []
     if (!root.online) parts.push("Mac unreachable — iMessage bridge offline")
-    else if (root.unread === 0) parts.push("No unread messages")
-    else parts.push(root.unread + " unread message" + (root.unread === 1 ? "" : "s"))
+    else if (root.unread === 0) parts.push("No unread conversations")
+    else parts.push(root.unread + " unread conversation" + (root.unread === 1 ? "" : "s"))
 
     if (root.online && root.unread > 0) {
       var hot = root.threads.filter(function(t){ return t.unread > 0 }).slice(0, 4)
