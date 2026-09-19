@@ -56,7 +56,10 @@ ShellRoot {
           var d = JSON.parse(text.trim())
           if (d.ok === true) {
             host.threads = Array.isArray(d.threads) ? d.threads : []
-            host.unread = host.threads.reduce(function (n, t) { return n + (Number(t.unread) || 0) }, 0)
+            // FORK: badge counts conversations, mirroring BarWidget.
+            var n = 0
+            for (var i = 0; i < host.threads.length; i++) if ((Number(host.threads[i].unread) || 0) > 0) n++
+            host.unread = n
             host.online = true
           }
         } catch (e) { console.log("demo collector: " + e) }

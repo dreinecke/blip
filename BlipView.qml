@@ -11,7 +11,8 @@ import qs.Ui
 
 // Blip panel — threads, then an iMessage-style conversation with a compose box.
 //
-//   list         → every thread, newest first, unread marked
+//   list         → every thread, unread conversations first then read, newest
+//                  first within each group (FORK, 2026-09-19)
 //   conversation → bubbles: mine blue on the right, theirs grey on the left,
 //                  grouped by sender with one timestamp per run, day dividers,
 //                  compose box pinned at the bottom. Esc goes back.
