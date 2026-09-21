@@ -316,8 +316,17 @@ what it is handed. Keep it that way.
 bun test                                   # 90+ tests, ~40 ms
 bun collector.ts --deep | jq .unread       # live against the Mac
 bun thread.ts <chat-id> 40 | jq .bubbles   # one conversation
-cp *.qml *.ts *.mjs manifest.json ~/.config/omarchy/plugins/nixfred.blip/
-omarchy-restart-shell                      # ALWAYS restart (hot-reload leaves IPC on a zombie)
+# FORK (Dave, 2026-09-21): deploy is push, not cp. The plugin directory is a
+# git checkout of dreinecke/blip, and blip-auto-update-watch (a systemd user
+# unit) pulls origin/main and restarts the shell on every screen unlock —
+# restarting the shell while the screen is LOCKED unlocks the machine
+# (Quickshell draws the lock), which is why unlock is the only safe trigger.
+# After pushing: unlock, or run ~/.local/bin/blip-auto-update by hand. A
+# cp into the plugin dir still works mid-session but leaves the tree dirty;
+# the updater realigns it after the push lands, and SKIPS (with a line in
+# ~/.local/state/blip/update.log) while the cp'd bytes are not on origin.
+# A restart ALWAYS follows a runtime-file change — hot-reload leaves IPC on
+# a zombie (see below).
 # MANDATORY after every deploy — a QML syntax error kills BOTH surfaces silently (2.1.4 shipped one):
 qs log /run/user/1000/quickshell/by-id/$(basename $(readlink /run/user/1000/quickshell/by-pid/$(pgrep -x quickshell)))/log.qslog -t 400 | grep -iE 'nixfred.blip.*(error|warn|unavailable|token)'
 qs -p /usr/share/omarchy/shell ipc call nixfred.blip open   # and LOOK at it (grim)
