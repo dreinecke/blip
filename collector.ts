@@ -28,10 +28,13 @@ const HOME = process.env.HOME ?? homedir();
 
 /** Watermark + toast dedupe. ~/.local/state is deliberate: never inside a repo. */
 import {
-  alwaysPushesRead, bridgeFor, isGroupChat, isWhatsAppGroup, mergeSources,
-  sourceFor, keepSilentSources, whatsAppChats, whatsAppGroups,
-  whatsAppMessages, WHATSAPP_SERVICE,
+  alwaysPushesRead, bridgeFor, isBroadcast, isGroupChat, isWhatsAppChat,
+  isWhatsAppGroup, mergeSources, sourceFor, keepSilentSources, whatsAppChats,
+  whatsAppGroups, whatsAppMessages, WHATSAPP_SERVICE,
 } from "./source";
+import { effectiveAliasMap, personAliases as computePersonAliases } from "./person-fold.ts";
+import { loadContactDump } from "./contacts-dump.ts";
+import { defaultCountryCode } from "./contact-search.ts";
 
 export const STATE_PATH = `${HOME}/.local/state/blip/state.json`;
 /** Handles whose inbound messages are allowed to raise a desktop toast. */
@@ -99,6 +102,9 @@ export interface Thread {
   chat: string;
   /** Historical chat identifiers coalesced into this logical conversation. */
   aliases?: string[];
+  /** Every messenger this conversation spans, when a person fold merged
+   *  channels (["iMessage", "WhatsApp"]) — the sidebar's sublabel. */
+  services?: string[];
   /** Full AppleScript chat GUID for groups (""), empty for DMs. Sending to a
    *  group means `imsg-send --chat-id <guid>`; never the bare id. */
   guid: string;
@@ -170,6 +176,10 @@ export interface BlipState {
    *  Refreshed on --deep with the chat list; cached so a shallow poll folds
    *  the same way and a conversation never blinks into two. */
   chatAliases: Record<string, string>;
+  /** One person's chats across handles and messengers → the row that owns
+   *  them (person-fold.ts). Derived on --deep from the contacts dump; chat
+   *  ids only, and sticky so a row's identity never changes hands. */
+  personAliases: Record<string, string>;
   /** Messages' pinned section: chat id → pin order (null when unknown).
    *  Refreshed with the chat list on deep runs; shallow polls apply it so
    *  pins never vanish between a deep run and the next (ids only). */
@@ -277,6 +287,9 @@ export function loadState(path = STATE_PATH): BlipState {
       chatAliases: s.chatAliases && typeof s.chatAliases === "object"
         ? Object.fromEntries(Object.entries(s.chatAliases).filter(([, v]) => typeof v === "string" && v !== ""))
         : {},
+      personAliases: s.personAliases && typeof s.personAliases === "object"
+        ? Object.fromEntries(Object.entries(s.personAliases).filter(([, v]) => typeof v === "string" && v !== ""))
+        : {},
       pins: validPins(s.pins),
       // Older releases stored ts|chat|text verbatim. Hash legacy entries while
       // loading so the next successful save scrubs message bodies from disk.
@@ -287,7 +300,7 @@ export function loadState(path = STATE_PATH): BlipState {
   } catch {
     return {
       watermark: "", readMark: "", unreadCounts: {}, unreadOldest: {}, unreadInitialized: false,
-      selfChats: [], readMarks: {}, groups: {}, chatAliases: {}, pins: {}, toasted: [],
+      selfChats: [], readMarks: {}, groups: {}, chatAliases: {}, personAliases: {}, pins: {}, toasted: [],
     };
   }
 }
@@ -1042,6 +1055,21 @@ export function pushReadPolicy(path = BRIDGE_CONF): PushRead {
   return "all";
 }
 
+/** `person_merge=off` in bridge.conf: the fold's kill switch. A merge that
+ *  turns out wrong is otherwise hard to undo by hand — one person's chats
+ *  have to be found and re-split across three state maps. Default on. */
+export function personMergeEnabled(path = BRIDGE_CONF): boolean {
+  try {
+    for (const line of readFileSync(path, "utf8").split("\n")) {
+      const m = /^\s*person_merge\s*=\s*([A-Za-z]+)\s*$/.exec(line);
+      if (!m) continue;
+      const v = m[1]!.toLowerCase();
+      return !(v === "off" || v === "no" || v === "false");
+    }
+  } catch { /* no conf: the default */ }
+  return true;
+}
+
 /** What to hand `imsg-read`, or null when this run should tell the Mac nothing. */
 export function pushReadArgs(
   policy: PushRead,
@@ -1063,6 +1091,51 @@ export function pushReadArgs(
   // Groups have no imessage:// form, so only a DM can be aimed at.
   if (!/^\+?[0-9]{3,15}$/.test(chat) && !/^[^@\s]+@[^@\s]+$/.test(chat)) return null;
   return ["--chat", chat];
+}
+
+/**
+ * Read-push plans for a (possibly person-folded) conversation: one argv per
+ * member that must be told. A folded row's canonical can sit on a different
+ * messenger than the member carrying the unread — without this, a WhatsApp
+ * member of an iMessage-canonical conversation never got its sendSeen, and
+ * mark-all missed every folded WhatsApp unread (wa.ts --all only sees
+ * unfolded ledger keys). Same gates as pushReadArgs, evaluated per member.
+ */
+export function pushReadPlans(
+  policy: PushRead,
+  opts: {
+    markRead: boolean;
+    /** Every member chat of the read conversation, canonical first. */
+    members: string[];
+    /** Members whose unread THIS run cleared — the transition, not the poll. */
+    cleared: string[];
+    /** WhatsApp member jids still unread before a mark-all. */
+    waOutstanding: string[];
+  },
+): string[][] {
+  if (policy === "off") return [];
+  if (opts.markRead) {
+    return [["--all"], ...opts.waOutstanding.map((jid) => ["--chat", jid])];
+  }
+  const cleared = new Set(opts.cleared);
+  const plans: string[][] = [];
+  const seen = new Set<string>();
+  for (const m of opts.members) {
+    const chat = String(m || "");
+    if (!chat || seen.has(chat)) continue;
+    seen.add(chat);
+    if (policy !== "thread" && !alwaysPushesRead(chat)) continue;
+    if (!cleared.has(chat)) continue;
+    // Groups have no imessage:// form, so only a DM can be aimed at.
+    if (!/^\+?[0-9]{3,15}$/.test(chat) && !/^[^@\s]+@[^@\s]+$/.test(chat)) continue;
+    plans.push(["--chat", chat]);
+  }
+  return plans;
+}
+
+/** pushRead over a plan set — the --all split stays inside the single call. */
+export function pushReads(plans: string[][], home = HOME): void {
+  for (const plan of plans) pushRead(plan, home);
 }
 
 /**
@@ -1427,6 +1500,32 @@ export function aliasesFromChats(chats: ChatInfo[]): Record<string, string> {
   return out;
 }
 
+/** The contacts dump is one more Mac round trip, so it rides deep runs only,
+ *  behind a cache far longer than a poll (contact cards do not churn). */
+const PERSON_DUMP_TTL_MS = 10 * 60_000;
+
+/** The person map for this run: recomputed on deep runs, kept from state
+ *  otherwise. Offline Mac, failed dump, or person_merge=off never unfolds a
+ *  conversation mid-session; "off" deliberately does (it is the kill switch). */
+export function recomputePersonAliases(
+  chats: ChatInfo[],
+  state: BlipState,
+  runner: typeof spawnSync = spawnSync,
+  confPath = BRIDGE_CONF,
+): Record<string, string> {
+  if (!personMergeEnabled(confPath)) return {};
+  const dump = loadContactDump(runner, PERSON_DUMP_TTL_MS);
+  if (!Array.isArray(dump)) return state.personAliases;
+  return computePersonAliases({
+    chats: chats.map((c) => ({ id: c.id, service: c.service, last: c.last })),
+    contacts: dump,
+    homeCc: defaultCountryCode(),
+    bridgeAliases: aliasesFromChats(chats),
+    previous: state.personAliases,
+    exclude: state.selfChats,
+  });
+}
+
 /** Pin metadata from the chat list: chat id → pin order. */
 export function pinsFromChats(chats: ChatInfo[]): Record<string, number | null> {
   const out: Record<string, number | null> = {};
@@ -1454,8 +1553,16 @@ export function foldThreadAliases(threads: Thread[], aliases: Record<string, str
   if (Object.keys(aliases).length === 0) return threads;
   const out: Thread[] = [];
   const at = new Map<string, number>();
+  const servicesByCanon = new Map<string, Set<string>>();
+  const note = (canon: string, service: string) => {
+    if (!service) return;
+    const set = servicesByCanon.get(canon) ?? new Set<string>();
+    set.add(service);
+    servicesByCanon.set(canon, set);
+  };
   for (const t of threads) {
     const canon = aliases[t.chat] ?? t.chat;
+    note(canon, t.service);
     const seen = at.get(canon);
     if (seen === undefined) {
       at.set(canon, out.length);
@@ -1470,6 +1577,21 @@ export function foldThreadAliases(threads: Thread[], aliases: Record<string, str
       guid: prev.guid || t.guid,
       count: prev.count + t.count,
       unread: prev.unread + t.unread,
+    };
+  }
+  // Member ids and the services union are DERIVED FROM THE MAP, not carried
+  // through the merge, so a shallow poll whose window holds only one member
+  // still names the whole conversation — BarWidget.show() and the goto IPC
+  // resolve member ids through this between deep runs.
+  for (let i = 0; i < out.length; i++) {
+    const t = out[i]!;
+    const members = [t.chat, ...aliasesOf(aliases, t.chat)];
+    if (members.length <= 1) continue;
+    const services = servicesByCanon.get(t.chat);
+    out[i] = {
+      ...t,
+      aliases: [...new Set([...(t.aliases ?? []), ...members])],
+      ...(services && services.size >= 2 ? { services: [...services] } : {}),
     };
   }
   return out;
@@ -1506,6 +1628,7 @@ export function mergeChats(
   chats: ChatInfo[],
   groups: Record<string, GroupInfo>,
   unreadCounts: Record<string, number>,
+  fold: Record<string, string> = {},
 ): Thread[] {
   const infoByChat = new Map(chats.map((c) => [c.id, c]));
   // Every participant name the window already resolved, so a chat that is new
@@ -1532,7 +1655,10 @@ export function mergeChats(
     );
     return {
       ...thread,
-      aliases,
+      // The bridge's cluster ids AND the person fold's members: applyPin runs
+      // after foldThreadAliases derived the member set, so a plain assignment
+      // would throw the person members away and split the row on the next tap.
+      aliases: [...new Set([...(thread.aliases ?? []), ...aliases])],
       guid: group ? groupInfo?.guid ?? thread.guid : "",
       name: group
           ? (namedGroup(groupInfo?.name, thread.chat, aliases)
@@ -1557,6 +1683,10 @@ export function mergeChats(
   const out = threads.map(applyPin);
   for (const c of chats) {
     if (have.has(c.id)) continue;
+    // A person member the window missed would synthesize its own row here and
+    // resurrect the very conversation the fold just merged. Its unread already
+    // lives under the canonical — the ledger folded before mergeChats ran.
+    if (fold[c.id] && fold[c.id] !== c.id) continue;
     have.add(c.id);
     const group = isGroupChat(c.id);
     const aliases = c.aliases ?? [c.id];
@@ -1583,6 +1713,18 @@ export function mergeChats(
       ...(c.pin_name ? { pin_name: c.pin_name } : {}),
       ...(group ? { participants: groupParticipants(groupInfo) } : {}),
     });
+  }
+  // The window may hold only one member of a folded person; the chat list
+  // holds them all, so the services union gets its final say here.
+  for (let i = 0; i < out.length; i++) {
+    const t = out[i]!;
+    if (!t.aliases || t.aliases.length < 2) continue;
+    const services = new Set(t.services ?? []);
+    for (const id of t.aliases) {
+      const svc = infoByChat.get(id)?.service;
+      if (svc) services.add(svc);
+    }
+    if (services.size >= 2) out[i] = { ...t, services: [...services] };
   }
   return out.sort(compareThreads);
 }
@@ -1774,6 +1916,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   // one conversation means opening it — five pushes in one minute, four of
   // them "nothing unread" (measured, 2026-09-08).
   let clearedUnread = false;
+  const outstandingBefore = markRead ? { ...exactCounts } : {};
   if (markRead) {
     exactCounts = {};
     exactOldest = {};
@@ -1797,20 +1940,32 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   // blink into two between a deep run and the next poll).
   const chatAliases = chats ? aliasesFromChats(chats) : state.chatAliases;
   const pins = chats ? pinsFromChats(chats) : state.pins;
+  // The person fold joins what the bridge's clusters never can: her chats
+  // carry different group_ids per channel and WhatsApp is not in chat.db at
+  // all. Kept from state on shallow polls and whenever the dump fails, so a
+  // fold never blinks out because Contacts did.
+  const persons = chats ? recomputePersonAliases(chats, state) : state.personAliases;
+  const effective = effectiveAliasMap(chatAliases, persons);
+  const clearedMembers: string[] = [];
+  if (readChat && clearedUnread) clearedMembers.push(readChat);
   if (readChat) {
-    for (const a of aliasesOf(chatAliases, readChat)) {
+    for (const a of aliasesOf(effective, readChat)) {
       if (readSeen > readMark) readMarks[a] = readSeen;   // same prune rule as the canonical
       // An alias carrying the unread counts too: reading the canonical row
-      // cleared it, so the Mac is worth telling.
-      if ((exactCounts[a] ?? 0) > 0) clearedUnread = true;
+      // cleared it, so the Mac is worth telling — per member, because the
+      // member carrying the unread can sit on another messenger.
+      if ((exactCounts[a] ?? 0) > 0) {
+        clearedUnread = true;
+        clearedMembers.push(a);
+      }
       delete exactCounts[a];
       delete exactOldest[a];
     }
   }
-  exactCounts = foldChatRecord(exactCounts, chatAliases, (a, b) => a + b);
-  exactOldest = foldChatRecord(exactOldest, chatAliases, (a, b) => (a < b ? a : b));
-  const foldedWindow = foldThreadAliases(windowThreads, chatAliases);
-  const threads = chats ? mergeChats(foldedWindow, chats, groups, exactCounts) : applyPins(foldedWindow, pins);
+  exactCounts = foldChatRecord(exactCounts, effective, (a, b) => a + b);
+  exactOldest = foldChatRecord(exactOldest, effective, (a, b) => (a < b ? a : b));
+  const foldedWindow = foldThreadAliases(windowThreads, effective);
+  const threads = chats ? mergeChats(foldedWindow, chats, groups, exactCounts, effective) : applyPins(foldedWindow, pins);
   const toast = selectToasts(msgs, state.watermark, loadAllowlist(), state.toasted);
   const failures = selectFailures(fetched.msgs, state.toasted, nowTs);
   const links = selectIncomingLinks(msgs, state.watermark, state.toasted, selfChats);
@@ -1837,6 +1992,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     readMarks,
     groups,
     chatAliases,
+    personAliases: persons,
     pins,
     toasted: [...state.toasted, ...toast.map((t) => t.key), ...failures.map((f) => f.key),
       ...links.map((l) => l.key), ...codes.map((c) => c.key)],
@@ -1845,7 +2001,26 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   // Only after the local state is committed: if the write failed the user
   // will be asked to read these again, and the Mac must agree.
   const readPush = pushReadPolicy();
-  if (persisted) pushRead(pushReadArgs(readPush, { markRead, readChat, clearedUnread }));
+  if (persisted) {
+    // mark-all wiped the ledger before the fold, so aim wa.ts --chat at every
+    // WhatsApp member that still had an unread when it happened (wa.ts --all
+    // only sees unfolded keys).
+    const waOutstanding: string[] = [];
+    if (markRead) {
+      for (const key of Object.keys(outstandingBefore)) {
+        for (const m of [key, ...aliasesOf(effective, key)]) {
+          if (isWhatsAppChat(m) && !isWhatsAppGroup(m) && !isBroadcast(m)) waOutstanding.push(m);
+        }
+      }
+    }
+    pushReads(pushReadPlans(readPush, {
+      markRead,
+      readChat,
+      members: readChat ? [readChat, ...aliasesOf(effective, readChat)] : [],
+      cleared: clearedMembers,
+      waOutstanding: [...new Set(waOutstanding)].slice(0, 40),
+    }));
+  }
 
   const warning = !persisted
     ? "state write failed; notifications paused"
