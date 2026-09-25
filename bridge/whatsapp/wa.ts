@@ -54,13 +54,29 @@ async function readStdin(): Promise<Buffer> {
 }
 
 /** Bytes for a picture or an attachment, straight through to stdout. */
-async function pipe(url: string, max = 16 * 1024 * 1024): Promise<boolean> {
-  const res = await fetch(url);
-  if (!res.ok) return false;
-  const buf = Buffer.from(await res.arrayBuffer());
-  if (buf.length === 0 || buf.length > max) return false;
+async function emit(buf: Buffer | null): Promise<boolean> {
+  if (!buf || buf.length === 0) return false;
   process.stdout.write(buf);
   return true;
+}
+
+/** fetch.ts passes `--jpeg [--max-dim N]` exactly as it does to `imsg
+ *  attachment`; honour them here so the 5 MB auto-fetch cap's assumption (a
+ *  1600 px preview, not the original) holds on WhatsApp too. ImageMagick
+ *  bakes EXIF orientation while resampling; a missing or failing binary
+ *  falls back to the original bytes, which Qt's autoTransform still shows
+ *  upright. Injected so tests can supply a fake. */
+export function resample(buf: Buffer, maxDim: number, run: (opts: any) => any = Bun.spawnSync): Buffer {
+  try {
+    const proc = run({
+      cmd: ["magick", "-", "-auto-orient", "-resize", `${maxDim}x${maxDim}>`, "jpg:-"],
+      stdin: buf, stdout: "pipe", stderr: "pipe",
+    });
+    const out = Buffer.from(proc.stdout ?? "");
+    return out.length > 0 ? out : buf;
+  } catch {
+    return buf;
+  }
 }
 
 async function main(): Promise<void> {
@@ -168,7 +184,9 @@ async function main(): Promise<void> {
           || argv[argv.lastIndexOf("--") + 1]
           || argv[argv.length - 1] || "";
         const url = await waha.picture(contactJid(target));
-        if (!url || !(await pipe(url, 2 * 1024 * 1024))) process.exit(1);
+        // mediaBytes, not a bare fetch: the URL's origin is whatever WAHA was
+        // configured with, which is not necessarily where it listens.
+        if (!url || !(await emit(await waha.mediaBytes(url, 2 * 1024 * 1024)))) process.exit(1);
         return;
       }
 
@@ -179,10 +197,18 @@ async function main(): Promise<void> {
         // endpoint keys on: `<fromMe>_<chat jid>_<message id>[…]`.
         const chat = id.split("_")[1] || "";
         if (!chat) process.exit(1);
-        const rows = await waha.messages(chat, 200, { media: true });
-        const hit: any = rows.find((m) => String(m.id) === id);
+        const hit = await waha.message(chat, id);
         const url = hit?.mediaUrl || hit?.media?.url || "";
-        if (!url || !(await pipe(url))) process.exit(1);
+        // fetch.ts enforces the real cap (5 MB previews, 100 MB clicks); this
+        // one only stops an unbounded body before it lands in memory.
+        const buf = url ? await waha.mediaBytes(url, 100 * 1024 * 1024) : null;
+        if (!buf) process.exit(1);
+        if (argv.includes("--jpeg") || argv.includes("--max-dim")) {
+          const dim = Number(argOf(argv, "--max-dim")) || 1600;
+          process.stdout.write(resample(buf, dim));
+          return;
+        }
+        process.stdout.write(buf);
         return;
       }
 

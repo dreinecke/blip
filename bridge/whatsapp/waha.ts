@@ -144,6 +144,9 @@ export interface WaMessage {
   hasMedia?: boolean;
   ack?: number | null;
   ackName?: string | null;
+  /** Present when the file has been downloaded (or is already local). */
+  media?: { url?: string; mimetype?: string; filename?: string | null; error?: string | null } | null;
+  mediaUrl?: string;
   replyTo?: { body?: string | null; participant?: string | null; fromMe?: boolean } | null;
   _data?: {
     Info?: {
@@ -422,6 +425,46 @@ export class Waha {
     if (opts.inboundOnly) q.set("filter.fromMe", "false");
     const rows = await this.call(`/api/${this.s}/chats/${encodeURIComponent(chat)}/messages?${q}`);
     return Array.isArray(rows) ? rows : [];
+  }
+
+  /**
+   * ONE message, by id — the endpoint the attachment fetch should have had all
+   * along. The old path re-asked `messages(chat, 200, {media: true})`, which
+   * makes WAHA download the media of every message in the window before it
+   * answers; on an active group that is a minute-plus stall that also wedged
+   * Blip's one-at-a-time fetch queue behind it (measured, 2026-09-25). This
+   * answers in milliseconds and still carries `media.url` when WAHA has the
+   * file; null when the id names nothing.
+   */
+  async message(chat: string, id: string): Promise<WaMessage | null> {
+    const row = await this.call(
+      `/api/${this.s}/chats/${encodeURIComponent(chat)}/messages/${encodeURIComponent(id)}`,
+    );
+    return row && typeof row === "object" ? (row as WaMessage) : null;
+  }
+
+  /**
+   * Media bytes for a URL WAHA handed back. The URL's origin is NOT trusted:
+   * this WAHA returns `http://localhost:3000/...` while listening on 3010, and
+   * fetching it verbatim pulled a 404 HTML page down as "the attachment".
+   * Same path and query, this service's own origin, the API key, a timeout,
+   * and the caller's byte cap. Null on anything but a good body.
+   */
+  async mediaBytes(url: string, cap: number, timeoutMs = 30_000): Promise<Buffer | null> {
+    const raw = String(url || "");
+    const at = raw.indexOf("/", raw.indexOf("://") + 3);
+    const tail = at > 0 ? raw.slice(at) : raw;   // path + query, origin dropped
+    try {
+      const res = await this.fetcher(`${this.conf.url}${tail}`, {
+        headers: { "X-Api-Key": this.conf.key },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!res.ok) return null;
+      const buf = Buffer.from(await res.arrayBuffer());
+      return buf.length === 0 || buf.length > cap ? null : buf;
+    } catch {
+      return null;   // timeout, reset, TLS — a fetch that failed is a miss
+    }
   }
 
   async participants(chat: string): Promise<{ handle: string; name: string }[]> {
