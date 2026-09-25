@@ -373,3 +373,76 @@ describe("recent", () => {
     expect(out.length).toBeGreaterThan(0);
   });
 });
+
+describe("one-message lookup and media bytes", () => {
+  test("message() asks for exactly one id, encoded", async () => {
+    const calls: string[] = [];
+    const waha = new Waha(CONF, stubFetch({
+      "/api/dave/chats/27823815068-1445439400%40g.us/messages/": GROUP_PHOTO,
+    }, calls));
+    const hit = await waha.message("27823815068-1445439400@g.us", GROUP_PHOTO.id!);
+    expect(hit?.id).toBe(GROUP_PHOTO.id);
+    expect(calls[0]).toBe(
+      "GET /api/dave/chats/27823815068-1445439400%40g.us/messages/"
+      + encodeURIComponent(GROUP_PHOTO.id!),
+    );
+  });
+
+  const bytesFetch = (body: Uint8Array, calls: string[] = [], ok = true, status = 200) =>
+    async (url: string, init?: any) => {
+      calls.push(`${url} ${init?.headers?.["X-Api-Key"] ?? "-"} ${init?.signal ? "signalled" : "no-signal"}`);
+      return { ok, status, arrayBuffer: async () => body };
+    };
+
+  test("mediaBytes rewrites the origin to the configured one and keeps the path", async () => {
+    const calls: string[] = [];
+    const waha = new Waha(CONF, bytesFetch(new Uint8Array([1, 2, 3]), calls));
+    // WAHA handed back port 3000 while listening on 3010 — the origin is
+    // dropped, only path and query survive.
+    const buf = await waha.mediaBytes("http://localhost:3000/api/files/dave/ABCD.jpeg?x=1", 1024);
+    expect(buf?.length).toBe(3);
+    expect(calls[0]).toContain("http://127.0.0.1:3010/api/files/dave/ABCD.jpeg?x=1");
+    expect(calls[0]).toContain(" k signalled");
+  });
+
+  test("a non-OK body is a miss, never HTML piped out as an attachment", async () => {
+    const waha = new Waha(CONF, bytesFetch(new TextEncoder().encode("<html>404</html>"), [], false, 404));
+    expect(await waha.mediaBytes("http://x:1/api/files/dave/a.jpg", 1024)).toBe(null);
+  });
+
+  test("the byte cap and the empty body are enforced", async () => {
+    const big = new Uint8Array(10);
+    const capped = new Waha(CONF, bytesFetch(big));
+    expect(await capped.mediaBytes("http://x:1/a", 5)).toBe(null);
+    const empty = new Waha(CONF, bytesFetch(new Uint8Array(0)));
+    expect(await empty.mediaBytes("http://x:1/a", 5)).toBe(null);
+  });
+
+  test("a fetch that dies is a miss, not a crash", async () => {
+    const waha = new Waha(CONF, async () => { throw new Error("fetch failed"); });
+    expect(await waha.mediaBytes("http://x:1/a", 5)).toBe(null);
+  });
+});
+
+describe("attachment resampling", () => {
+  const { resample } = require("./wa") as typeof import("./wa");
+
+  test("--jpeg pipes through magick with auto-orient and the dimension cap", () => {
+    const seen: any[] = [];
+    const fake = (opts: any) => {
+      seen.push(opts);
+      return { stdout: Buffer.from("resampled") };
+    };
+    const out = resample(Buffer.from("original"), 1600, fake);
+    expect(out.toString()).toBe("resampled");
+    expect(seen[0].cmd).toEqual(["magick", "-", "-auto-orient", "-resize", "1600x1600>", "jpg:-"]);
+    expect(Buffer.from(seen[0].stdin).toString()).toBe("original");
+  });
+
+  test("a failing binary falls back to the original bytes", () => {
+    expect(resample(Buffer.from("original"), 1600, () => ({ stdout: Buffer.alloc(0) })).toString())
+      .toBe("original");
+    expect(resample(Buffer.from("original"), 1600, () => { throw new Error("no magick"); }).toString())
+      .toBe("original");
+  });
+});
