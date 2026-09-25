@@ -444,18 +444,23 @@ export class Waha {
   }
 
   /**
-   * Media bytes for a URL WAHA handed back. The URL's origin is NOT trusted:
-   * this WAHA returns `http://localhost:3000/...` while listening on 3010, and
-   * fetching it verbatim pulled a 404 HTML page down as "the attachment".
-   * Same path and query, this service's own origin, the API key, a timeout,
-   * and the caller's byte cap. Null on anything but a good body.
+   * Media bytes for a URL WAHA handed back. A URL into WAHA's own /api/ files
+   * service is NOT fetched verbatim: this WAHA returns
+   * `http://localhost:3000/api/files/...` while listening on 3010, and taking
+   * it as-is pulled a 404 HTML page down as "the attachment". Those keep their
+   * path and query but get this service's configured origin. Profile pictures
+   * are EXTERNAL CDN urls (pps.whatsapp.net) and must pass through untouched.
+   * The API key, a timeout, and the caller's cap apply either way; null on
+   * anything but a good body.
    */
   async mediaBytes(url: string, cap: number, timeoutMs = 30_000): Promise<Buffer | null> {
     const raw = String(url || "");
-    const at = raw.indexOf("/", raw.indexOf("://") + 3);
-    const tail = at > 0 ? raw.slice(at) : raw;   // path + query, origin dropped
     try {
-      const res = await this.fetcher(`${this.conf.url}${tail}`, {
+      const u = new URL(raw, this.conf.url);
+      const target = u.pathname.startsWith("/api/")
+        ? `${this.conf.url}${u.pathname}${u.search}`
+        : u.href;
+      const res = await this.fetcher(target, {
         headers: { "X-Api-Key": this.conf.key },
         signal: AbortSignal.timeout(timeoutMs),
       });
@@ -463,7 +468,7 @@ export class Waha {
       const buf = Buffer.from(await res.arrayBuffer());
       return buf.length === 0 || buf.length > cap ? null : buf;
     } catch {
-      return null;   // timeout, reset, TLS — a fetch that failed is a miss
+      return null;   // bad URL, timeout, reset, TLS — a failed fetch is a miss
     }
   }
 
