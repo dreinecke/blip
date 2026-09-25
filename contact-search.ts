@@ -12,10 +12,11 @@
  * nobody's contacts.
  */
 
-import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { spawnSync } from "node:child_process";
+import { loadContactDump, type RawContact } from "./contacts-dump.ts";
 
 const HOME = process.env.HOME ?? homedir();
 
@@ -198,40 +199,8 @@ export function searchContacts(
 
 const DUMP_TTL_MS = 60_000;
 
-function slimContact(c: RawContact): RawContact {
-  return { name: c.name, org: c.org, nick: c.nick, phones: c.phones, emails: c.emails };
-}
-
 function loadContacts(runner: typeof spawnSync): RawContact[] | "offline" | string {
-  const cacheDir = join(process.env.XDG_RUNTIME_DIR ?? `/run/user/${process.getuid?.() ?? 1000}`, "blip");
-  const cachePath = join(cacheDir, "contacts-dump.json");
-  try {
-    if (Date.now() - statSync(cachePath).mtimeMs < DUMP_TTL_MS) {
-      const parsed = JSON.parse(readFileSync(cachePath, "utf8"));
-      if (Array.isArray(parsed)) return (parsed as RawContact[]).map(slimContact);
-    }
-  } catch { /* miss */ }
-  const res = runner(`${HOME}/bin/contacts`, ["--json", "dump"], {
-    encoding: "utf8",
-    timeout: 15000, maxBuffer: 64 * 1024 * 1024,
-  });
-  if (res.status === 69 || res.status === 255) return "offline";
-  if (res.status !== 0) {
-    const err = (res.stderr || "").toString().trim().split("\n")[0] || `contacts exit ${res.status}`;
-    return err;
-  }
-  try {
-    const parsed = JSON.parse(res.stdout as string);
-    if (!Array.isArray(parsed)) throw new Error("not an array");
-    const slim = (parsed as RawContact[]).map(slimContact);
-    try {
-      mkdirSync(cacheDir, { mode: 0o700, recursive: true });
-      writeFileSync(cachePath, JSON.stringify(slim), { mode: 0o600 });
-    } catch { /* cache is optional */ }
-    return slim;
-  } catch (e) {
-    return `bad JSON from contacts: ${e}`;
-  }
+  return loadContactDump(runner, DUMP_TTL_MS);
 }
 
 /** Parse the recency map, from wherever it came. Anything unexpected is
