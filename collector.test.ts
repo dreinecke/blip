@@ -515,7 +515,7 @@ describe("state and allowlist I/O", () => {
       watermark: "2026-08-30 10:00:00", readMark: "2026-08-30 09:00:00",
       unreadCounts: { A: 2 }, unreadOldest: { A: "2026-08-30 09:01:00" },
       unreadInitialized: true, selfChats: ["SELF"],
-      readMarks: { A: "x" }, groups: {}, chatAliases: { OLD: "A" }, pins: { A: 0 }, toasted: [opaque],
+      readMarks: { A: "x" }, groups: {}, chatAliases: { OLD: "A" }, personAliases: {}, pins: { A: 0 }, toasted: [opaque],
     }, p)).toBe(true);
     expect(loadState(p)).toEqual({
       watermark: "2026-08-30 10:00:00",
@@ -527,6 +527,7 @@ describe("state and allowlist I/O", () => {
       readMarks: { A: "x" },
       groups: {},
       chatAliases: { OLD: "A" },
+      personAliases: {},
       pins: { A: 0 },
       toasted: [opaque],
     });
@@ -536,7 +537,7 @@ describe("state and allowlist I/O", () => {
   test("a missing state file yields a safe empty watermark", () => {
     expect(loadState(join(tmp(), "nope.json"))).toEqual({
       watermark: "", readMark: "", unreadCounts: {}, unreadOldest: {}, unreadInitialized: false,
-      selfChats: [], readMarks: {}, groups: {}, chatAliases: {}, pins: {}, toasted: [],
+      selfChats: [], readMarks: {}, groups: {}, chatAliases: {}, personAliases: {}, pins: {}, toasted: [],
     });
   });
 
@@ -545,7 +546,7 @@ describe("state and allowlist I/O", () => {
     writeFileSync(p, "{ this is not json");
     expect(loadState(p)).toEqual({
       watermark: "", readMark: "", unreadCounts: {}, unreadOldest: {}, unreadInitialized: false,
-      selfChats: [], readMarks: {}, groups: {}, chatAliases: {}, pins: {}, toasted: [],
+      selfChats: [], readMarks: {}, groups: {}, chatAliases: {}, personAliases: {}, pins: {}, toasted: [],
     });
   });
 
@@ -1780,4 +1781,128 @@ test("generated group labels join the last short name with an ampersand", () => 
  expect(groupName('chat123',{...info,participants:['a','b']},new Map())).toBe('Pat & Sam');
  expect(groupName('chat123',{...info,participants:['a']},new Map())).toBe('Pat');
  expect(groupName('chat123',{...info,name:'Custom, title'},new Map())).toBe('Custom, title');
+});
+
+describe("the person fold (one row per human)", () => {
+  const {
+    foldThreadAliases, foldChatRecord, mergeChats, aliasesOf, pushReadPlans,
+    recomputePersonAliases, personMergeEnabled,
+  } = require("./collector") as typeof import("./collector");
+  const { effectiveAliasMap } = require("./person-fold.ts") as typeof import("./person-fold.ts");
+
+  const thread = (c: string, ts: string, count: number, unread: number, service = "iMessage") => ({
+    chat: c, guid: "", name: "Antoinette Reinecke", handle: c, service,
+    last_ts: ts, last_text: "hi", last_from_me: false, count, unread,
+    pinned: false, pin_order: null,
+  }) as never;
+  const chatInfo = (id: string, service = "iMessage", last = "2026-09-23 10:31:06") => ({
+    id, name: "Antoinette Reinecke", service, last, last_text: "hi", last_from_me: false,
+    last_handle: id, last_name: "Antoinette Reinecke", pinned: false, pin_order: null,
+    aliases: [id],
+  });
+  // Her three channels; only the person map joins them.
+  const persons = {
+    "ant.reinecke@gmail.com": "+353877124958",
+    "353877124958@c.us": "+353877124958",
+  };
+  const effective = effectiveAliasMap({}, persons);
+
+  test("email iMessage + phone iMessage + WhatsApp fold into one row with a services union", () => {
+    const out = foldThreadAliases(
+      [
+        thread("ant.reinecke@gmail.com", "2026-09-23 10:31:06", 4, 1),
+        thread("+353877124958", "2026-09-15 09:53:47", 40, 0),
+        thread("353877124958@c.us", "2026-07-29 10:02:00", 9, 2, "WhatsApp"),
+      ],
+      effective,
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]).toMatchObject({
+      chat: "+353877124958",
+      last_ts: "2026-09-23 10:31:06",
+      count: 53,
+      unread: 3,
+      services: ["iMessage", "WhatsApp"],
+    });
+    expect([...out[0]!.aliases!].sort()).toEqual(
+      ["+353877124958", "353877124958@c.us", "ant.reinecke@gmail.com"].sort(),
+    );
+  });
+
+  test("a member the window missed does not resurrect its own row from the chat list", () => {
+    const folded = foldThreadAliases(
+      [thread("ant.reinecke@gmail.com", "2026-09-23 10:31:06", 4, 1)],
+      effective,
+    );
+    const out = mergeChats(
+      folded,
+      [chatInfo("+353877124958"), chatInfo("ant.reinecke@gmail.com"), chatInfo("353877124958@c.us", "WhatsApp", "2026-07-29 10:02:00")],
+      {}, {}, effective,
+    );
+    expect(out).toHaveLength(1);
+    expect(out[0]!.chat).toBe("+353877124958");
+  });
+
+  test("the ledger folds across messengers — one badge, not three", () => {
+    expect(
+      foldChatRecord(
+        { "ant.reinecke@gmail.com": 1, "+353877124958": 0, "353877124958@c.us": 6 },
+        effective, (a, b) => a + b,
+      ),
+    ).toEqual({ "+353877124958": 7 });
+  });
+
+  test("a read of the canonical covers every member through the effective map", () => {
+    expect(aliasesOf(effective, "+353877124958").sort()).toEqual(
+      ["353877124958@c.us", "ant.reinecke@gmail.com"].sort(),
+    );
+  });
+
+  test("read pushes are per member: a cleared WhatsApp member pushes even under an iMessage canonical", () => {
+    expect(pushReadPlans("all", {
+      markRead: false, readChat: "+353877124958",
+      members: ["+353877124958", ...aliasesOf(effective, "+353877124958")],
+      cleared: ["353877124958@c.us"], waOutstanding: [],
+    })).toEqual([["--chat", "353877124958@c.us"]]);
+  });
+
+  test("nothing cleared means nothing pushed — the transition, not the poll", () => {
+    expect(pushReadPlans("all", {
+      markRead: false, readChat: "+353877124958", members: ["+353877124958"], cleared: [],
+      waOutstanding: [],
+    })).toEqual([]);
+  });
+
+  test("mark-all also aims wa.ts at folded WhatsApp unreads it cannot see", () => {
+    expect(pushReadPlans("all", {
+      markRead: true, readChat: "", members: [], cleared: [],
+      waOutstanding: ["353877124958@c.us"],
+    })).toEqual([["--all"], ["--chat", "353877124958@c.us"]]);
+  });
+
+  test("push_read=off pushes nothing, folded or not", () => {
+    expect(pushReadPlans("off", {
+      markRead: true, readChat: "", members: [], cleared: [], waOutstanding: ["x@c.us"],
+    })).toEqual([]);
+  });
+
+  const offline = () => ({ status: 69, stdout: "", stderr: "" }) as never;
+
+  test("a failed contacts dump keeps the previous person map", () => {
+    const state = { personAliases: persons } as never;
+    expect(recomputePersonAliases([chatInfo("+353877124958")], state, offline as never))
+      .toBe(persons);
+  });
+
+  test("person_merge=off is the kill switch: the map empties and rows split again", () => {
+    const { writeFileSync, mkdirSync } = require("node:fs");
+    const dir = mkdtempSync(join(tmpdir(), "blip-"));
+    const conf = join(dir, "bridge.conf");
+    mkdirSync(join(dir, ".config", "blip"), { recursive: true });
+    writeFileSync(conf, "person_merge=off\n");
+    expect(personMergeEnabled(conf)).toBe(false);
+    const state = { personAliases: persons } as never;
+    expect(recomputePersonAliases([chatInfo("+353877124958")], state, offline as never, conf))
+      .toEqual({});
+  });
 });
