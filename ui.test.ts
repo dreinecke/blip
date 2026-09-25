@@ -22,7 +22,10 @@ function qmlFunction(name: string) {
 describe("QML safety invariants", () => {
   test("group sends use the cached AppleScript GUID", () => {
     expect(panel).toContain('["--chat-id", String(root.active.guid)]');
-    expect(panel).toContain('["--to", chat]');
+    // DMs aim at the channel the conversation is on (person fold), never at
+    // a group guid; bookkeeping stays on the row's canonical chat.
+    expect(panel).toContain('["--to", sendTarget]');
+    expect(panel).toContain("var chat = String(root.active.chat)");
   });
 
   test("thread results are accepted only for the active chat", () => {
@@ -795,3 +798,34 @@ test("tapbacks on picture-only messages get a pill on the picture", () => {
    expect(run(1,1,qt,"sample",{y:0},rect,3)).toBe(false);
    expect(run(99,0,qt,"sample",{y:0},rect,3)).toBe(false);
  });
+
+describe("person-folded conversations in the renderer", () => {
+  test("the sidebar labels rows that span messengers, and only those", () => {
+    const start = panel.indexOf("A person-folded row spans messengers");
+    expect(start).toBeGreaterThan(0);
+    const block = panel.slice(start, panel.indexOf("}", panel.indexOf("join(\" · \")", start)));
+    expect(block).toContain("modelData.services");
+    expect(block).toContain('visible: (modelData.services || []).length >= 2');
+  });
+
+  test("replies target the channel the conversation is on, guarded to a member", () => {
+    const fn = qmlFunction("sendTargetChat");
+    expect(fn).toContain("members.indexOf(origin) >= 0");
+    expect(fn).toContain("return canonical");
+    const send = qmlFunction("send");
+    expect(send).toContain("root.sendTargetChat()");
+    // Bookkeeping keeps the canonical id — pending resolution and reload
+    // guards are unchanged by the fold.
+    expect(send).toContain("var chat = String(root.active.chat)");
+    expect(send).toContain("pendingSends = root.pendingSends.concat([{ chat: chat,");
+  });
+
+  test("member ids resolve to the folded row: toasts, goto, and the app window", () => {
+    const show = widget.slice(widget.indexOf("function show(chat)"), widget.indexOf("Only a FULL number"));
+    expect(show).toContain("threads[k].aliases");
+    const wgoto = widget.slice(widget.indexOf("function windowgoto"), widget.indexOf('return "unknown chat"'));
+    expect(wgoto).toContain(".aliases");
+    const hit = qmlFunction("openSearchHit");
+    expect(hit).toContain("threads[j].aliases");
+  });
+});

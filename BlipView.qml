@@ -1344,11 +1344,15 @@ FocusScope {
 
   /** Open the conversation a search hit belongs to. Prefer the live thread
    *  object (sendable, has the group guid); an old conversation outside the
-   *  poll window opens read-mostly from the hit's identity. */
+   *  poll window opens read-mostly from the hit's identity. A hit may name
+   *  a MEMBER of a person-folded conversation — open the folded row. */
   function openSearchHit(hit) {
     searching = false
     for (var i = 0; i < threads.length; i++) {
       if (String(threads[i].chat) === String(hit.chat)) { openThread(threads[i]); return }
+    }
+    for (var j = 0; j < threads.length; j++) {
+      if ((threads[j].aliases || []).indexOf(String(hit.chat)) >= 0) { openThread(threads[j]); return }
     }
     openThread({ chat: hit.chat, guid: "", name: hit.name, handle: hit.handle,
                  service: hit.service, last_ts: hit.ts, last_text: "",
@@ -1367,6 +1371,25 @@ FocusScope {
     return JSON.stringify(bubbles.map(function(b) {
       return { mine: b.from_me === true, text: String(b.text || "").substring(0, 30) }
     }))
+  }
+
+  /** Where a reply in a person-folded conversation goes: the channel the
+   *  newest inbound arrived on, so answering her WhatsApp message replies on
+   *  WhatsApp even while the row's canonical id is an iMessage one. Guarded
+   *  to a member of this thread — never an id the fold does not own — and
+   *  falling back to the row's own chat when nothing has arrived yet. */
+  function sendTargetChat() {
+    var canonical = String(root.active.chat)
+    var members = [canonical]
+    var aliases = root.active.aliases || []
+    for (var a = 0; a < aliases.length; a++) members.push(String(aliases[a]))
+    for (var i = root.bubbles.length - 1; i >= 0; i--) {
+      var b = root.bubbles[i]
+      if (b.from_me === true || b.pending === true) continue
+      var origin = String(b.chat || "")
+      if (origin !== "" && members.indexOf(origin) >= 0) return origin
+    }
+    return canonical
   }
 
   function send() {
@@ -1391,10 +1414,11 @@ FocusScope {
     }
 
     if (draftPath !== "") {
+      var fileTarget = root.sendTargetChat()
       // send-file.ts stages the bytes on the Mac and sends them through
       // Messages; the WhatsApp bridge has no equivalent yet, so say so rather
       // than aim a WhatsApp conversation at the Mac's sender.
-      if (SourceId.isWhatsAppChat(String(root.active.chat || ""))) {
+      if (SourceId.isWhatsAppChat(fileTarget)) {
         note = "Files cannot be sent to WhatsApp from here yet — text only"
         return
       }
@@ -1408,7 +1432,7 @@ FocusScope {
       // send-file.ts owns target resolution (group guid or DM handle).
       sendDraftPath = draftPath
       // caption on stdin — never in this process's argv (audit #4, war room #1/#13)
-      fileSendProc.command = ["bun", root.sendFileScript, sendChat, draftPath, "--caption-stdin"]
+      fileSendProc.command = ["bun", root.sendFileScript, fileTarget, draftPath, "--caption-stdin"]
         .concat(/^(SMS|RCS)$/i.test(String(root.active.service || "")) ? ["--service", String(root.active.service).toUpperCase()] : [])
       fileSendProc.stdinEnabled = true
       fileSendProc.running = true
@@ -1420,16 +1444,20 @@ FocusScope {
     // The bubble appears NOW; the Mac round trip (ssh, osascript, Messages
     // writing the row) happens behind it. The field clears at once, so a
     // second message can follow without waiting — sends queue in order.
+    // The ARGV targets the channel the conversation is on (sendTargetChat);
+    // every piece of bookkeeping below keys on the row's canonical chat, so
+    // pending resolution, reload guards, and drafts are unchanged.
     var chat = String(root.active.chat)
     var stamp = root.localStamp()
+    var sendTarget = root.activeIsGroup ? chat : root.sendTargetChat()
     var target = root.activeIsGroup
       ? ["--chat-id", String(root.active.guid)]
-      : ["--to", chat]
+      : ["--to", sendTarget]
     // green-bubble (SMS/RCS) threads send on their own service (war room #2).
     // WhatsApp has no services to choose between, and its bridge takes no
     // --service at all.
     var svc = String(root.active.service || "")
-    if (!root.activeIsGroup && !SourceId.isWhatsAppChat(chat) && /^(SMS|RCS)$/i.test(svc)) target = target.concat(["--service", svc.toUpperCase()])
+    if (!root.activeIsGroup && !SourceId.isWhatsAppChat(sendTarget) && /^(SMS|RCS)$/i.test(svc)) target = target.concat(["--service", svc.toUpperCase()])
     var localId = String(++root.nextSendId)
     root.pendingRevision++
     root.pendingSends = root.pendingSends.concat([{ chat: chat, text: text, ts: stamp, localId: localId }])
@@ -2869,6 +2897,19 @@ FocusScope {
                           font.pixelSize: root.fontCaption
                         }
                       }
+                      // A person-folded row spans messengers; say so, but only
+                      // when it actually does — one more line on every row would
+                      // be noise for every single-channel conversation.
+                      Text {
+                        visible: (modelData.services || []).length >= 2
+                        Layout.fillWidth: true
+                        text: (modelData.services || []).join(" · ")
+                        textFormat: Text.PlainText
+                        elide: Text.ElideRight
+                        color: root.dim
+                        font.family: root.fontFamily
+                        font.pixelSize: root.fontCaption
+                      }
                       // TWO lines, wrapped — the single most recognisable thing
                       // about the Messages sidebar. One elided line reads like a
                       // mail client; two lines of preview reads like Messages.
@@ -2963,7 +3004,9 @@ FocusScope {
             meta: root.inThread
               ? (root.activeIsGroup
                   ? (root.isSendable(root.active) ? "group" : "group · read-only (id unknown)")
-                  : String(root.active.handle))
+                  : ((root.active.services || []).length >= 2
+                      ? (root.active.services || []).join(" · ")
+                      : String(root.active.handle)))
               : ""
             detail: root.inThread && root.loading ? "loading…" : ""
             foreground: root.foreground
