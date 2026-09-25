@@ -405,6 +405,14 @@ describe("one-message lookup and media bytes", () => {
     expect(calls[0]).toContain(" k signalled");
   });
 
+  test("an external CDN url passes through untouched — profile pictures live there", async () => {
+    const calls: string[] = [];
+    const waha = new Waha(CONF, bytesFetch(new Uint8Array([9]), calls));
+    const buf = await waha.mediaBytes("https://pps.whatsapp.net/v/t61.24694-24/x.jpg?oe=1", 1024);
+    expect(buf?.length).toBe(1);
+    expect(calls[0]).toContain("https://pps.whatsapp.net/v/t61.24694-24/x.jpg?oe=1");
+  });
+
   test("a non-OK body is a miss, never HTML piped out as an attachment", async () => {
     const waha = new Waha(CONF, bytesFetch(new TextEncoder().encode("<html>404</html>"), [], false, 404));
     expect(await waha.mediaBytes("http://x:1/api/files/dave/a.jpg", 1024)).toBe(null);
