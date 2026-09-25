@@ -116,6 +116,14 @@ BarWidget {
     if (!t) for (var j = 0; j < threads.length; j++) {
       if (String(threads[j].chat) === "+" + want) { t = threads[j]; break }
     }
+    // Third pass, still before the synthetic fallback: a toast or `goto` may
+    // name a MEMBER of a person-folded conversation (her WhatsApp jid while
+    // the row's canonical is an iMessage id). Without this it opened an
+    // ad-hoc single-channel thread and the fold looked broken.
+    if (!t) for (var k = 0; k < threads.length; k++) {
+      var members = threads[k].aliases || []
+      if (members.indexOf(want) >= 0 || members.indexOf("+" + want) >= 0) { t = threads[k]; break }
+    }
     // Only a FULL number gets a "+": short codes (99123) are their own chat id.
     if (!t && /^[0-9]{10,}$/.test(want)) want = "+" + want
     // Unknown to the current window: still open it, with the id as the name.
@@ -916,6 +924,14 @@ BarWidget {
       for (var i = 0; i < root.threads.length; i++) {
         var c = String(root.threads[i].chat)
         if (c === want || c === "+" + want) { w.openThread(root.threads[i]); return "opened " + c }
+      }
+      // A member id of a person-folded row opens the folded conversation.
+      for (var j = 0; j < root.threads.length; j++) {
+        var members = root.threads[j].aliases || []
+        if (members.indexOf(want) >= 0 || members.indexOf("+" + want) >= 0) {
+          w.openThread(root.threads[j])
+          return "opened " + String(root.threads[j].chat)
+        }
       }
       return "unknown chat"
     }
