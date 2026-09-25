@@ -28,6 +28,20 @@ export function sourceFor(chat: string): "imessage" | "whatsapp" {
 }
 
 /**
+ * A group id is "not a phone/email": `chat<digits>`, 32 hex, or a WhatsApp
+ * group JID — never a positive regex on one shape (`isGroupChat` used to live
+ * in collector.ts; it moved here so the person fold can share the ONE
+ * definition without an import cycle).
+ */
+export function isGroupChat(chat: string): boolean {
+  // A WhatsApp id is a JID, so it is decided by its suffix before the `@` test
+  // below can mistake `…@g.us` for an email address and call a room a DM.
+  if (sourceFor(chat) === "whatsapp") return isWhatsAppGroup(chat);
+  if (/^\+?[0-9]{5,}$/.test(chat) || chat.indexOf("@") > 0) return false;
+  return chat !== "";
+}
+
+/**
  * ⚠️ Reading a WhatsApp conversation is pushed to the phone on EVERY open,
  * whatever `push_read` says.
  *

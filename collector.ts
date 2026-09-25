@@ -28,9 +28,9 @@ const HOME = process.env.HOME ?? homedir();
 
 /** Watermark + toast dedupe. ~/.local/state is deliberate: never inside a repo. */
 import {
-  alwaysPushesRead, bridgeFor, isWhatsAppGroup, mergeSources, sourceFor,
-  keepSilentSources, whatsAppChats, whatsAppGroups, whatsAppMessages,
-  WHATSAPP_SERVICE,
+  alwaysPushesRead, bridgeFor, isGroupChat, isWhatsAppGroup, mergeSources,
+  sourceFor, keepSilentSources, whatsAppChats, whatsAppGroups,
+  whatsAppMessages, WHATSAPP_SERVICE,
 } from "./source";
 
 export const STATE_PATH = `${HOME}/.local/state/blip/state.json`;
@@ -385,13 +385,7 @@ export function messagePreview(
  * DMs are a phone or email. Anything that is not a phone/email is treated as
  * a group so an unknown id shape can never be mistaken for a DM target.
  */
-export function isGroupChat(chat: string): boolean {
-  // A WhatsApp id is a JID, so it is decided by its suffix before the `@` test
-  // below can mistake `…@g.us` for an email address and call a room a DM.
-  if (sourceFor(chat) === "whatsapp") return isWhatsAppGroup(chat);
-  if (/^\+?[0-9]{5,}$/.test(chat) || chat.indexOf("@") > 0) return false;
-  return /^[0-9a-f]{32}$/i.test(chat) || /^chat[0-9]+$/i.test(chat) || chat !== "";
-}
+export { isGroupChat };
 
 /**
  * The self-thread logs every send twice: a from_me=true row and a from_me=false

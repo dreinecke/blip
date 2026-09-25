@@ -22,8 +22,8 @@ import type { ChatInfo, FetchResult, ImsgMessage } from "./collector";
 import { bridgeArgv, sourceFor } from "./source-id";
 
 export {
-  alwaysPushesRead, bridgeArgv, isBroadcast, isWhatsAppChat, isWhatsAppGroup,
-  sourceFor, WHATSAPP_SERVICE,
+  alwaysPushesRead, bridgeArgv, isBroadcast, isGroupChat, isWhatsAppChat,
+  isWhatsAppGroup, sourceFor, WHATSAPP_SERVICE,
 } from "./source-id";
 export type { Tool } from "./source-id";
 
