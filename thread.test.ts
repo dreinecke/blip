@@ -719,3 +719,86 @@ describe("pending sends (the bubble drawn before the Mac writes the row)", () =>
     expect(out.pending).toEqual([{ chat: "+15550100001", text: "hi", ts: localToday() + " 00:00:00" }]);
   });
 });
+
+describe("loadThread across a person fold", () => {
+  const { effectiveAliasMap } = require("./person-fold.ts") as typeof import("./person-fold.ts");
+  const emptyState = {
+    watermark: "", readMark: "", unreadCounts: {}, unreadOldest: {}, unreadInitialized: true,
+    selfChats: [], readMarks: {}, groups: {}, chatAliases: {}, personAliases: {}, pins: {}, toasted: [],
+  } as never;
+  const foldedState = {
+    ...emptyState,
+    personAliases: { "ant.reinecke@gmail.com": "+353877124958", "353877124958@c.us": "+353877124958" },
+  } as never;
+
+  // One runner per member: the WA jid goes to wa.ts, the ids to imsg.
+  const perChat = (table: Record<string, { status: number; stdout?: string; stderr?: string }>) =>
+    ((cmd: string, argv: string[]) => {
+      const chatArg = argv[argv.indexOf("--chat") + 1] ?? "";
+      const hit = table[chatArg] ?? { status: 0, stdout: "[]" };
+      return { stdout: "", stderr: "", ...hit };
+    }) as never;
+
+  test("members of one person merge into a single ts-sorted timeline with provenance", () => {
+    const runner = perChat({
+      "+353877124958": { status: 0, stdout: JSON.stringify([
+        msg({ ts: "2026-09-15 09:52:40", text: "Love that!!!!", chat: "+353877124958" }),
+        msg({ ts: "2026-09-15 09:49:27", from_me: true, text: "notes", chat: "+353877124958" }),
+      ]) },
+      "ant.reinecke@gmail.com": { status: 0, stdout: JSON.stringify([
+        msg({ ts: "2026-09-23 10:31:06", chat: "ant.reinecke@gmail.com", handle: "ant.reinecke@gmail.com", text: "Morning Dave" }),
+      ]) },
+      "353877124958@c.us": { status: 0, stdout: JSON.stringify([
+        msg({ ts: "2026-07-29 10:02:00", chat: "353877124958@c.us", handle: "353877124958@c.us", service: "WhatsApp", text: "" }),
+      ]) },
+    });
+    const r = loadThread("+353877124958", 40, "2026-09-23", DEFAULT_FORMATS, runner, foldedState);
+    expect(r.ok).toBe(true);
+    expect(r.bubbles.map((b) => b.ts)).toEqual([
+      "2026-07-29 10:02:00", "2026-09-15 09:49:27", "2026-09-15 09:52:40", "2026-09-23 10:31:06",
+    ]);
+    const stamped = r.bubbles.map((b) => `${b.chat}|${b.service}`);
+    expect(stamped).toContain("353877124958@c.us|WhatsApp");
+    expect(stamped).toContain("ant.reinecke@gmail.com|iMessage");
+    expect(stamped).toContain("+353877124958|iMessage");
+  });
+
+  test("one bridge answering is enough — a sleeping Mac does not blank the WhatsApp half", () => {
+    const runner = perChat({
+      "+353877124958": { status: 69 },
+      "ant.reinecke@gmail.com": { status: 69 },
+      "353877124958@c.us": { status: 0, stdout: JSON.stringify([
+        msg({ ts: "2026-07-29 10:02:00", chat: "353877124958@c.us", handle: "353877124958@c.us", service: "WhatsApp" }),
+      ]) },
+    });
+    const r = loadThread("+353877124958", 40, "2026-09-23", DEFAULT_FORMATS, runner, foldedState);
+    expect(r.ok).toBe(true);
+    expect(r.online).toBe(true);
+    expect(r.bubbles).toHaveLength(1);
+  });
+
+  test("every bridge down still reports offline once, not once per member", () => {
+    const calls: string[] = [];
+    const runner = ((cmd: string, argv: string[]) => {
+      calls.push(argv[argv.indexOf("--chat") + 1] ?? "");
+      return { status: 69, stdout: "", stderr: "" };
+    }) as never;
+    const r = loadThread("+353877124958", 40, "2026-09-23", DEFAULT_FORMATS, runner, foldedState);
+    expect(r.ok).toBe(false);
+    expect(r.online).toBe(false);
+    expect(r.error).toBe("Mac unreachable");
+    // The imsg bridge proved dead on the first member; the second imsg id is
+    // skipped (one timeout, not N). WhatsApp is a different bridge and tried.
+    expect(calls).toEqual(["+353877124958", "353877124958@c.us"]);
+  });
+
+  test("groups never expand through the person map", () => {
+    const runner = perChat({
+      "chat123": { status: 0, stdout: JSON.stringify([msg({ ts: "2026-09-01 10:00:00", chat: "chat123" })]) },
+    });
+    const r = loadThread("chat123", 40, "2026-09-23", DEFAULT_FORMATS, runner, foldedState);
+    expect(r.ok).toBe(true);
+    expect(r.bubbles).toHaveLength(1);
+    expect(effectiveAliasMap({}, (foldedState as never as { personAliases: Record<string, string> }).personAliases)["chat123"]).toBeUndefined();
+  });
+});

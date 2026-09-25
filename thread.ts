@@ -24,6 +24,7 @@ import {
   type Tapback,
 } from "./collector";
 import { bridgeFor } from "./source";
+import { effectiveAliasMap } from "./person-fold.ts";
 export { dedupeSelfEcho };
 
 const HOME = process.env.HOME ?? homedir();
@@ -58,6 +59,13 @@ export interface Bubble {
   from_me: boolean;
   name: string;
   text: string;
+  /** The chat this bubble actually arrived through — a folded person's
+   *  conversation spans messengers, and a reply must aim at the channel the
+   *  conversation is on, not at the row's canonical id. "" on pending
+   *  bubbles, which have not chosen a channel yet. */
+  chat: string;
+  /** The bubble's own service ("iMessage" / "SMS" / "WhatsApp"). */
+  service: string;
   /** Non-empty on the first message of a new calendar day: "Today", "Aug 28". */
   day: string;
   /** First bubble of a run by one sender — gets the rounded outer corner. */
@@ -259,6 +267,8 @@ export function decorate(msgs: ImsgMessage[], today: string, formats = DEFAULT_F
       ts: m.ts,
       from_me: m.from_me,
       name: m.name ?? m.handle ?? "",
+      chat: chatKey(m),
+      service: String(m.service ?? ""),
       // U+FFFC is the object-replacement placeholder Messages leaves where an
       // attachment sat; the chip row carries that information instead.
       text: (m.text ?? "").replace(/￼/g, "").trim(),
@@ -357,6 +367,8 @@ export function pendingBubble(prev: Bubble | undefined, send: PendingSend, today
     from_me: true,
     name: "",
     text: send.text.trim(),
+    chat: "",
+    service: "",
     day: newDay ? dayLabel(ts, today, formats) : "",
     groupStart,
     groupEnd: true,
@@ -498,6 +510,7 @@ export function loadThread(
   today: string,
   formats = DEFAULT_FORMATS,
   runner = spawnSync,
+  state = loadState(),
 ): ThreadOutput {
   // Groups load by EXACT chat id (imsg ≥1.8.0 `thread --chat`). The old
   // recent-window scan cost ~20× the rows and missed anything older than
@@ -505,32 +518,53 @@ export function loadThread(
   // Both shapes load by EXACT chat id: `thread <handle>` matched the handle
   // by SUBSTRING and included that person's group posts, which then ate the
   // window (war room #14). A DM's chat_identifier IS the handle.
+  // A person-folded DM spans messengers: one fetch per member chat, merged
+  // into one timeline. A bridge that proved unreachable answers for its
+  // whole family (one sleeping Mac, not N timeouts).
   const group = isGroupChat(chat);
-  const args = ["--json", "--rich", "thread", "--chat", chat, String(limit)];
-  const bridge = bridgeFor(chat);
-  const res = runner(bridge.cmd, [...bridge.args, ...args], {
-    encoding: "utf8",
-    timeout: 15000, maxBuffer: 64 * 1024 * 1024,
-  });
-
-  if (res.status === 69 || res.status === 255) {
-    return { ok: false, online: false, error: "Mac unreachable", bubbles: [] };
+  const effective = effectiveAliasMap(state.chatAliases, state.personAliases);
+  const members = group ? [chat] : chatsForThread(chat, effective);
+  const rows: ImsgMessage[] = [];
+  let anyAnswered = false;
+  let sawUnreachable = false;
+  let error = "";
+  const deadBridges = new Set<string>();
+  for (const member of members) {
+    const bridge = bridgeFor(member);
+    const key = [bridge.cmd, ...bridge.args].join(" ");
+    if (deadBridges.has(key)) continue;
+    const res = runner(bridge.cmd, [...bridge.args, "--json", "--rich", "thread", "--chat", member, String(limit)], {
+      encoding: "utf8",
+      timeout: 15000, maxBuffer: 64 * 1024 * 1024,
+    });
+    if (res.status === 69 || res.status === 255) {
+      deadBridges.add(key);
+      sawUnreachable = true;
+      continue;
+    }
+    if (res.status !== 0) {
+      error = error || (res.stderr || "").toString().trim().split("\n")[0] || `imsg exit ${res.status}`;
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(res.stdout as string);
+      if (!Array.isArray(parsed)) throw new Error("not an array");
+      rows.push(...(parsed as ImsgMessage[]));
+      anyAnswered = true;
+    } catch (e) {
+      error = error || `bad JSON from imsg: ${e}`;
+    }
   }
-  if (res.status !== 0) {
-    const err = (res.stderr || "").toString().trim().split("\n")[0] || `imsg exit ${res.status}`;
-    return { ok: false, online: true, error: err, bubbles: [] };
+  if (!anyAnswered) {
+    return {
+      ok: false,
+      online: !sawUnreachable,
+      error: sawUnreachable ? "Mac unreachable" : error || "no bridge answered",
+      bubbles: [],
+    };
   }
-  try {
-    const parsed = JSON.parse(res.stdout as string);
-    if (!Array.isArray(parsed)) throw new Error("not an array");
-    const state = loadState();
-    const msgs = selectThread(
-      parsed as ImsgMessage[], chat, group, limit, state.selfChats, state.chatAliases,
-    );
-    return { ok: true, online: true, error: "", bubbles: decorate(msgs, today, formats) };
-  } catch (e) {
-    return { ok: false, online: true, error: `bad JSON from imsg: ${e}`, bubbles: [] };
-  }
+  const msgs = selectThread(rows, chat, group, limit, state.selfChats, effective);
+  return { ok: true, online: true, error: "", bubbles: decorate(msgs, today, formats) };
 }
 
 /**
