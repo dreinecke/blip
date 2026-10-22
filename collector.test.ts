@@ -1906,3 +1906,131 @@ describe("the person fold (one row per human)", () => {
       .toEqual({});
   });
 });
+
+describe("spam_keywords auto-hiding", () => {
+  const {
+    parseSpamKeywords, loadSpamKeywords, keywordDigest, updateKeywordMuted, expandMutedChats,
+  } = require("./collector") as typeof import("./collector");
+
+  const chatRow = (id: string, last_text: string, last_from_me = false, aliases: string[] = [id]): ChatInfo => ({
+    id, aliases, name: id, service: "WhatsApp", last: "2026-10-22 09:00:00",
+    last_text, last_from_me, last_handle: id, last_name: null, pinned: false, pin_order: null, pin_name: null,
+  });
+
+  test("parses comma-separated keywords, quoted phrases with commas, and repeatable lines from bridge.conf", () => {
+    const cfg = parseSpamKeywords([
+      "# comment",
+      'spam_keywords = unsubscribe, "opt out, now", Stop2End, a',
+      "hide_keywords = crypto, UNSUBSCRIBE # inline comment",
+    ].join("\n"));
+    expect(cfg).toEqual({
+      enabled: true,
+      keywords: ["unsubscribe", "opt out, now", "Stop2End", "crypto"],
+    });
+  });
+
+  test("combines bridge.conf keywords with mutelist.json keywords", () => {
+    const dir = tmp();
+    const conf = join(dir, "bridge.conf");
+    const mute = join(dir, "mutelist.json");
+    writeFileSync(conf, "spam_keywords=unsubscribe, opt out\n");
+    writeFileSync(mute, JSON.stringify({ mute: ["1@c.us"], keywords: ["Stop2End", "unsubscribe"] }));
+    expect(loadSpamKeywords(conf, mute)).toEqual({
+      enabled: true,
+      keywords: ["unsubscribe", "opt out", "Stop2End"],
+    });
+  });
+
+  test("spam_keywords=off disables keyword auto-hiding while keeping manual IDs", () => {
+    const cfg = parseSpamKeywords(
+      "spam_keywords=unsubscribe\nspam_keywords=off\n",
+      JSON.stringify({ keywords: ["Stop2End"] }),
+    );
+    expect(cfg).toEqual({ enabled: false, keywords: [] });
+    const prev = { "78462": keywordDigest("unsubscribe") };
+    expect(updateKeywordMuted(prev, [msg({ chat: "78462", text: "Reply unsubscribe" })], null, ["unsubscribe"], cfg))
+      .toEqual({});
+  });
+
+  test("a matched conversation stays auto-hidden across follow-up messages without the keyword and after an outbound reply", () => {
+    const cfg = parseSpamKeywords("spam_keywords=unsubscribe\n");
+    // Poll 1: inbound message contains the keyword -> recorded by opaque digest.
+    const km1 = updateKeywordMuted(
+      {},
+      [msg({ chat: "15550100091@c.us", handle: "15550100091@c.us", from_me: false, text: "Special offer! Reply UNSUBSCRIBE to stop" })],
+      null,
+      [],
+      cfg,
+    );
+    expect(km1).toEqual({ "15550100091@c.us": keywordDigest("unsubscribe") });
+
+    // Poll 2: spammer sends "Are you there?" (no keyword) and you replied "STOP" (last_from_me: true).
+    const followup = msg({ chat: "15550100091@c.us", handle: "15550100091@c.us", from_me: true, text: "STOP" });
+    const rows = [
+      chatRow("15550100091@c.us", "STOP", true),
+      chatRow("15550100092@c.us", "See you at 7", false),
+    ];
+    const km2 = updateKeywordMuted(km1, [followup], rows, [], cfg);
+    expect(km2).toEqual({ "15550100091@c.us": keywordDigest("unsubscribe") });
+    const muted = expandMutedChats([], [], km2);
+    expect(muted).toEqual(["15550100091@c.us"]);
+    expect(dropMuted([followup], muted)).toEqual([]);
+    expect(dropMutedChats(rows, cfg.keywords, muted)!.map((c) => c.id)).toEqual(["15550100092@c.us"]);
+  });
+
+  test("removing a keyword from bridge.conf automatically un-hides conversations caught by that keyword", () => {
+    const both = parseSpamKeywords("spam_keywords=unsubscribe, crypto\n");
+    const km1 = updateKeywordMuted(
+      {},
+      [
+        msg({ chat: "1@c.us", from_me: false, text: "Reply unsubscribe" }),
+        msg({ chat: "2@c.us", from_me: false, text: "Buy crypto today" }),
+      ],
+      null,
+      [],
+      both,
+    );
+    expect(Object.keys(km1).sort()).toEqual(["1@c.us", "2@c.us"]);
+
+    // User removes "unsubscribe", keeps "crypto".
+    const onlyCrypto = parseSpamKeywords("spam_keywords=crypto\n");
+    const km2 = updateKeywordMuted(km1, [], null, [], onlyCrypto);
+    expect(km2).toEqual({ "2@c.us": keywordDigest("crypto") });
+  });
+
+  test("self-chats are never auto-hidden by a keyword, and state.json rejects non-digest values", () => {
+    const cfg = parseSpamKeywords("spam_keywords=unsubscribe\n");
+    const km = updateKeywordMuted(
+      { "+15550000000": keywordDigest("unsubscribe") },
+      [msg({ chat: "+15550000000", from_me: false, text: "testing unsubscribe filter" })],
+      [chatRow("+15550000000", "testing unsubscribe filter", false)],
+      [],
+      cfg,
+      ["+15550000000"],
+    );
+    expect(km).toEqual({});
+
+    const p = join(tmp(), "state.json");
+    writeFileSync(p, JSON.stringify({
+      watermark: "2026-10-22 09:00:00",
+      keywordMuted: {
+        "1@c.us": keywordDigest("unsubscribe"),
+        "2@c.us": "plaintext-not-allowed",
+      },
+    }));
+    expect(loadState(p).keywordMuted).toEqual({ "1@c.us": keywordDigest("unsubscribe") });
+  });
+
+  test("a keyword match on one channel of a person-folded conversation hides the whole fold", () => {
+    const cfg = parseSpamKeywords("spam_keywords=unsubscribe\n");
+    const km = updateKeywordMuted(
+      {},
+      [],
+      [chatRow("+15550100093", "Click to unsubscribe", false)],
+      [],
+      cfg,
+    );
+    const expanded = expandMutedChats([], [], km, { "15550100093@c.us": "+15550100093" });
+    expect(expanded.sort()).toEqual(["+15550100093", "15550100093@c.us"]);
+  });
+});

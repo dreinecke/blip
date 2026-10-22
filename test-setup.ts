@@ -7,3 +7,4 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 process.env.XDG_CACHE_HOME = mkdtempSync(join(tmpdir(), "blip-test-cache-"));
 process.env.XDG_CONFIG_HOME = mkdtempSync(join(tmpdir(), "blip-test-config-"));
+process.env.XDG_RUNTIME_DIR = mkdtempSync(join(tmpdir(), "blip-test-run-"));

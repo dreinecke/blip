@@ -404,10 +404,23 @@ whack-a-mole, so list the words instead: the PAC platform's name (`ActBlue`,
 { "mute": ["ActBlue", "WinRed", "Stop2End", "78462"] }
 ```
 
+Keywords can also be configured directly in `~/.config/blip/bridge.conf` (or
+under a `"keywords"` key in `mutelist.json`), comma-separated and re-read live:
+
+```ini
+# ~/.config/blip/bridge.conf
+spam_keywords=ActBlue, WinRed, Stop2End, unsubscribe
+```
+
 An entry matches a handle or chat id **exactly** (like the allowlist), or a
 **phrase** of two or more characters anywhere in an inbound message,
-case-insensitively. One match mutes that whole conversation — a blast puts
-its footer on some messages and not others. Only inbound text is tested, so
+case-insensitively. One match auto-hides that whole conversation (and any
+folded channel/alias for the same sender) — a blast puts its footer on some
+messages and not others, and `state.json` remembers the match by an opaque
+keyword digest so the conversation stays hidden even after follow-up messages
+without the keyword or your own `"STOP"` reply. Removing a keyword from
+`bridge.conf` or `mutelist.json` (or setting `spam_keywords=off`) un-hides
+conversations that were caught by that keyword. Only inbound text is tested, so
 forwarding "another ActBlue text, unbelievable" to a friend never mutes the
 friend. Nothing is deleted: the messages are untouched on the Mac and in
 Messages, Blip simply stops showing them.

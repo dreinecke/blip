@@ -20,11 +20,12 @@ import {
   closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeSync,
 } from "node:fs";
 import { dirname } from "node:path";
-import { MUTELIST_PATH, loadMutelist } from "./collector";
+import { MUTELIST_PATH, loadMutelist, loadSpamKeywords } from "./collector";
 
-/** The file is an array or `{mute:[…]}`; whichever it already is, it stays. */
-export function serializeMutelist(list: string[], wasObject: boolean): string {
-  return JSON.stringify(wasObject ? { mute: list } : list, null, 2) + "\n";
+/** The file is an array or `{mute:[…]}`; whichever it already is, it stays,
+ *  and any sibling keys on an object-shaped file (such as `keywords`) survive. */
+export function serializeMutelist(list: string[], wasObject: boolean, extra: Record<string, unknown> = {}): string {
+  return JSON.stringify(wasObject ? { ...extra, mute: list } : list, null, 2) + "\n";
 }
 
 export function isObjectShaped(raw: string): boolean {
@@ -55,12 +56,21 @@ export function removeFromMutelist(list: string[], entry: string): string[] {
 export function writeMutelist(list: string[], path = MUTELIST_PATH): boolean {
   const tmp = `${path}.${process.pid}.tmp`;
   let wasObject = false;
-  try { wasObject = isObjectShaped(readFileSync(path, "utf8")); } catch { /* new file */ }
+  let extra: Record<string, unknown> = {};
+  try {
+    const raw = readFileSync(path, "utf8");
+    wasObject = isObjectShaped(raw);
+    if (wasObject) {
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      const { mute: _mute, ...rest } = parsed;
+      extra = rest;
+    }
+  } catch { /* new file */ }
   try {
     mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
     const fd = openSync(tmp, "wx", 0o600);
     try {
-      writeSync(fd, serializeMutelist(list, wasObject));
+      writeSync(fd, serializeMutelist(list, wasObject, extra));
       fsyncSync(fd);
     } finally { closeSync(fd); }
     renameSync(tmp, path);
@@ -103,6 +113,7 @@ if (import.meta.main) {
     if (cmd === "add") console.log(JSON.stringify(hide(String(chat ?? ""))));
     else if (cmd === "remove") console.log(JSON.stringify(unhide(String(chat ?? ""))));
     else if (cmd === "list") console.log(JSON.stringify(loadMutelist()));
+    else if (cmd === "keywords") console.log(JSON.stringify(loadSpamKeywords()));
     else {
       console.log(JSON.stringify({ ok: false, hidden: "", error: `unknown command '${cmd ?? ""}'` }));
       process.exit(64);

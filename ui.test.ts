@@ -829,3 +829,11 @@ describe("person-folded conversations in the renderer", () => {
     expect(hit).toContain("threads[j].aliases");
   });
 });
+
+test("shallow polls prune muted rows from deepThreads and config edits trigger a deep refresh", () => {
+  expect(widget).toContain("function dropMutedThreads(threads, muted)");
+  expect(widget).toContain("root.deepThreads = root.dropMutedThreads(root.deepThreads, d.muted)");
+  expect(widget).toContain("id: mutelistFile");
+  expect(widget).toContain('path: root.home + "/.config/blip/mutelist.json"');
+  expect(widget).toContain("onFileChanged: if (root.leader && root.deepThreads.length > 0) root.refresh(true, false)");
+});

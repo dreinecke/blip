@@ -184,6 +184,12 @@ export interface BlipState {
    *  Refreshed with the chat list on deep runs; shallow polls apply it so
    *  pins never vanish between a deep run and the next (ids only). */
   pins: Record<string, number | null>;
+  /** Conversations auto-hidden by a configured spam keyword: chat id → opaque
+   *  16-hex-char SHA-256 digest of the lowercase keyword that matched it.
+   *  Keeps the conversation hidden after later messages without the keyword or
+   *  an outbound reply, and automatically un-hides it if the keyword is removed
+   *  from bridge.conf / mutelist.json. Never stores message bodies or words. */
+  keywordMuted?: Record<string, string>;
   toasted: string[];   // recent opaque sha256 keys; never message content
 }
 
@@ -196,6 +202,9 @@ export interface BlipOutput {
    *  not the total number of unread messages. */
   unread: number;
   threads: Thread[];
+  /** Conversation ids hidden on this run, so shallow polls drop them from the
+   *  widget's cached deep list immediately without waiting for a deep poll. */
+  muted?: string[];
   toast: Toast[];
   /** Your own recent sends that died (chat.db error≠0); toasted once each. */
   failures: Toast[];
@@ -264,6 +273,11 @@ export function loadState(path = STATE_PATH): BlipState {
         Object.entries(s.unreadOldest).filter(([, ts]) => typeof ts === "string" && ts !== ""),
       )
       : {};
+      const keywordMuted = s.keywordMuted && typeof s.keywordMuted === "object" && !Array.isArray(s.keywordMuted)
+        ? Object.fromEntries(
+          Object.entries(s.keywordMuted).filter(([k, v]) => k !== "" && typeof v === "string" && /^[0-9a-f]{16}$/.test(v)),
+        )
+        : {};
     // A count-only ledger from an interrupted/experimental build cannot be
     // reconciled for deletions. Reseed it from readMark on the next poll.
     const ledgerComplete = Object.entries(unreadCounts)
@@ -279,7 +293,7 @@ export function loadState(path = STATE_PATH): BlipState {
       selfChats: Array.isArray(s.selfChats)
         ? s.selfChats.filter((chat): chat is string => typeof chat === "string")
         : [],
-      readMarks: s.readMarks && typeof s.readMarks === "object" ? { ...s.readMarks } : {},
+      readMarks: s.readMarks && typeof s.readMarks && typeof s.readMarks === "object" ? { ...s.readMarks } : {},
       // Every cached group goes through the same shape fetchGroups() enforces:
       // a participants OBJECT in state.json threw inside groupName() on every
       // poll until the next deep refresh (Astra B#6).
@@ -291,6 +305,7 @@ export function loadState(path = STATE_PATH): BlipState {
         ? Object.fromEntries(Object.entries(s.personAliases).filter(([, v]) => typeof v === "string" && v !== ""))
         : {},
       pins: validPins(s.pins),
+      ...(Object.keys(keywordMuted).length ? { keywordMuted } : {}),
       // Older releases stored ts|chat|text verbatim. Hash legacy entries while
       // loading so the next successful save scrubs message bodies from disk.
       toasted: Array.isArray(s.toasted)
@@ -358,6 +373,101 @@ export function loadMutelist(path = MUTELIST_PATH): string[] {
   } catch {
     return [];
   }
+}
+
+export interface SpamKeywordsConfig {
+  /** False when bridge.conf explicitly sets spam_keywords=off (or hide_keywords/mute_keywords=off). */
+  enabled: boolean;
+  /** Configured keywords/phrases (trimmed, length >= 2), deduplicated case-insensitively. */
+  keywords: string[];
+}
+
+/** Split a comma-separated keyword line while respecting quoted phrases (`"opt out, now", stop2end`). */
+function splitKeywordLine(raw: string): string[] {
+  let s = raw.trim();
+  if ((s.startsWith('"') && s.endsWith('"') && !s.slice(1, -1).includes('"')) ||
+      (s.startsWith("'") && s.endsWith("'") && !s.slice(1, -1).includes("'"))) {
+    s = s.slice(1, -1).trim();
+  }
+  const out: string[] = [];
+  let cur = "";
+  let quote: string | null = null;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]!;
+    if (quote) {
+      if (ch === quote) quote = null;
+      else cur += ch;
+    } else if ((ch === '"' || ch === "'") && cur.trim() === "") {
+      quote = ch;
+    } else if (ch === "#") {
+      break;
+    } else if (ch === ",") {
+      out.push(cur);
+      cur = "";
+    } else {
+      cur += ch;
+    }
+  }
+  out.push(cur);
+  return out
+    .map((item) => item.trim().replace(/^(['"])(.*)\1$/, "$2").trim())
+    .filter((item) => item.length >= 2);
+}
+
+/**
+ * `spam_keywords=` (or `hide_keywords=` / `mute_keywords=`) in bridge.conf,
+ * plus optional `"keywords": [...]` in mutelist.json.
+ *
+ * Comma-separated phrases (2+ characters, case-insensitive) that auto-hide a
+ * matching conversation, or `off` (`no`, `false`, `0`) to disable keyword
+ * auto-hiding while keeping manually hidden conversation IDs in mutelist.json.
+ */
+export function parseSpamKeywords(confRaw: string, muteRaw = ""): SpamKeywordsConfig {
+  let enabled = true;
+  const seen = new Set<string>();
+  const keywords: string[] = [];
+  const add = (kw: string) => {
+    const trimmed = kw.trim();
+    if (trimmed.length < 2) return;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    keywords.push(trimmed);
+  };
+  for (const line of String(confRaw || "").split("\n")) {
+    const m = /^\s*(?:spam_keywords|hide_keywords|mute_keywords)\s*=\s*(.+?)\s*$/i.exec(line);
+    if (!m) continue;
+    const val = m[1]!.replace(/\s+#.*$/, "").trim().replace(/^(['"])(.*)\1$/, "$2").trim();
+    if (/^(off|no|false|0)$/i.test(val)) {
+      enabled = false;
+      seen.clear();
+      keywords.length = 0;
+      continue;
+    }
+    enabled = true;
+    for (const kw of splitKeywordLine(m[1]!)) add(kw);
+  }
+  if (enabled && muteRaw.trim() !== "") {
+    try {
+      const parsed = JSON.parse(muteRaw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const extra = (parsed as { keywords?: unknown; spam_keywords?: unknown }).keywords
+          ?? (parsed as { spam_keywords?: unknown }).spam_keywords;
+        if (Array.isArray(extra)) {
+          for (const item of extra) if (typeof item === "string") add(item);
+        }
+      }
+    } catch { /* bad json: ignore */ }
+  }
+  return { enabled, keywords };
+}
+
+export function loadSpamKeywords(confPath = BRIDGE_CONF, mutePath = MUTELIST_PATH): SpamKeywordsConfig {
+  let confRaw = "";
+  let muteRaw = "";
+  try { confRaw = readFileSync(confPath, "utf8"); } catch { /* no conf */ }
+  try { muteRaw = readFileSync(mutePath, "utf8"); } catch { /* no mutelist */ }
+  return parseSpamKeywords(confRaw, muteRaw);
 }
 
 // ---------------------------------------------------------------- transform
@@ -830,6 +940,117 @@ export function dropMutedChats(chats: ChatInfo[] | null, mute: string[], muted: 
     const text = c.last_text.toLowerCase();
     return text === "" || !phrases.some((p) => text.includes(p));
   });
+}
+
+/** Opaque 16-hex-char SHA-256 digest of a configured keyword for state.json. */
+export function keywordDigest(keyword: string): string {
+  return createHash("sha256").update("kw:" + keyword.trim().toLowerCase()).digest("hex").slice(0, 16);
+}
+
+function firstMatchingKeyword(text: string, keywords: string[], excludeExact: string[] = []): string | null {
+  const lower = String(text ?? "").toLowerCase();
+  if (lower === "") return null;
+  const skip = new Set(excludeExact);
+  for (const kw of keywords) {
+    const trimmed = kw.trim();
+    if (trimmed.length < 2 || skip.has(trimmed)) continue;
+    if (lower.includes(trimmed.toLowerCase())) return trimmed;
+  }
+  return null;
+}
+
+/**
+ * Conversations auto-hidden by configured spam keywords.
+ *
+ * Maps each matched chat id to `keywordDigest(keyword)` so the conversation
+ * stays hidden across later polls even when follow-up messages do not repeat
+ * the keyword or after you reply ("STOP"), while removing a keyword from
+ * bridge.conf / mutelist.json automatically un-hides conversations that were
+ * only hidden by that keyword. Never stores message bodies or plaintext words.
+ */
+export function updateKeywordMuted(
+  prev: Record<string, string>,
+  msgs: ImsgMessage[],
+  chats: ChatInfo[] | null,
+  mute: string[],
+  spamCfg: SpamKeywordsConfig,
+  selfChats: string[] = [],
+): Record<string, string> {
+  if (!spamCfg.enabled) return {};
+  const selfSet = new Set(selfChats);
+  const allKeywords: string[] = [];
+  const seen = new Set<string>();
+  for (const kw of [...spamCfg.keywords, ...mute]) {
+    const t = String(kw || "").trim();
+    if (t.length < 2) continue;
+    const lower = t.toLowerCase();
+    if (seen.has(lower)) continue;
+    seen.add(lower);
+    allKeywords.push(t);
+  }
+  if (allKeywords.length === 0) return {};
+
+  const activeDigests = new Set(allKeywords.map(keywordDigest));
+  const next: Record<string, string> = {};
+  for (const [chat, digest] of Object.entries(prev || {})) {
+    if (chat !== "" && !selfSet.has(chat) && activeDigests.has(digest)) next[chat] = digest;
+  }
+
+  for (const m of msgs) {
+    const chat = chatKey(m);
+    if (!chat || selfSet.has(chat) || m.from_me) continue;
+    const hit = firstMatchingKeyword(m.text, allKeywords, [chat, m.handle]);
+    if (hit) next[chat] = keywordDigest(hit);
+  }
+
+  if (chats) {
+    for (const c of chats) {
+      if (!c.id || selfSet.has(c.id) || c.last_from_me) continue;
+      const ids = [c.id, ...c.aliases];
+      const hit = firstMatchingKeyword(c.last_text, allKeywords, ids);
+      if (hit) {
+        const d = keywordDigest(hit);
+        for (const id of ids) if (id && !selfSet.has(id)) next[id] = d;
+      }
+    }
+  }
+  return next;
+}
+
+/** Expand muted chat ids across group-rekey and person-fold alias clusters. */
+export function expandMutedChats(
+  baseMuted: Iterable<string>,
+  mute: string[],
+  keywordMuted: Record<string, string>,
+  aliasMap: Record<string, string> = {},
+): string[] {
+  const out = new Set<string>(baseMuted);
+  for (const c of Object.keys(keywordMuted)) out.add(c);
+  for (const entry of mute) {
+    if (entry in aliasMap) out.add(entry);
+  }
+  for (const [member, canon] of Object.entries(aliasMap)) {
+    if (mute.includes(canon) || mute.includes(member)) {
+      out.add(canon);
+      out.add(member);
+    }
+  }
+  const seeds = [...out];
+  for (const id of seeds) {
+    const canon = aliasMap[id] ?? id;
+    let partOfCluster = id in aliasMap;
+    if (!partOfCluster) {
+      for (const target of Object.values(aliasMap)) {
+        if (target === canon) { partOfCluster = true; break; }
+      }
+    }
+    if (!partOfCluster) continue;
+    out.add(canon);
+    for (const [member, target] of Object.entries(aliasMap)) {
+      if (target === canon) out.add(member);
+    }
+  }
+  return [...out];
 }
 
 /** Chat ids the unread ledger may still name: the current window, plus every
@@ -1881,8 +2102,29 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   // absent from the ledger, the thread list and the toasts alike, exactly as
   // if the Mac had never received it. Read fresh each poll, like the allowlist.
   const mute = loadMutelist();
+  const spamCfg = loadSpamKeywords();
   const deduped = dedupeSelfEcho(fetched.msgs, selfChats);
-  const muted = mutedChats(deduped, mute);
+  // Deep runs complete the sidebar from `imsg chats`. A capped catch-up
+  // needs that list too: otherwise a chat hide_spam dropped in SQL is
+  // restored from the ledger (Astra B#3) and pins every later poll.
+  const rawChats = (deep || fetched.capped) ? bothChats() : null;
+  const preAliases = effectiveAliasMap(
+    rawChats ? aliasesFromChats(rawChats) : state.chatAliases,
+    state.personAliases,
+  );
+  const keywordMuted = updateKeywordMuted(
+    state.keywordMuted ?? {},
+    deduped,
+    rawChats,
+    mute,
+    spamCfg,
+    selfChats,
+  );
+  const activeMute = spamCfg.enabled ? [...mute, ...spamCfg.keywords] : [];
+  const baseMuted = spamCfg.enabled
+    ? mutedChats(deduped, activeMute)
+    : deduped.filter((m) => matchesMuteId(m, mute)).map(chatKey);
+  const muted = expandMutedChats(baseMuted, mute, keywordMuted, preAliases);
   const msgs = dropMuted(deduped, muted);
   // A messenger that did not answer keeps the ledger it had: recomputing it
   // from a window it is absent from zeroes its counts, and a persisted zero
@@ -1893,11 +2135,12 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   let exactOldest = keepSilentSources(
     unreadOldest(msgs, state.readMark, state.readMarks, selfChats),
     state.unreadOldest, fetched.answered);
-  // Deep runs complete the sidebar from `imsg chats`. A capped catch-up
-  // needs that list too: otherwise a chat hide_spam dropped in SQL is
-  // restored from the ledger (Astra B#3) and pins every later poll.
-  const listed = (deep || fetched.capped)
-    ? dropMutedChats(bothChats(), mute, muted) : null;
+  for (const mChat of muted) {
+    delete exactCounts[mChat];
+    delete exactOldest[mChat];
+  }
+  const listed = rawChats
+    ? dropMutedChats(rawChats, activeMute, muted) : null;
   if (fetched.capped) {
     const inWindow = new Set(msgs.map(chatKey));
     const kept = keepCappedUnread(
@@ -1994,6 +2237,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     chatAliases,
     personAliases: persons,
     pins,
+    keywordMuted,
     toasted: [...state.toasted, ...toast.map((t) => t.key), ...failures.map((f) => f.key),
       ...links.map((l) => l.key), ...codes.map((c) => c.key)],
   });
@@ -2035,6 +2279,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     ts: now,
     unread,
     threads,
+    muted,
     // Never emit notifications that could not be committed to the dedupe ring.
     toast: persisted ? toast : [],
     failures: persisted ? failures : [],
