@@ -152,27 +152,60 @@ async function main(): Promise<void> {
 
       // --------------------------------------------------------- search
       case "search": {
-        const needle = (argv.includes("--stdin")
+        const rawInput = (argv.includes("--stdin")
           ? (await readStdin()).toString("utf8")
-          : argOf(argv, "--query")).trim().toLowerCase();
-        if (!needle) { console.log("[]"); return; }
-        const limit = firstNumber(argv, 80);
-        // The 60 most recent conversations, not all 300: each one costs its
-        // own call, and a search that walks the whole history is a search
-        // nobody waits for. Older hits are found by opening the conversation.
-        const rows = (await waha.overview(300)).slice(0, 60);
-        const hits: ImsgMessage[] = [];
-        for (const row of rows) {
-          const id = chatId(row);
-          if (!id || isSkippableChat(id) || hits.length >= limit) continue;
-          const name = chatName(row);
+          : argOf(argv, "--query")).trim();
+        const multi = argv.includes("--multi");
+        let needles: string[] = [];
+        if (multi) {
           try {
-            for (const m of await waha.messages(id, 200)) {
-              const msg = toMessage(m, id, name);
-              if (msg.text.toLowerCase().includes(needle)) hits.push(msg);
-              if (hits.length >= limit) break;
+            const parsed = JSON.parse(rawInput);
+            if (Array.isArray(parsed)) {
+              needles = parsed.map((s) => String(s ?? "").trim().toLowerCase()).filter((s) => s.length >= 2);
             }
-          } catch { /* skip a chat that will not load */ }
+          } catch {
+            needles = rawInput.split("\n").map((s) => s.trim().toLowerCase()).filter((s) => s.length >= 2);
+          }
+        } else if (rawInput) {
+          needles = [rawInput.toLowerCase()];
+        }
+        if (needles.length === 0) { console.log("[]"); return; }
+        const limit = firstNumber(argv, 80);
+        const allRows = await waha.overview(multi ? 500 : 300);
+        const rows = multi ? allRows : allRows.slice(0, 60);
+        const hits: ImsgMessage[] = [];
+        const matchesAny = (text: string) => {
+          const lower = text.toLowerCase();
+          return lower !== "" && needles.some((n) => lower.includes(n));
+        };
+        const batchSize = multi ? 10 : 1;
+        for (let i = 0; i < rows.length && hits.length < limit; i += batchSize) {
+          const slice = rows.slice(i, i + batchSize);
+          const batchHits = await Promise.all(slice.map(async (row) => {
+            const id = chatId(row);
+            if (!id || isSkippableChat(id)) return [] as ImsgMessage[];
+            const name = chatName(row);
+            if (multi && row.lastMessage) {
+              const lastMsg = toMessage(row.lastMessage, id, name);
+              if (matchesAny(lastMsg.text)) return [lastMsg];
+            }
+            const found: ImsgMessage[] = [];
+            try {
+              for (const m of await waha.messages(id, 200)) {
+                const msg = toMessage(m, id, name);
+                if (matchesAny(msg.text)) {
+                  found.push(msg);
+                  if (multi || found.length >= limit) break;
+                }
+              }
+            } catch { /* skip a chat that will not load */ }
+            return found;
+          }));
+          for (const list of batchHits) {
+            for (const msg of list) {
+              if (hits.length < limit) hits.push(msg);
+            }
+          }
         }
         console.log(JSON.stringify(hits));
         return;

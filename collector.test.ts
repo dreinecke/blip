@@ -1449,11 +1449,10 @@ describe("mute list", () => {
     expect(mutedChats([blast()], [])).toEqual([]);
   });
 
-  test("quoting a muted phrase to a friend does not mute the friend", () => {
-    // Outbound only: you forwarding "look what ActBlue sent me" is not spam.
+  test("a muted phrase matches outbound messages too", () => {
     const mine = msg({ chat: "+15550100002", handle: "+15550100002", from_me: true,
       text: "another ActBlue text, unbelievable" });
-    expect(mutedChats([mine], ["ActBlue"])).toEqual([]);
+    expect(mutedChats([mine], ["ActBlue"])).toEqual(["+15550100002"]);
   });
 
   test("one match mutes the whole conversation, not just that message", () => {
@@ -1483,13 +1482,13 @@ describe("mute list", () => {
     expect(out.map((c) => c.id)).toEqual(["+15550100002"]);
   });
 
-  test("your own reply keeps a chat row alive", () => {
+  test("the chat list drops a row when your own preview text contains a muted phrase", () => {
     const row: ChatInfo = {
       id: "+15550100002", name: "Alex Rivera", service: "iMessage", last: "2026-08-30 10:00:00",
       last_text: "ugh, ActBlue again", last_from_me: true, last_handle: "+15550100002",
       last_name: null, pinned: false, pin_order: null, aliases: [],
     };
-    expect(dropMutedChats([row], ["ActBlue"], [])).toHaveLength(1);
+    expect(dropMutedChats([row], ["ActBlue"], [])).toHaveLength(0);
   });
 
   test("a shallow poll has no chat list to filter", () => {
@@ -1554,10 +1553,10 @@ describe("the mute list can catch a person (documented caveat, #27)", () => {
     expect(mutedChats([friend], ["ActBlue"])).toEqual(["+15550100011"]);
   });
 
-  test("quoting it OUTBOUND never mutes the person you said it to", () => {
+  test("a phrase in an OUTBOUND message mutes that conversation too", () => {
     const mine = msg({ chat: "+15550100011", handle: "+15550100011", from_me: true,
                        text: "another ActBlue text, unbelievable" });
-    expect(mutedChats([mine], ["ActBlue"])).toEqual([]);
+    expect(mutedChats([mine], ["ActBlue"])).toEqual(["+15550100011"]);
   });
 
   test("an empty or absent list changes nothing at all", () => {
@@ -1910,6 +1909,7 @@ describe("the person fold (one row per human)", () => {
 describe("spam_keywords auto-hiding", () => {
   const {
     parseSpamKeywords, loadSpamKeywords, keywordDigest, updateKeywordMuted, expandMutedChats,
+    isConversationIdEntry, extractMutePhrases, scanKeywordHistory,
   } = require("./collector") as typeof import("./collector");
 
   const chatRow = (id: string, last_text: string, last_from_me = false, aliases: string[] = [id]): ChatInfo => ({
@@ -2032,5 +2032,56 @@ describe("spam_keywords auto-hiding", () => {
     );
     const expanded = expandMutedChats([], [], km, { "15550100093@c.us": "+15550100093" });
     expect(expanded.sort()).toEqual(["+15550100093", "15550100093@c.us"]);
+  });
+
+  test("scans both sent and received messages and full history across Mac and WhatsApp", () => {
+    const cfg = parseSpamKeywords("spam_keywords=unsubscribe\n");
+    expect(isConversationIdEntry("447553880811@c.us")).toBe(true);
+    expect(isConversationIdEntry("+15550100091")).toBe(true);
+    expect(isConversationIdEntry("78462")).toBe(true);
+    expect(isConversationIdEntry("chat224479848698394295")).toBe(true);
+    expect(isConversationIdEntry("ce5a593a78af408282d61461ade89135")).toBe(true);
+    expect(isConversationIdEntry("ActBlue")).toBe(false);
+    expect(extractMutePhrases(["447553880811@c.us", "ActBlue", "+15550100091"], cfg)).toEqual(["unsubscribe", "ActBlue"]);
+
+    const seenCalls: { cmd: string; args: string[]; input: string }[] = [];
+    const scan = scanKeywordHistory(["unsubscribe", "ActBlue"], ((cmd: string, args: string[], opts: any) => {
+      seenCalls.push({ cmd, args, input: String(opts?.input ?? "") });
+      if (cmd.endsWith("/imsg")) {
+        return {
+          status: 0,
+          stdout: JSON.stringify([
+            msg({ chat: "+15550100094", handle: "+15550100094", from_me: true, text: "Please unsubscribe me" }),
+          ]),
+          stderr: "",
+        };
+      }
+      return {
+        status: 0,
+        stdout: JSON.stringify([
+          msg({ chat: "15550100095@c.us", handle: "15550100095@c.us", from_me: true, text: "Sent ActBlue link earlier" }),
+        ]),
+        stderr: "",
+      };
+    }) as any);
+
+    expect(scan.complete).toBe(true);
+    // Phrases travel on stdin only, never argv.
+    for (const c of seenCalls) {
+      expect(c.args.join(" ")).not.toContain("unsubscribe");
+      expect(c.args.join(" ")).not.toContain("ActBlue");
+    }
+    const km = updateKeywordMuted(
+      {},
+      scan.msgs,
+      [chatRow("15550100096@c.us", "I replied unsubscribe", true)],
+      ["ActBlue"],
+      cfg,
+    );
+    expect(km).toEqual({
+      "+15550100094": keywordDigest("unsubscribe"),
+      "15550100095@c.us": keywordDigest("ActBlue"),
+      "15550100096@c.us": keywordDigest("unsubscribe"),
+    });
   });
 });

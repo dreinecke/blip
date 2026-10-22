@@ -413,23 +413,23 @@ spam_keywords=ActBlue, WinRed, Stop2End, unsubscribe
 ```
 
 An entry matches a handle or chat id **exactly** (like the allowlist), or a
-**phrase** of two or more characters anywhere in an inbound message,
-case-insensitively. One match auto-hides that whole conversation (and any
-folded channel/alias for the same sender) — a blast puts its footer on some
-messages and not others, and `state.json` remembers the match by an opaque
-keyword digest so the conversation stays hidden even after follow-up messages
-without the keyword or your own `"STOP"` reply. Removing a keyword from
-`bridge.conf` or `mutelist.json` (or setting `spam_keywords=off`) un-hides
-conversations that were caught by that keyword. Only inbound text is tested, so
-forwarding "another ActBlue text, unbelievable" to a friend never mutes the
-friend. Nothing is deleted: the messages are untouched on the Mac and in
-Messages, Blip simply stops showing them.
+**phrase** of two or more characters anywhere in any message in the
+conversation (sent or received), case-insensitively. Adding a phrase scans the
+full conversation history across both iMessage/SMS and WhatsApp once, and
+checks every new sent or received message thereafter. One match auto-hides that
+whole conversation (and any folded channel/alias for the same sender) — a blast
+puts its footer on some messages and not others, and `state.json` remembers the
+match by an opaque keyword digest so the conversation stays hidden even after
+follow-up messages without the keyword. Removing a keyword from `bridge.conf`
+or `mutelist.json` (or setting `spam_keywords=off`) un-hides conversations that
+were caught by that keyword. Nothing is deleted: the messages are untouched on
+the Mac and in Messages, Blip simply stops showing them.
 
-> **Pick phrases a person would not send you.** The test is on inbound text,
-> so if a *friend* writes "I got another ActBlue text today", that mutes your
-> friend's whole conversation until you edit the list. Platform names and
-> opt-out footers are safe because nobody types them at you; a common word is
-> not.
+> **Pick phrases a person would not use.** The test scans all sent and received
+> text in the conversation, so if you or a friend write an active mutelist
+> phrase in a conversation, that mutes the conversation until you remove the
+> phrase from the list. Platform names and opt-out footers are safe because
+> nobody types them in normal chats; a common word is not.
 
 **Spam and unknown senders** — iPhone Messages keeps a Spam folder (and,
 when Filter Unknown Senders is on, a separate unknown-senders list). Those

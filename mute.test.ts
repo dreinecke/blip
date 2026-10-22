@@ -136,13 +136,11 @@ describe("what hiding actually does", () => {
     expect(mutedChats([mine], mute)).toEqual(["447553880811@c.us"]);
   });
 
-  test("but a PHRASE still only matches what arrives, never what I send", () => {
-    // Quoting "ActBlue" to a friend must not mute the friend. Only naming a
-    // conversation outright cuts it in both directions.
+  test("and a PHRASE matches both what arrives and what I send", () => {
     const mine: ImsgMessage = { ...inbound("1@c.us", "that ActBlue thing again"), from_me: true };
     expect(matchesMute(mine, ["ActBlue"])).toBe(true);
     expect(matchesMuteId(mine, ["ActBlue"])).toBe(false);
-    expect(mutedChats([mine], ["ActBlue"])).toEqual([]);
+    expect(mutedChats([mine], ["ActBlue"])).toEqual(["1@c.us"]);
   });
 
   test("and cut from the conversation list too, so it cannot come back on a deep run", () => {

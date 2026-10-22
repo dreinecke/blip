@@ -190,6 +190,10 @@ export interface BlipState {
    *  an outbound reply, and automatically un-hides it if the keyword is removed
    *  from bridge.conf / mutelist.json. Never stores message bodies or words. */
   keywordMuted?: Record<string, string>;
+  /** Opaque 16-hex-char SHA-256 digests of configured phrases whose full sent
+   *  and received conversation history has already been scanned across both
+   *  bridges. New phrases trigger a one-time full-history scan. */
+  scannedKeywords?: string[];
   toasted: string[];   // recent opaque sha256 keys; never message content
 }
 
@@ -278,6 +282,9 @@ export function loadState(path = STATE_PATH): BlipState {
           Object.entries(s.keywordMuted).filter(([k, v]) => k !== "" && typeof v === "string" && /^[0-9a-f]{16}$/.test(v)),
         )
         : {};
+      const scannedKeywords = Array.isArray(s.scannedKeywords)
+        ? s.scannedKeywords.filter((d): d is string => typeof d === "string" && /^[0-9a-f]{16}$/.test(d))
+        : [];
     // A count-only ledger from an interrupted/experimental build cannot be
     // reconciled for deletions. Reseed it from readMark on the next poll.
     const ledgerComplete = Object.entries(unreadCounts)
@@ -306,6 +313,7 @@ export function loadState(path = STATE_PATH): BlipState {
         : {},
       pins: validPins(s.pins),
       ...(Object.keys(keywordMuted).length ? { keywordMuted } : {}),
+      ...(scannedKeywords.length ? { scannedKeywords } : {}),
       // Older releases stored ts|chat|text verbatim. Hash legacy entries while
       // loading so the next successful save scrubs message bodies from disk.
       toasted: Array.isArray(s.toasted)
@@ -891,24 +899,16 @@ export function matchesMuteId(m: ImsgMessage, mute: string[]): boolean {
 /**
  * Conversations the mute list silences.
  *
- * A PHRASE is matched on inbound messages only, so quoting "ActBlue" to a
- * friend never mutes the friend. An exact conversation ID is matched whichever
- * way the message went: naming a conversation outright is not a guess about
- * its content, and a conversation whose newest messages are all mine would
- * otherwise stay on screen after being hidden — which is exactly what Hide /
- * Spam looked like doing nothing (2026-09-13: fifteen of twenty-nine hidden
- * conversations were still listed, every one of them a conversation whose last
- * word was Dave's).
- *
- * One match mutes the whole chat, not the single message: a fundraising blast
- * carries its opt-out footer on some messages and not others, and half a
- * conversation left in the sidebar is worse than none.
+ * Both exact conversation IDs and phrases (2+ characters, case-insensitively)
+ * are matched across all messages in the conversation, whether sent or
+ * received (Dave, 2026-10-22). One match mutes the whole chat, not the single
+ * message: half a conversation left in the sidebar is worse than none.
  */
 export function mutedChats(msgs: ImsgMessage[], mute: string[]): string[] {
   if (mute.length === 0) return [];
   const out = new Set<string>();
   for (const m of msgs) {
-    if (matchesMuteId(m, mute) || (!m.from_me && matchesMute(m, mute))) out.add(chatKey(m));
+    if (matchesMute(m, mute)) out.add(chatKey(m));
   }
   return [...out];
 }
@@ -927,7 +927,7 @@ export function dropMuted(msgs: ImsgMessage[], muted: string[]): ImsgMessage[] {
  * chat list, which reaches back further than the message window — without
  * this, a blast last seen a month ago would reappear the moment the panel
  * opened. Rows are matched on their id, their aliases, and their last preview
- * text, which is the only body a chat row carries.
+ * text (sent or received), which is the only body a chat row carries.
  */
 export function dropMutedChats(chats: ChatInfo[] | null, mute: string[], muted: string[]): ChatInfo[] | null {
   if (chats === null || (mute.length === 0 && muted.length === 0)) return chats;
@@ -936,7 +936,6 @@ export function dropMutedChats(chats: ChatInfo[] | null, mute: string[], muted: 
   return chats.filter((c) => {
     const ids = [c.id, ...c.aliases];
     if (ids.some((id) => gone.has(id) || mute.includes(id))) return false;
-    if (c.last_from_me) return true;   // your own reply is not the blast
     const text = c.last_text.toLowerCase();
     return text === "" || !phrases.some((p) => text.includes(p));
   });
@@ -945,6 +944,95 @@ export function dropMutedChats(chats: ChatInfo[] | null, mute: string[], muted: 
 /** Opaque 16-hex-char SHA-256 digest of a configured keyword for state.json. */
 export function keywordDigest(keyword: string): string {
   return createHash("sha256").update("kw:" + keyword.trim().toLowerCase()).digest("hex").slice(0, 16);
+}
+
+/** True when an entry in mutelist.json is a conversation id (JID, phone/short
+ *  code, chat<digits>, or 32-hex group GUID) rather than a text phrase. */
+export function isConversationIdEntry(entry: string): boolean {
+  const s = String(entry || "").trim();
+  if (s === "") return false;
+  if (/@(?:c\.us|g\.us|s\.whatsapp\.net|lid|broadcast)$/i.test(s)) return true;
+  if (/^\+?\d{3,15}(?:\(filtered\))?$/i.test(s)) return true;
+  if (/^chat\d+$/i.test(s)) return true;
+  if (/^[0-9a-f]{32}$/i.test(s)) return true;
+  return false;
+}
+
+/** Every phrase/keyword to scan across conversation histories (from bridge.conf
+ *  spam_keywords, mutelist.json keywords, and non-ID phrases in mutelist.json). */
+export function extractMutePhrases(mute: string[], spamCfg: SpamKeywordsConfig): string[] {
+  if (!spamCfg.enabled) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const add = (s: string, skipIds: boolean) => {
+    const t = String(s || "").trim();
+    if (t.length < 2) return;
+    if (skipIds && isConversationIdEntry(t)) return;
+    const lower = t.toLowerCase();
+    if (seen.has(lower)) return;
+    seen.add(lower);
+    out.push(t);
+  };
+  for (const kw of spamCfg.keywords) add(kw, false);
+  for (const m of mute) add(m, true);
+  return out;
+}
+
+/**
+ * Scan all sent and received message history across both bridges (Mac chat.db
+ * via `imsg --json search --stdin` and WhatsApp via `wa.ts --json search
+ * --stdin --multi`) for any newly configured mutelist phrases.
+ *
+ * Phrases travel on stdin only — never argv.
+ */
+export function scanKeywordHistory(
+  phrases: string[],
+  runner: typeof spawnSync = spawnSync,
+): { msgs: ImsgMessage[]; complete: boolean } {
+  const clean = phrases.map((p) => p.trim()).filter((p) => p.length >= 2);
+  if (clean.length === 0) return { msgs: [], complete: true };
+  const msgs: ImsgMessage[] = [];
+  let macOk = true;
+  for (const phrase of clean) {
+    const res = runner(`${HOME}/bin/imsg`, ["--json", "search", "--stdin", "200"], {
+      encoding: "utf8",
+      timeout: 20000,
+      maxBuffer: 32 * 1024 * 1024,
+      input: phrase,
+    });
+    if (res.status !== 0) {
+      macOk = false;
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(String(res.stdout ?? ""));
+      if (Array.isArray(parsed)) msgs.push(...(parsed as ImsgMessage[]));
+      else macOk = false;
+    } catch {
+      macOk = false;
+    }
+  }
+
+  let waOk = true;
+  const b = bridgeFor("@c.us", "query");
+  const waRes = runner(b.cmd, [...b.args, "--json", "search", "--stdin", "--multi", "500"], {
+    encoding: "utf8",
+    timeout: 45000,
+    maxBuffer: 64 * 1024 * 1024,
+    input: JSON.stringify(clean),
+  });
+  if (waRes.status !== 0) {
+    waOk = false;
+  } else {
+    try {
+      const parsed = JSON.parse(String(waRes.stdout ?? ""));
+      if (Array.isArray(parsed)) msgs.push(...(parsed as ImsgMessage[]));
+      else waOk = false;
+    } catch {
+      waOk = false;
+    }
+  }
+  return { msgs, complete: macOk && waOk };
 }
 
 function firstMatchingKeyword(text: string, keywords: string[], excludeExact: string[] = []): string | null {
@@ -962,11 +1050,12 @@ function firstMatchingKeyword(text: string, keywords: string[], excludeExact: st
 /**
  * Conversations auto-hidden by configured spam keywords.
  *
- * Maps each matched chat id to `keywordDigest(keyword)` so the conversation
- * stays hidden across later polls even when follow-up messages do not repeat
- * the keyword or after you reply ("STOP"), while removing a keyword from
- * bridge.conf / mutelist.json automatically un-hides conversations that were
- * only hidden by that keyword. Never stores message bodies or plaintext words.
+ * Scans both sent and received messages and previews. Maps each matched chat id
+ * to `keywordDigest(keyword)` so the conversation stays hidden across later
+ * polls even when follow-up messages do not repeat the keyword, while removing
+ * a keyword from bridge.conf / mutelist.json automatically un-hides
+ * conversations that were only hidden by that keyword. Never stores message
+ * bodies or plaintext words.
  */
 export function updateKeywordMuted(
   prev: Record<string, string>,
@@ -998,14 +1087,14 @@ export function updateKeywordMuted(
 
   for (const m of msgs) {
     const chat = chatKey(m);
-    if (!chat || selfSet.has(chat) || m.from_me) continue;
+    if (!chat || selfSet.has(chat)) continue;
     const hit = firstMatchingKeyword(m.text, allKeywords, [chat, m.handle]);
     if (hit) next[chat] = keywordDigest(hit);
   }
 
   if (chats) {
     for (const c of chats) {
-      if (!c.id || selfSet.has(c.id) || c.last_from_me) continue;
+      if (!c.id || selfSet.has(c.id)) continue;
       const ids = [c.id, ...c.aliases];
       const hit = firstMatchingKeyword(c.last_text, allKeywords, ids);
       if (hit) {
@@ -2112,9 +2201,20 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     rawChats ? aliasesFromChats(rawChats) : state.chatAliases,
     state.personAliases,
   );
+  const allPhrases = extractMutePhrases(mute, spamCfg);
+  const activePhraseDigests = new Set(allPhrases.map(keywordDigest));
+  const priorScanned = new Set((state.scannedKeywords ?? []).filter((d) => activePhraseDigests.has(d)));
+  const unscannedPhrases = allPhrases.filter((p) => !priorScanned.has(keywordDigest(p)));
+  const historyScan = unscannedPhrases.length > 0
+    ? scanKeywordHistory(unscannedPhrases)
+    : { msgs: [] as ImsgMessage[], complete: true };
+  if (historyScan.complete) {
+    for (const p of unscannedPhrases) priorScanned.add(keywordDigest(p));
+  }
+  const scannedKeywords = spamCfg.enabled ? [...priorScanned] : [];
   const keywordMuted = updateKeywordMuted(
     state.keywordMuted ?? {},
-    deduped,
+    [...deduped, ...historyScan.msgs],
     rawChats,
     mute,
     spamCfg,
@@ -2238,6 +2338,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     personAliases: persons,
     pins,
     keywordMuted,
+    scannedKeywords,
     toasted: [...state.toasted, ...toast.map((t) => t.key), ...failures.map((f) => f.key),
       ...links.map((l) => l.key), ...codes.map((c) => c.key)],
   });
