@@ -256,6 +256,17 @@ BarWidget {
   // run (`imsg chats`); a shallow poll returns the window's rows. Kept so a
   // shallow result can be overlaid rather than replacing the model.
   property var deepThreads: []
+  function dropMutedThreads(threads, muted) {
+    if (!Array.isArray(muted) || muted.length === 0) return threads
+    var gone = {}
+    for (var i = 0; i < muted.length; i++) gone[String(muted[i])] = true
+    return threads.filter(function(t) {
+      if (gone[String(t.chat)]) return false
+      var a = t.aliases || []
+      for (var j = 0; j < a.length; j++) if (gone[String(a[j])]) return false
+      return true
+    })
+  }
   function overlayThreads(deep, shallow) {
     var byChat = {}
     for (var i = 0; i < shallow.length; i++) byChat[String(shallow[i].chat)] = shallow[i]
@@ -465,7 +476,11 @@ BarWidget {
             // it on the last complete list so the panel never opens onto a
             // dozen rows that grow (and re-pin) a deep run later.
             if (d.deep === true) root.deepThreads = list
-            else if (root.deepThreads.length > 0) list = root.overlayThreads(root.deepThreads, list)
+            else if (root.deepThreads.length > 0) {
+              if (Array.isArray(d.muted) && d.muted.length > 0)
+                root.deepThreads = root.dropMutedThreads(root.deepThreads, d.muted)
+              list = root.overlayThreads(root.deepThreads, list)
+            }
             // Reassigning `threads` rebuilds the panel's list Repeater and
             // resets its scroll — with push, that was every few seconds.
             // Skip the assignment when nothing actually changed.
@@ -875,7 +890,10 @@ BarWidget {
     path: root.home + "/.config/blip/bridge.conf"
     watchChanges: true
     printErrors: false
-    onFileChanged: reload()
+    onFileChanged: {
+      reload()
+      if (root.leader && root.deepThreads.length > 0) root.refresh(true, false)
+    }
     onLoaded: {
       var t = text()
       root.automationOn = /^\s*automation\s*=\s*['"]?(on|true|1|yes)\b/mi.test(t)
@@ -886,6 +904,13 @@ BarWidget {
       root.uiFontSize = (!isFinite(n) || n <= 0) ? 0 : Math.min(24, Math.max(9, n))
     }
     onLoadFailed: { root.automationOn = false; root.uiFontTheme = false; root.uiFontSize = 0 }
+  }
+  FileView {
+    id: mutelistFile
+    path: root.home + "/.config/blip/mutelist.json"
+    watchChanges: true
+    printErrors: false
+    onFileChanged: if (root.leader && root.deepThreads.length > 0) root.refresh(true, false)
   }
   IpcHandler {
     target: root.moduleName

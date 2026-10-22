@@ -65,6 +65,8 @@ mkdir -p "$conf_dir"
   echo "automation=${BLIP_AUTOMATION:-${prev_automation:-off}}"   # a re-run keeps a hand-set value
   echo "# country calling code for numbers typed without one (1 = US/Canada, 44 = UK, 49 = DE…)"
   echo "country_code=${prev_country:-1}"
+  echo "# comma-separated keywords/phrases (case-insensitive) that auto-hide spam conversations (or off)"
+  echo "# spam_keywords=unsubscribe,opt out,stop2end"
   if [[ -n "$kept" ]]; then echo "# kept from the previous bridge.conf"; printf '%s\n' "$kept"; fi
 } > "$conf"
 chmod 0600 "$conf"

@@ -76,6 +76,21 @@ describe("writing the file", () => {
     expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({ mute: ["already", "1@c.us"] });
   });
 
+  test("an object-shaped mutelist preserves sibling keys such as keywords when hiding or unhiding", () => {
+    const path = scratch();
+    writeFileSync(path, JSON.stringify({ keywords: ["unsubscribe", "opt out"], mute: ["already"] }));
+    expect(hide("1@c.us", path).ok).toBe(true);
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+      keywords: ["unsubscribe", "opt out"],
+      mute: ["already", "1@c.us"],
+    });
+    expect(unhide("already", path).ok).toBe(true);
+    expect(JSON.parse(readFileSync(path, "utf8"))).toEqual({
+      keywords: ["unsubscribe", "opt out"],
+      mute: ["1@c.us"],
+    });
+  });
+
   test("the file is written where it can be read back", () => {
     const path = scratch();
     expect(writeMutelist(["a", "b"], path)).toBe(true);
