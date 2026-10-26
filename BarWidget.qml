@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 import Quickshell.Hyprland
 
@@ -1045,6 +1046,6 @@ BarWidget {
   // (2026-09-13, after looking at his). A theme that ships no distinct accent
   // at all still falls back to blue rather than painting the dot in the
   // foreground colour, which would make it invisible as a signal.
-  readonly property bool themeHasAccent: Color.accent.toString() !== Color.foreground.toString()
-  readonly property color blipAccent: themeHasAccent ? Color.accent : "#0a84ff"
+  readonly property bool themeHasAccent: Commons.Color.accent.toString() !== Commons.Color.foreground.toString()
+  readonly property color blipAccent: themeHasAccent ? Commons.Color.accent : "#0a84ff"
 }
