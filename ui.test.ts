@@ -574,14 +574,16 @@ test("the QML comparator floats unread threads like collector.ts does", () => {
 // the signal is never painted in the theme's own foreground colour, where it
 // would stop being a signal at all.
 test("the icon's unread dot falls back to blue on a theme with no accent", () => {
-  expect(widget).toContain("themeHasAccent ? Color.accent : \"#0a84ff\"");
-  expect(widget).toContain("Color.accent.toString() !== Color.foreground.toString()");
+  // Commons.-qualified for Qt 6.12, whose QtQuick exports its own Color
+  // singleton that would otherwise shadow qs.Commons's (Omarchy 4.0.6).
+  expect(widget).toContain('themeHasAccent ? Commons.Color.accent : "#0a84ff"');
+  expect(widget).toContain("Commons.Color.accent.toString() !== Commons.Color.foreground.toString()");
 });
 
 test("bubble text picks its colour against the fill rather than assuming white", () => {
   // The fill is the theme's accent now, so it can be pale; white on a pale
   // accent is unreadable. The luminance rule is what keeps it legible.
-  expect(panel).toContain("themeHasAccent ? Color.accent : \"#0a84ff\"");
+  expect(panel).toContain('themeHasAccent ? Commons.Color.accent : "#0a84ff"');
   expect(panel).toContain("0.299 * mineFill.r + 0.587 * mineFill.g + 0.114 * mineFill.b");
   expect(panel).not.toContain('readonly property color mineText: "#ffffff"');
 });

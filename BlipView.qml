@@ -7,6 +7,7 @@ import Quickshell
 import Quickshell.Io
 import QtQuick.Effects
 import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
 
 // Blip panel — threads, then an iMessage-style conversation with a compose box.
@@ -48,8 +49,8 @@ FocusScope {
   // The window may be visible but unfocused / on another workspace: it still
   // renders and refreshes, but must not mark conversations read (war room #25).
   property bool readActive: true
-  property color foreground: Color.foreground
-  property color urgent: Color.urgent
+  property color foreground: Commons.Color.foreground
+  property color urgent: Commons.Color.urgent
   /** The theme's font, injected by whichever surface hosts this view. */
   property string themeFont: Style.font.family
   /**
@@ -110,7 +111,7 @@ FocusScope {
   readonly property real contentHeightHint: listContent.implicitHeight
   /** The view wants keyboard navigation focus back (list mode). */
   signal navigationFocusRequested()
-  // The whole palette follows the Omarchy theme (Color.* is the live theme
+  // The whole palette follows the Omarchy theme (Commons.Color.* is the live theme
   // singleton and hot-reloads on switch), the accent included.
   //
   // FORK: upstream pins the accent to iMessage blue — Fred, 2026-09-04, "Yes
@@ -119,8 +120,8 @@ FocusScope {
   // knowingly on 2026-09-13, having looked at his own theme. A theme with no
   // distinct accent (accent == foreground) still falls back to blue, or "my"
   // bubbles would be indistinguishable from everything else.
-  readonly property bool themeHasAccent: Color.accent.toString() !== Color.foreground.toString()
-  readonly property color accent: themeHasAccent ? Color.accent : "#0a84ff"
+  readonly property bool themeHasAccent: Commons.Color.accent.toString() !== Commons.Color.foreground.toString()
+  readonly property color accent: themeHasAccent ? Commons.Color.accent : "#0a84ff"
   readonly property color cyan: accent            // legacy name; accents/links
   readonly property color okColor: accent
 
@@ -2608,7 +2609,7 @@ FocusScope {
                         anchors.top: parent.top
                         anchors.leftMargin: -Style.space(1)
                         anchors.topMargin: -Style.space(1)
-                        color: Color.background
+                        color: Commons.Color.background
                         Rectangle {
                           anchors.centerIn: parent
                           width: Style.space(9); height: width; radius: width / 2
@@ -3936,7 +3937,7 @@ FocusScope {
     width: Math.max(0, Math.min(parent.width - Style.space(16), copyFeedbackText.implicitWidth + Style.space(24)))
     height: copyFeedbackText.implicitHeight + Style.space(16)
     radius: Style.cornerRadius
-    color: Color.background
+    color: Commons.Color.background
     border.width: 1
     border.color: root.copyFeedback.indexOf("Could not") === 0 ? root.urgent : root.accent
     Text {
@@ -3987,7 +3988,7 @@ FocusScope {
       width: Math.min(parent.width - Style.space(32), Style.space(360))
       height: shareCol.implicitHeight + Style.space(28)
       radius: Style.cornerRadius
-      color: Color.background
+      color: Commons.Color.background
       border.color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.18)
       border.width: 1
       TapHandler { gesturePolicy: TapHandler.ReleaseWithinBounds }   // clicks on the card stop here
