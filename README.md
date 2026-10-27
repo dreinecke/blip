@@ -244,6 +244,14 @@ Blip is **one source**: the Mac-side tools ride along in `bridge/mac/`
 (vendored from [claude-on-mac](https://github.com/nixfred/claude-on-mac),
 pinned in `bridge/BRIDGE-VERSION`), and `blip-setup` wires everything.
 
+`blip-setup` also installs the auto-update watcher: `blip-auto-update` and
+`blip-auto-update-watch` into `~/.local/bin`, and
+`systemd/blip-auto-update-watch.service` into `~/.config/systemd/user`,
+enabled. The watcher fires the updater when the screen unlocks; the updater
+brings the plugin directory (a git checkout of this repo) to `origin/main`
+and restarts the shell only when a file the shell runs changed — never while
+the screen is locked, because Quickshell draws the lock screen.
+
 ### Fonts
 
 Blip renders in the first of these it finds, so it is optional either way:

@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# blip-auto-update-watch — fire blip-auto-update on the locked→unlocked edge.
+#
+# `omarchy-shell lock status` is the only thing on this machine that answers
+# lock state truthfully (Quickshell draws the lock, so pgrep finds nothing and
+# loginctl's LockedHint says no with the password box on screen). The two
+# flags are the ones omarchy-selfheal bled for: `sessionLocked` covers a live
+# lock, `pending` covers a stranded one. Anything unparseable counts as
+# LOCKED, so a shell restart mid-poll can never masquerade as an unlock.
+set -uo pipefail
+
+export PATH="/usr/share/omarchy/bin:/usr/local/bin:$PATH"
+export OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+
+locked() {
+  case "$(timeout 5 omarchy-shell lock status 2>/dev/null)" in
+    *'"sessionLocked":true'*|*'"pending":true'*) return 0 ;;
+    *'"sessionLocked":false'*) return 1 ;;
+    *) return 0 ;;
+  esac
+}
+
+state() { locked && echo locked || echo unlocked; }
+
+was="$(state)"
+unlocked_runs=0
+while :; do
+  sleep 5
+  now="$(state)"
+
+  if [ "$was" = locked ] && [ "$now" = unlocked ]; then
+    unlocked_runs=$((unlocked_runs + 1))
+    # Two consecutive clean readings: the unlock is real, not a poll that
+    # landed while the shell was between restarts.
+    if [ "$unlocked_runs" -ge 2 ]; then
+      unlocked_runs=0
+      sleep 12   # unlock animation (~800ms) + hands back on the desk
+      "$HOME/.local/bin/blip-auto-update"
+    fi
+  else
+    unlocked_runs=0
+  fi
+  was="$now"
+done

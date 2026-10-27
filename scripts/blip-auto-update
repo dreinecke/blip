@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+# blip-auto-update — bring the RUNNING blip plugin to whatever origin/main is
+# on GitHub, restarting the shell only when a file the shell actually runs
+# changed. Meant to be fired by blip-auto-update-watch the moment the screen
+# unlocks; safe to run by hand any time.
+#
+# Why "upon unlock" is the trigger and not a timer: writing a plugin file
+# hot-reloads the shell, and restarting the shell while the screen is locked
+# dismisses the lock screen — Quickshell draws it — i.e. it UNLOCKS THE
+# MACHINE (the SER8 rule, ~/code/enterprise/script/omarchy-selfheal). Unlock
+# is the one moment that is always safe.
+#
+# The plugin directory is a git checkout of dreinecke/blip, but deploys have
+# historically been `cp` from ~/code/blip — and cp only covers top-level
+# files, leaving scripts/ and docs/ at the old commit's content. So a dirty
+# tree is read per FILE, never guessed at:
+#   - every locally-modified file already matches origin (a cp of PUSHED
+#     code): reset to origin — that file keeps its bytes, the stale rest
+#     catches up, and only a runtime change restarts the shell
+#   - some modified file is NOT on origin (unpushed hot-patch work): skip
+#     and say so in the log; pushing resumes auto-updates
+set -uo pipefail
+
+PLUGIN="$HOME/.config/omarchy/plugins/nixfred.blip"
+REPO="$HOME/code/blip"
+LOG="$HOME/.local/state/blip/update.log"
+
+# Session environment, the omarchy-selfheal way: a systemd user unit inherits
+# none of this, and omarchy-restart-shell / git-over-https need it.
+export PATH="/usr/share/omarchy/bin:/usr/local/bin:/usr/bin:$PATH"
+export OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+if [ -z "${WAYLAND_DISPLAY:-}" ]; then
+  for s in "$XDG_RUNTIME_DIR"/wayland-*; do
+    [ -S "$s" ] && export WAYLAND_DISPLAY="${s##*/}" && break
+  done
+fi
+if [ -z "${HYPRLAND_INSTANCE_SIGNATURE:-}" ] && [ -d "$XDG_RUNTIME_DIR/hypr" ]; then
+  export HYPRLAND_INSTANCE_SIGNATURE="$(ls -t "$XDG_RUNTIME_DIR/hypr" 2>/dev/null | head -1)"
+fi
+
+log() { mkdir -p "$(dirname "$LOG")"; echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "$LOG"; }
+
+# The files the shell loads or spawns at runtime — a change HERE is what makes
+# a restart necessary. Docs and demo harness changes ride along without one.
+runtime_sig() { (cd "$PLUGIN" && cat *.qml *.ts *.mjs manifest.json bridge/whatsapp/*.ts 2>/dev/null | sha256sum | cut -d' ' -f1); }
+
+# Unlock can beat the network back after a suspend — WiFi still associating —
+# so retry before giving up; the next unlock tries again.
+fetched=0
+for _ in 1 2 3; do
+  if git -C "$PLUGIN" fetch --quiet origin HEAD; then fetched=1; break; fi
+  sleep 15
+done
+if [ "$fetched" != 1 ]; then
+  log "fetch failed (offline?) — nothing done, next unlock retries"
+  exit 0
+fi
+
+before="$(git -C "$PLUGIN" rev-parse HEAD)"
+remote="$(git -C "$PLUGIN" rev-parse FETCH_HEAD)"
+short() { git -C "$PLUGIN" rev-parse --short "$1"; }
+
+if [ "$before" = "$remote" ] && git -C "$PLUGIN" diff --quiet HEAD --; then
+  log "up to date ($(short "$remote"))"
+else
+  sig_before="$(runtime_sig)"
+
+  if git -C "$PLUGIN" diff --quiet HEAD --; then
+    # Clean tree: Omarchy's own path — ff-merge + schema validation +
+    # automatic rollback on a bad one.
+    omarchy-plugin-update nixfred.blip --yes >/dev/null 2>&1 ||
+      log "update $(short "$before")→$(short "$remote") failed (network/validation) — plugin-update refused or rolled back; run it by hand to see why"
+  else
+    # Dirty tree: safe to reset ONLY if every modified file already matches
+    # origin — then reset discards nothing and catches the stale rest up.
+    unsafe=0
+    while read -r _ path; do
+      git -C "$PLUGIN" diff --quiet FETCH_HEAD -- "$path" || unsafe=1
+    done < <(git -C "$PLUGIN" status --porcelain)
+    if [ "$unsafe" = 1 ]; then
+      log "skipped $(short "$before")→$(short "$remote"): the plugin tree has changes origin does not have — push them or git -C "$PLUGIN" reset --hard"
+      exit 0
+    fi
+    git -C "$PLUGIN" reset --hard FETCH_HEAD >/dev/null
+    if ! omarchy-plugin-validate "$PLUGIN" >/dev/null 2>&1; then
+      git -C "$PLUGIN" reset --hard "$before" >/dev/null
+      log "realignment failed validation — rolled back to $(short "$before"); run omarchy-plugin-validate $PLUGIN by hand"
+      exit 0
+    fi
+  fi
+
+  after="$(git -C "$PLUGIN" rev-parse HEAD)"
+  if [ "$after" != "$before" ]; then
+    if [ "$(runtime_sig)" != "$sig_before" ]; then
+      log "updated $(short "$before") → $(short "$after"); runtime files changed — restarting the shell"
+      sleep 3   # let the unlock settle before the bar blinks
+      omarchy-restart-shell >/dev/null 2>&1 && log "shell restarted" || log "⚠ shell restart failed — run omarchy-restart-shell by hand"
+    else
+      log "updated $(short "$before") → $(short "$after") (no runtime files changed; no restart)"
+    fi
+  fi
+fi
+
+# Keep the dev repo in step when pushes landed from another machine — only
+# fast-forward, only when clean; work in progress is never touched.
+if [ -d "$REPO/.git" ] && git -C "$REPO" diff --quiet HEAD -- 2>/dev/null; then
+  repo_before="$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)"
+  git -C "$REPO" pull --ff-only --quiet >/dev/null 2>&1 || true
+  repo_after="$(git -C "$REPO" rev-parse HEAD 2>/dev/null || true)"
+  [ -n "$repo_before" ] && [ "$repo_before" != "$repo_after" ] &&
+    log "dev repo fast-forwarded $(git -C "$REPO" rev-parse --short "$repo_before") → $(git -C "$REPO" rev-parse --short "$repo_after")"
+fi
+exit 0
