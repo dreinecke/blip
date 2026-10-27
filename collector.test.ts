@@ -1761,6 +1761,46 @@ describe("blip-setup: the key's from= pin", () => {
   });
 });
 
+describe("blip-setup installs the auto-update watcher (repo owns its unit)", () => {
+  const setup = readFileSync(new URL("./scripts/blip-setup", import.meta.url), "utf8");
+  const unit = readFileSync(new URL("./systemd/blip-auto-update-watch.service", import.meta.url), "utf8");
+  const update = new URL("./scripts/blip-auto-update", import.meta.url).pathname;
+  const watch = new URL("./scripts/blip-auto-update-watch", import.meta.url).pathname;
+
+  test("the shipped unit binds to the graphical session, never default.target", () => {
+    // Lingering is on here, so default.target would start the watcher at boot
+    // with no compositor to talk to (the 2192-restart espanso lesson).
+    expect(unit).toContain("PartOf=graphical-session.target");
+    expect(unit).toContain("After=graphical-session.target");
+    expect(unit).toContain("WantedBy=graphical-session.target");
+    expect(unit).toContain("ExecStart=%h/.local/bin/blip-auto-update-watch");
+  });
+
+  test("both scripts ship executable", () => {
+    for (const p of [update, watch]) {
+      expect(statSync(p).isFile()).toBe(true);
+      expect(statSync(p).mode & 0o111).not.toBe(0);
+    }
+  });
+
+  test("blip-setup installs and enables the unit, never default.target", () => {
+    expect(setup).toContain('"$here/scripts/blip-auto-update"');
+    expect(setup).toContain('"$here/scripts/blip-auto-update-watch"');
+    expect(setup).toContain('"$here/systemd/blip-auto-update-watch.service"');
+    expect(setup).toContain("systemctl --user daemon-reload");
+    expect(setup).toContain("systemctl --user enable --now blip-auto-update-watch.service");
+    expect(setup).toContain("omarchy-restart-shell");   // the deploy loop needs one restart
+  });
+
+  test("the watcher fires the updater only on a real locked→unlocked edge", () => {
+    const src = readFileSync(watch, "utf8");
+    // Anything unparseable counts as LOCKED, so a mid-restart poll can never
+    // masquerade as an unlock.
+    expect(src).toContain("*) return 0 ;;");
+    expect(src).toContain('unlocked_runs" -ge 2');
+  });
+});
+
 test("group labels prefer short names while participant details retain full names", () => {
  const {groupName,groupParticipants,normalizeGroups,fetchGroups} = require('./collector');
  const info={name:"",guid:"any;+;chat123",participants:["+15551234567"],participantNames:{"+15551234567":"Mary Jane Example"},participantShortNames:{"+15551234567":"Mary Jane"}};

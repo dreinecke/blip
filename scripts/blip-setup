@@ -12,6 +12,10 @@
 #   4. Mac install                   copies bridge/mac to the Mac and runs
 #                                    install.sh there (needs ssh access already)
 #   5. smoke test                    imsg recent 1 through the shim
+#   6. auto-update watcher           blip-auto-update + blip-auto-update-watch into
+#                                    ~/.local/bin and the user unit into
+#                                    ~/.config/systemd/user, enabled --now (brings
+#                                    the plugin to origin/main at each unlock)
 set -euo pipefail
 
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -228,6 +232,27 @@ if out="$("$HOME/bin/imsg" --json recent 1 2>&1)"; then
     fi
     echo
   fi
+
+  # 6. auto-update watcher. The plugin directory is a git checkout of this
+  # repo, so a watcher that fires on the locked→unlocked edge brings the
+  # running plugin to origin/main and restarts the shell only when a runtime
+  # file changed — never while locked, because Quickshell draws the lock
+  # screen (the SER8 rule). Files ship in this repo; a hand-installed older
+  # copy is overwritten so the repo stays the one source.
+  install -m 0755 "$here/scripts/blip-auto-update" "$HOME/.local/bin/blip-auto-update"
+  install -m 0755 "$here/scripts/blip-auto-update-watch" "$HOME/.local/bin/blip-auto-update-watch"
+  mkdir -p "$HOME/.config/systemd/user"
+  install -m 0644 "$here/systemd/blip-auto-update-watch.service" \
+    "$HOME/.config/systemd/user/blip-auto-update-watch.service"
+  systemctl --user daemon-reload
+  systemctl --user enable --now blip-auto-update-watch.service
+  if systemctl --user is-enabled blip-auto-update-watch.service >/dev/null 2>&1; then
+    echo "✓ auto-update watcher installed and enabled (blip-auto-update-watch.service)"
+  else
+    echo "⚠ could not enable blip-auto-update-watch.service — enable it by hand:" >&2
+    echo "    systemctl --user enable --now blip-auto-update-watch.service" >&2
+  fi
+
   echo "Next: restart the Omarchy shell (omarchy-restart-shell). Toasts are allowlist-only:"
   echo "  ~/.config/blip/allowlist.json  →  { \"allow\": [\"+15551234567\"] }"
 else

@@ -1,0 +1,18 @@
+[Unit]
+Description=Blip — auto-update the plugin when the screen unlocks
+# The proven binding on this machine (espanso, wallpaper watcher, Chrome
+# guardian): start with the graphical session, stop with it. Never
+# default.target — lingering is on here, so that would start at boot with no
+# compositor to talk to (the 2192-restart espanso lesson).
+PartOf=graphical-session.target
+After=graphical-session.target
+StartLimitBurst=5
+StartLimitIntervalSec=60
+
+[Service]
+ExecStart=%h/.local/bin/blip-auto-update-watch
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=graphical-session.target
