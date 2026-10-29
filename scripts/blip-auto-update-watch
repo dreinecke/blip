@@ -7,14 +7,35 @@
 # flags are the ones omarchy-selfheal bled for: `sessionLocked` covers a live
 # lock, `pending` covers a stranded one. Anything unparseable counts as
 # LOCKED, so a shell restart mid-poll can never masquerade as an unlock.
+#
+# The edge is COUNTED, not paired: `confirmed` is the number of consecutive
+# unlocked readings since the last locked one, and the updater fires once the
+# count reaches 2 and not already in this unlock episode. The 2026-10-28 bug
+# paired readings through `was`, which flipped to unlocked on the first clean
+# reading — the second reading was then unlocked→unlocked, the counter reset
+# forever, and the watcher never fired once. Every deploy before Enterprise
+# hand-fired the updater on 2026-10-29 was somebody running it themselves.
+#
+# Test knobs, all unset in production: BLIP_WATCH_POLLS caps the loop (0 =
+# unlimited), BLIP_WATCH_LOCK_CMD replaces the status probe,
+# BLIP_WATCH_SETTLE replaces the 12 s post-unlock settle, BLIP_WATCH_INTERVAL
+# replaces the 5 s poll gap.
 set -uo pipefail
 
 export PATH="/usr/share/omarchy/bin:/usr/local/bin:$PATH"
 export OMARCHY_PATH="${OMARCHY_PATH:-/usr/share/omarchy}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
 
+max_polls="${BLIP_WATCH_POLLS:-0}"
+settle="${BLIP_WATCH_SETTLE:-12}"
+interval="${BLIP_WATCH_INTERVAL:-5}"
+
+lock_status() {
+  timeout 5 ${BLIP_WATCH_LOCK_CMD:-omarchy-shell lock status} 2>/dev/null
+}
+
 locked() {
-  case "$(timeout 5 omarchy-shell lock status 2>/dev/null)" in
+  case "$(lock_status)" in
     *'"sessionLocked":true'*|*'"pending":true'*) return 0 ;;
     *'"sessionLocked":false'*) return 1 ;;
     *) return 0 ;;
@@ -23,23 +44,29 @@ locked() {
 
 state() { locked && echo locked || echo unlocked; }
 
-was="$(state)"
-unlocked_runs=0
+confirmed=0   # consecutive unlocked readings since the last locked one
+fired=0       # this unlock episode has already run the updater
+polls=0
 while :; do
-  sleep 5
+  polls=$((polls + 1))
   now="$(state)"
 
-  if [ "$was" = locked ] && [ "$now" = unlocked ]; then
-    unlocked_runs=$((unlocked_runs + 1))
-    # Two consecutive clean readings: the unlock is real, not a poll that
-    # landed while the shell was between restarts.
-    if [ "$unlocked_runs" -ge 2 ]; then
-      unlocked_runs=0
-      sleep 12   # unlock animation (~800ms) + hands back on the desk
-      "$HOME/.local/bin/blip-auto-update"
-    fi
+  if [ "$now" = unlocked ]; then
+    confirmed=$((confirmed + 1))
   else
-    unlocked_runs=0
+    # A locked reading — including an unparseable one — closes the episode.
+    confirmed=0
+    fired=0
   fi
-  was="$now"
+
+  if [ "$confirmed" -ge 2 ] && [ "$fired" = 0 ]; then
+    fired=1
+    sleep "$settle"   # unlock animation (~800ms) + hands back on the desk
+    "$HOME/.local/bin/blip-auto-update"
+  fi
+
+  if [ "$max_polls" -gt 0 ] && [ "$polls" -ge "$max_polls" ]; then
+    exit 0
+  fi
+  sleep "$interval"
 done

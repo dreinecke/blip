@@ -1792,12 +1792,57 @@ describe("blip-setup installs the auto-update watcher (repo owns its unit)", () 
     expect(setup).toContain("omarchy-restart-shell");   // the deploy loop needs one restart
   });
 
-  test("the watcher fires the updater only on a real locked→unlocked edge", () => {
-    const src = readFileSync(watch, "utf8");
-    // Anything unparseable counts as LOCKED, so a mid-restart poll can never
-    // masquerade as an unlock.
-    expect(src).toContain("*) return 0 ;;");
-    expect(src).toContain('unlocked_runs" -ge 2');
+  test("the watcher fires the updater once per real unlock, never on locked→locked", () => {
+    const { mkdirSync, writeFileSync, existsSync } = require("node:fs");
+    const fake = join(tmpdir(), "blip-watch-fakebin-" + process.pid);
+    mkdirSync(fake, { recursive: true });
+    // fake lock probe: plays back one state per call from the states file
+    writeFileSync(join(fake, "lock"), [
+      "#!/bin/sh",
+      `n=$(cat "$STATE_DIR/n" 2>/dev/null || echo 0)`,
+      `echo $((n + 1)) > "$STATE_DIR/n"`,
+      `s=$(sed -n "$((n + 1))p" "$STATE_DIR/states")`,
+      'if [ "$s" = unlocked ]; then echo \'{"sessionLocked":false}\'; elif [ "$s" = garbage ]; then echo "<html>502</html>"; else echo \'{"sessionLocked":true}\'; fi',
+    ].join("\n"), { mode: 0o755 });
+
+    const run = (states: string[]) => {
+      // Fresh HOME per run: fired.log must not outlive one episode set.
+      const home = mkdtempSync(join(tmpdir(), "blip-watch-"));
+      const bin = join(home, ".local", "bin");
+      mkdirSync(bin, { recursive: true });
+      writeFileSync(join(bin, "blip-auto-update"), '#!/bin/sh\necho fired >> "$HOME/fired.log"\n', { mode: 0o755 });
+      const stateDir = mkdtempSync(join(tmpdir(), "blip-watch-states-"));
+      writeFileSync(join(stateDir, "states"), states.join("\n") + "\n");
+      const res = spawnSync("bash", [watch], {
+        encoding: "utf8",
+        env: {
+          HOME: home, PATH: "/usr/bin:/bin",
+          STATE_DIR: stateDir,
+          BLIP_WATCH_LOCK_CMD: join(fake, "lock"),
+          BLIP_WATCH_POLLS: String(states.length),
+          BLIP_WATCH_SETTLE: "0",
+          BLIP_WATCH_INTERVAL: "0",
+        },
+      });
+      return { res, fired: existsSync(join(home, "fired.log")) ? readFileSync(join(home, "fired.log"), "utf8").trim().split("\n").length : 0 };
+    };
+
+    // L L U U U U L U U: fires at the second clean reading of each episode —
+    // twice, once per unlock, and never while locked. The old paired-was code
+    // reset its counter on the second unlocked reading and never fired at all.
+    const twoEpisodes = run(["locked", "locked", "unlocked", "unlocked", "unlocked", "unlocked", "locked", "unlocked", "unlocked"]);
+    expect(twoEpisodes.res.status).toBe(0);
+    expect(twoEpisodes.fired).toBe(2);
+
+    // Locked throughout: no fire, no updater run.
+    expect(run(["locked", "locked", "locked", "locked"]).fired).toBe(0);
+
+    // An unparseable reading (shell between restarts) counts as locked: the
+    // episode resets, so U U garbage U U is two episodes, not one.
+    expect(run(["unlocked", "unlocked", "garbage", "unlocked", "unlocked"]).fired).toBe(2);
+
+    // A single unlocked reading is not trusted: L U L fires nothing.
+    expect(run(["locked", "unlocked", "locked", "unlocked", "unlocked"]).fired).toBe(1);
   });
 });
 
