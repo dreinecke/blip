@@ -51,3 +51,4 @@ Mac-side tool changes: `scp bridge/mac/<tool> you@your-mac:~/.blip/bin/`.
 
 Subject under 72 chars; body says WHAT and WHY, and names any invariant you
 touched. The log is the project's memory.
+
