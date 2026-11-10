@@ -25,7 +25,12 @@ Panel {
 
   property var anchorItem: null
   property var hostWidget: null
-  readonly property var barIdentity: hostWidget || root
+  // barHost is the actual BarWidget in the bar slot (panel identity for
+  // Omarchy: KeyboardPanel.owner and switchPanelFrom must name the slot's
+  // activeItem). hostWidget is the service (message state and actions).
+  // C-006: the two used to be one object; they are not any more.
+  property var barHost: null
+  readonly property var barIdentity: barHost || root
 
   property real preferredWidth: 0
   property real preferredHeight: 0

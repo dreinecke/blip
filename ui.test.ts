@@ -4,7 +4,14 @@ import { parseUiFontSize, scaleFontPx } from "./ui-font";
 
 // The renderer moved from Panel.qml into BlipView.qml in 1.8.0 (shared with the app window).
 const panel = readFileSync(new URL("./BlipView.qml", import.meta.url), "utf8");
-const widget = readFileSync(new URL("./BarWidget.qml", import.meta.url), "utf8");
+// C-006: the always-on machinery (poller, watchers, toasts, codes, IPC, the
+// app window) moved from BarWidget.qml into Service.qml, Omarchy's service
+// singleton, so a hidden bar icon cannot switch the app off. Most invariants
+// below span the pair, so `widget` is both files; `barWidget` alone pins the
+// bar-side contract (hotkeys, popout, badge) where the file matters.
+const service = readFileSync(new URL("./Service.qml", import.meta.url), "utf8");
+const barWidget = readFileSync(new URL("./BarWidget.qml", import.meta.url), "utf8");
+const widget = service + "\n" + barWidget;
 const window = readFileSync(new URL("./BlipWindow.qml", import.meta.url), "utf8");
 
 function handleTextKeySource() {
@@ -111,7 +118,7 @@ describe("QML safety invariants", () => {
     expect(widget).toContain("function shareArrivingLink(link)");
     expect(widget).toContain("d.links[d.links.length - 1]");          // newest only, never a queue
     expect(widget).toContain("link.urls.map(String) : [String(link.url)]");   // all of that message's links
-    expect(widget).toContain("p.opened === true");                    // panel must already be open
+    expect(widget).toContain("popout.opened === true");               // panel must already be open
     expect(widget).toContain("root.windowVisible");                   // or the app window
   });
 
@@ -123,8 +130,8 @@ describe("QML safety invariants", () => {
     // the popout gets out of the way, and closes BEFORE the window is shown —
     // inside showApp(), so double-click, ⇱ and IPC `app` (SUPER+M) all agree
     const showApp = widget.slice(widget.indexOf("function showApp()"), widget.indexOf("function anySurfaceOpen"));
-    expect(showApp.indexOf("root.close()")).toBeLessThan(showApp.indexOf("ensureWindow()"));
-    expect(showApp.indexOf("root.close()")).toBeGreaterThan(-1);
+    expect(showApp.indexOf("popout.close()")).toBeLessThan(showApp.indexOf("ensureWindow()"));
+    expect(showApp.indexOf("popout.close()")).toBeGreaterThan(-1);
     // FORK: the header buttons carry their name as the LABEL, so the tooltip
     // that used to repeat the action is gone. What must not come back is a KEY
     // in one: SUPER+M is an optional binding from the README, and Omarchy's
@@ -168,7 +175,11 @@ describe("QML safety invariants", () => {
     expect(panel).toContain('localsend --headless send "$2"');
     expect(panel).toContain('onTapped: root.openShare(String(linkCard.link.url || ""))');
     expect(panel).toContain('if (shareUrl !== "") { closeShare(); return true }');
-    expect(widget).toContain('function share(url: string): string { if (!root.automationOn) return root.automationOff;');
+    const shareFn = widget.slice(widget.indexOf("function share(url: string)"), widget.indexOf("function compose("));
+    expect(shareFn).toContain("if (!root.automationOn) return root.automationOff");
+    // With no bar popout (icon hidden) the share sheet falls back to the app
+    // window rather than reporting "no panel" (C-006).
+    expect(shareFn).toContain("root.ensureWindow()");
     // never the URL as an argv element of qrencode / localsend
     expect(panel).not.toContain('qrencode", ');
     expect(panel).not.toContain("localsend --headless send \"$2\" \"$3\"");
@@ -220,8 +231,10 @@ describe("QML safety invariants", () => {
     // handle but is unknown still opens, on purpose (start a new conversation).
     expect(widget).toContain('if (raw === "" || !/^[A-Za-z0-9._@:;$-]{1,256}$/.test(raw)) return false');
     expect(widget).toContain('return root.show(chat) ? "shown" : "not a conversation id"');
-    // show() must report failure rather than the handler assuming success
-    expect(widget).toContain("if (!panelLoader.item) return false");
+    // show() must report failure rather than the handler assuming success:
+    // a bar widget whose popout is not ready yet returns false instead of
+    // silently falling through to the app window (C-006).
+    expect(widget).toContain("if (panelHost) return false");
   });
 
   test("read marks are queued and only applied after a successful load", () => {
@@ -348,9 +361,65 @@ describe("QML safety invariants", () => {
   test("Omarchy's shell toggle can find the panel", () => {
     // Bar.findPanelWidget wants open(), close() and `opened` on the widget
     // item; drop `opened` and every SUPER+CTRL panel hotkey silently skips Blip.
-    expect(widget).toContain("readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false");
-    expect(widget).toContain("function open() {");
-    expect(widget).toContain("function close() {");
+    expect(barWidget).toContain("readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false");
+    expect(barWidget).toContain("function open() {");
+    expect(barWidget).toContain("function close() {");
+  });
+
+  test("the always-on machinery lives on the service, not the bar widget (C-006)", () => {
+    // Hiding Blip's bar icon must never switch off iMessage (9 Nov 2026,
+    // Q-047). Omarchy loads the service singleton for enabled plugins whether
+    // or not a bar entry exists, so the poller, watchers, IPC and the app
+    // window live there; the bar file is only badge, popout and clicks.
+    const manifest = JSON.parse(readFileSync(new URL("./manifest.json", import.meta.url), "utf8"));
+    expect(manifest.kinds).toContain("service");
+    expect(manifest.kinds).toContain("bar-widget");
+    expect(manifest.entryPoints.service).toBe("Service.qml");
+    expect(manifest.entryPoints.barWidget).toBe("BarWidget.qml");
+    expect(service).toContain("id: collector");
+    expect(service).toContain("id: watchProc");
+    expect(service).toContain("id: waWatchProc");
+    expect(service).toContain("IpcHandler {");
+    expect(service).toContain("function ensureWindow()");
+    expect(barWidget).not.toContain("id: collector");
+    expect(barWidget).not.toContain("IpcHandler {");
+    expect(barWidget).toContain("bar.shell.serviceFor(root.moduleName)");
+    // The popout is bar-anchored and stays on the bar widget, registered with
+    // the service; the service falls back to the app window when it is absent.
+    expect(service).toContain("property var panelHost: null");
+    expect(service).toContain("function registerPanel(host)");
+    expect(service).toContain("function unregisterPanel(host)");
+    expect(barWidget).toContain("service.registerPanel(root)");
+    // The service is the single poller and the single IPC endpoint — no
+    // leader gating left over from the per-screen bar-widget days.
+    expect(service).toContain("running: true                       // the service is the single poller, icon or no icon");
+    expect(service).toContain("enabled: true");
+    expect(barWidget).not.toContain("id: watchProc");
+    expect(barWidget).not.toContain("id: waWatchProc");
+    // Hostile-review fixes, all three shipped bugs before the first deploy:
+    // (1) QML ids are component-scoped — the service must read the popout
+    // through a real property on the bar widget, never panelHost.panelLoader.
+    expect(barWidget).toContain("readonly property var panel: panelLoader.item");
+    expect(service).toContain("readonly property var popout: panelHost ? panelHost.panel : null");
+    expect(service).not.toContain("panelHost.panelLoader");
+    // (2) Panel identity (Omarchy's owner / switchPanelFrom) is the BAR
+    // WIDGET, while message state comes from the service — two properties.
+    const panelHostFile = readFileSync(new URL("./Panel.qml", import.meta.url), "utf8");
+    expect(panelHostFile).toContain("property var barHost: null");
+    expect(panelHostFile).toContain("readonly property var barIdentity: barHost || root");
+    expect(barWidget).toContain("target.barHost = root");
+    expect(barWidget).toContain("target.hostWidget = service");
+    // (3) compose/bubbles/find/newchat keep working with only the app window:
+    // BlipWindow proxies the four view methods, IPC routes popout-or-window.
+    expect(window).toContain("function composeAndSend(text)");
+    expect(window).toContain("function bubbleModel()");
+    expect(window).toContain("function searchFor(query)");
+    expect(window).toContain("function newChatFor(query)");
+    expect(window).toContain('if (!win.visible) return "window closed — open the conversation first"');
+    expect(service).toContain("return w.composeAndSend(text)");
+    expect(service).toContain("w ? w.bubbleModel()");
+    expect(service).toContain("w ? w.searchFor(query)");
+    expect(service).toContain("w ? w.newChatFor(query)");
   });
 
   test("keys and wheel scroll the conversation through one stick-aware helper", () => {
@@ -503,7 +572,7 @@ describe("media renders at its intended scale", () => {
 // 2.3.2 (BlipView's compose block, PR #28 vs #30) and was invisible until the
 // post-deploy log scan. Cheapest possible guard.
 test("no source file carries a merge conflict marker", () => {
-  for (const f of ["BlipView.qml", "BarWidget.qml", "Panel.qml", "BlipWindow.qml"]) {
+  for (const f of ["BlipView.qml", "BarWidget.qml", "Service.qml", "Panel.qml", "BlipWindow.qml"]) {
     const src = readFileSync(new URL("./" + f, import.meta.url), "utf8");
     for (const line of src.split("\n")) {
       expect(
@@ -837,5 +906,7 @@ test("shallow polls prune muted rows from deepThreads and config edits trigger a
   expect(widget).toContain("root.deepThreads = root.dropMutedThreads(root.deepThreads, d.muted)");
   expect(widget).toContain("id: mutelistFile");
   expect(widget).toContain('path: root.home + "/.config/blip/mutelist.json"');
-  expect(widget).toContain("onFileChanged: if (root.leader && root.deepThreads.length > 0) root.refresh(true, false)");
+  // The service is the single poller, so config edits always re-deep it —
+  // no leader gate left over from the per-screen bar-widget days (C-006).
+  expect(widget).toContain("onFileChanged: if (root.deepThreads.length > 0) root.refresh(true, false)");
 });

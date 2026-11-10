@@ -50,6 +50,16 @@ FloatingWindow {
   function openThread(t) { view.openThread(t) }
   function shareLink(url) { return view.shareLink(url) }
   function pushReload() { view.pushReload() }
+  // C-006: the automation surface when no bar popout exists (icon hidden).
+  // composeAndSend keeps the popout's blind-send guard: a closed surface
+  // remembers its last thread, and IPC must never send into it blind.
+  function composeAndSend(text) {
+    if (!win.visible) return "window closed — open the conversation first"
+    return view.composeAndSend(text)
+  }
+  function bubbleModel() { return view.bubbleModel() }
+  function searchFor(query) { return view.searchFor(query) }
+  function newChatFor(query) { return view.newChatFor(query) }
   function navText(event) {
     if (event.key === Qt.Key_Slash) return "/"
     if (event.key === Qt.Key_N) return "n"
