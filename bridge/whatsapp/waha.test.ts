@@ -47,13 +47,13 @@ describe("config", () => {
   test("bridge.conf is parsed as data, comments and quotes stripped", () => {
     const conf = parseConf([
       "# a comment",
-      "host=anotherdave@the-mac-mini",
+      "host=you@your-mac",
       "remote_bin='$HOME/.blip/bin'   # trailing note",
       'waha_url="http://127.0.0.1:3010"',
       "malformed",
       "=nokey",
     ].join("\n"));
-    expect(conf["host"]).toBe("anotherdave@the-mac-mini");
+    expect(conf["host"]).toBe("you@your-mac");
     expect(conf["remote_bin"]).toBe("$HOME/.blip/bin");
     expect(conf["waha_url"]).toBe("http://127.0.0.1:3010");
     expect(conf["malformed"]).toBeUndefined();
