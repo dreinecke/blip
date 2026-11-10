@@ -62,7 +62,7 @@ BarWidget {
     if (root.leader) service.registerPanel(root)
     else service.unregisterPanel(root)
   }
-  onDestruction: if (service) service.unregisterPanel(root)
+  Component.onDestruction: if (service) service.unregisterPanel(root)
 
   // ---- view mirrors of the service state (FileView fallback while it loads)
   property bool fbOnline: false

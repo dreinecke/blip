@@ -390,6 +390,11 @@ describe("QML safety invariants", () => {
     expect(service).toContain("function registerPanel(host)");
     expect(service).toContain("function unregisterPanel(host)");
     expect(barWidget).toContain("service.registerPanel(root)");
+    // QML has no bare `onDestruction` handler on an Item — it must be the
+    // attached Component.onDestruction, or the whole bar widget fails to load
+    // (caught live at the first C-006 deploy, 10 Nov 2026).
+    expect(barWidget).toContain("Component.onDestruction: if (service) service.unregisterPanel(root)");
+    expect(barWidget).not.toContain("\n  onDestruction:");
     // The service is the single poller and the single IPC endpoint — no
     // leader gating left over from the per-screen bar-widget days.
     expect(service).toContain("running: true                       // the service is the single poller, icon or no icon");
