@@ -52,3 +52,13 @@ Mac-side tool changes: `scp bridge/mac/<tool> you@your-mac:~/.blip/bin/`.
 Subject under 72 chars; body says WHAT and WHY, and names any invariant you
 touched. The log is the project's memory.
 
+## The generated folklore block is deliberately absent (Dave, Q-002, 10 Nov 2026)
+
+This repo is public. The generated folklore block was removed from AGENTS.md
+and from this repo's entire public history on 10 November 2026 (Dave's Q-002).
+Do NOT run `folklore compile --here` and do not commit the block back in; the
+start-of-session staleness check will complain, and that is expected until
+Folklore learns to skip public repos (the machine agent has the fix). Real contact
+details in tests and comments were replaced with made-up ones in the same
+rewrite (Q-005), across every branch and tag.
+
