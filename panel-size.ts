@@ -1,4 +1,4 @@
-// Rebuild: bun build panel-size.ts --target browser --format esm --outfile PanelSize.mjs
+// Invariant: Rebuild: bun build panel-size.ts --target browser --format esm --outfile PanelSize.mjs
 export interface PanelSize { width: number; height: number }
 export function parseSize(value: unknown): PanelSize | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;

@@ -1,4 +1,4 @@
-// Pure local-send state shared by the QML renderer and tests.
+// Invariant: Pure local-send state shared by the QML renderer and tests.
 // Rebuild the QML module: bun build send-state.ts --target browser --format esm --outfile SendState.mjs
 export interface LocalSend {
   localId?: string;

@@ -1,4 +1,4 @@
-// Only window dimensions are persisted. No message content is accepted.
+// Invariant: Only window dimensions are persisted. No message content is accepted.
 import { constants as C, openSync, closeSync, fstatSync, readSync, mkdirSync, writeFileSync, renameSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';

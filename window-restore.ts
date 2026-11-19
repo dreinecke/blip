@@ -3,7 +3,7 @@
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
-// Lua quoted strings use decimal escapes, unlike JSON's Unicode escapes.
+// Invariant: Lua quoted strings use decimal escapes, unlike JSON's Unicode escapes.
 export function luaString(value: string): string {
   return '"' + Array.from(Buffer.from(value), b => `\\${String(b).padStart(3, "0")}`).join("") + '"';
 }

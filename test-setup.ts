@@ -1,4 +1,4 @@
-// Tests must never touch the developer's real caches or config: point
+// Invariant: Tests must never touch the developer's real caches or config: point
 // XDG_CACHE_HOME and XDG_CONFIG_HOME at scratch dirs before any module computes
 // CACHE_DIR / AVATAR_DIR or reads bridge.conf (country_code= would otherwise
 // change what a bare national number normalizes to).

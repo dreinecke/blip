@@ -144,7 +144,7 @@ describe("Mac candidate boundary", () => {
       const second = auditContactsOnMac(["+15550100001"], runner, cachePath);
       expect(second.cached).toBe(true);
       expect(second.audit.noMatchCount).toBe(1);
-      // the second call only paid one cheap fingerprint round-trip
+      // Invariant: the second call only paid one cheap fingerprint round-trip
       expect(operations).toEqual(["audit", "fingerprint"]);
       // Invariant: a different conversation set never reuses the cache
       const third = auditContactsOnMac(["+15550100002"], runner, cachePath);

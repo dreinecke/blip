@@ -41,15 +41,15 @@ test('spell= in bridge.conf picks the dictionaries, off turns the checker off', 
  expect(dictionaries(conf('spell=en_US,nb_NO\n'))).toEqual(['en_US','nb_NO']);
  expect(dictionaries(conf('spell = nb_NO, en_US-large \n'))).toEqual(['nb_NO','en_US-large']);
  expect(dictionaries(conf('spell=off\n'))).toEqual([]);
- // only names reach the argv: a value outside [A-Za-z0-9_-] is not a list, so it is the default
+ // Invariant: only names reach the argv: a value outside [A-Za-z0-9_-] is not a list, so it is the default
  expect(dictionaries(conf('spell=nb_NO,../../etc/passwd\n'))).toEqual(['en_US']);
  expect(dictionaries(conf('spell=$(id)\n'))).toEqual(['en_US']);
  expect(dictionaries(conf('spell=,\n'))).toEqual(['en_US']);
- // off: hunspell is never run
+ // Invariant: off: hunspell is never run
  let ran = false;
  expect(check('teh', ((()=>{ ran = true; return {status:0,stdout:'teh\n'}; }) as any), [])).toEqual([]);
  expect(ran).toBe(false);
- // a dictionary dropped under the user dir wins over the system one of the same name
+ // Invariant: a dictionary dropped under the user dir wins over the system one of the same name
  writeFileSync(join(dir, 'nb_NO.aff'), ''); writeFileSync(join(dir, 'nb_NO.dic'), '');
  expect(dictionaryArg(['en_US','nb_NO'], dir)).toBe('en_US,' + join(dir, 'nb_NO'));
  let args:any;

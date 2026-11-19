@@ -7,7 +7,7 @@ import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
 
-// A conversation tool. The helper supplies validated display rows; this view
+// Invariant: A conversation tool. The helper supplies validated display rows; this view
 // holds only session state and never changes preferences or contact cards.
 FocusScope {
   id: root

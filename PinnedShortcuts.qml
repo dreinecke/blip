@@ -1,6 +1,6 @@
 import QtQuick
 
-// Window-scoped shortcuts also work while a draft editor owns keyboard focus.
+// Invariant: Window-scoped shortcuts also work while a draft editor owns keyboard focus.
 Item {
   id: root
   property var pins: []

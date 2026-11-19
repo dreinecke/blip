@@ -128,7 +128,7 @@ describe("buildThreads", () => {
   });
 
   test("the same person across a DM and a group stays two threads", () => {
-    // A contact can appear under both a phone handle (DM) and a GUID (group).
+    // Invariant: A contact can appear under both a phone handle (DM) and a GUID (group).
     const threads = buildThreads(
       [
         msg({ chat: "+15550100003", name: "Sam Lee" }),
@@ -278,7 +278,7 @@ describe("self-echo in the thread list", () => {
       expect(msgs[0]!.from_me).toBe(true);
       expect(msgs[0]!.tapbacks).toEqual(love);
     }
-    // the empty-outbound shape (an attachment) hands its tapback to the echo it promotes
+    // Invariant: the empty-outbound shape (an attachment) hands its tapback to the echo it promotes
     const empty = dedupeSelfEcho([
       msg({ chat: "SELF", handle: "SELF", ts: "2026-09-05 17:01:00", from_me: true, text: "", tapbacks: love }),
       msg({ chat: "SELF", handle: "SELF", ts: "2026-09-05 17:01:00", from_me: false, text: "" }),
@@ -385,7 +385,7 @@ describe("displayName", () => {
   });
   test("a filtered stranger's SMS shows the number, not the chat suffix", () => {
     expect(displayName([msg({ name: null, chat: "+18185550107(filtered)", handle: "+18185550107(filtered)" })])).toBe("+18185550107");
-    // isGroupChat() files that shape as not-a-DM, so the list labels it through groupName.
+    // Invariant: isGroupChat() files that shape as not-a-DM, so the list labels it through groupName.
     expect(isGroupChat("+18185550107(filtered)")).toBe(true);
     expect(groupName("+18185550107(filtered)", undefined, new Map())).toBe("+18185550107");
   });
@@ -416,7 +416,7 @@ describe("selectToasts", () => {
   });
 
   test("drops senders that are not allowlisted", () => {
-    // Bank alerts and 2FA codes are the reason this gate exists.
+    // Invariant: Bank alerts and 2FA codes are the reason this gate exists.
     const out = selectToasts(
       [msg({ chat: "878478", handle: "878478", ts: "2026-08-30 11:00:00" })],
       "2026-08-30 10:00:00",
@@ -645,7 +645,7 @@ describe("fetchMessages", () => {
   });
 
   test("exit 69 reports the Mac offline, not a crash", () => {
-    // 69 = EX_UNAVAILABLE, the documented code from the imsg shim's reachability guard.
+    // Invariant: 69 = EX_UNAVAILABLE, the documented code from the imsg shim's reachability guard.
     const r = fetchMessages(10, fake({ status: 69 }));
     expect(r.ok).toBe(false);
     expect(r.online).toBe(false);
@@ -778,7 +778,7 @@ describe("adaptive unread catch-up", () => {
 
 describe("readMarks pruning", () => {
   test("a per-thread mark at or below the global mark is dropped from state", () => {
-    // collect() prunes; emulate its rule directly.
+    // Invariant: collect() prunes; emulate its rule directly.
     const readMarks: Record<string, string> = { A: "2026-08-30 09:00:00", B: "2026-08-30 12:00:00" };
     const readMark = "2026-08-30 10:00:00";
     for (const [chat, ts] of Object.entries(readMarks)) if (ts <= readMark) delete readMarks[chat];
@@ -849,7 +849,7 @@ describe("phone-synced read state (imsg ≥1.9.0 `read`)", () => {
 
 describe("future-dated messages must not poison read marks", () => {
   test("mark-all clamps the global mark to now; the future chat gets a per-chat mark", () => {
-    // Simulated via collect()'s pieces: verify the clamp math directly.
+    // Invariant: Simulated via collect()'s pieces: verify the clamp math directly.
     const { localNowTs } = require("./collector") as typeof import("./collector");
     const now = localNowTs();
     const future = "2099-01-01 00:00:00";
@@ -1071,7 +1071,7 @@ describe("complete conversation list (mergeChats)", () => {
       // Invariant: a retired alias id is just as much not-a-name
       const rekeyed = {...idChat, id: "chat9999", name: id, aliases: ["chat9999", id]};
       expect(mergeChats([], [rekeyed], {chat9999: info}, {})[0]!.name).toBe("Pat & Sam");
-      // a real title still wins over the participants
+      // Invariant: a real title still wins over the participants
       expect(mergeChats([], [{...idChat, name: "Lunch Crew"}], groups, {})[0]!.name).toBe("Lunch Crew");
     });
 
@@ -1326,7 +1326,7 @@ describe("which service a DM sends on (@lukejmorrison, PR #4)", () => {
   });
 
   test("our failed iMessage to a phone, newest, means they are not on iMessage", () => {
-    // the case that made a thread stick: retrying iMessage forever
+    // Invariant: the case that made a thread stick: retrying iMessage forever
     expect(sendServiceForMessages([
       at(0, { from_me: false, service: "iMessage" }),
       at(1, { from_me: true, service: "iMessage", error: 22 }),
@@ -1375,7 +1375,7 @@ describe("pins survive shallow polls", () => {
     expect(out.map((t) => t.chat)).toEqual(["MOM", "NEW", "OLD"]);
     expect(out[0]).toMatchObject({ pinned: true, pin_order: 0 });
     expect(out[1].pinned).toBe(false);
-    // rows are reused when nothing changed (the widget skips identical lists)
+    // Invariant: rows are reused when nothing changed (the widget skips identical lists)
     expect(out[1]).toBe(shallow[0]);
   });
 
@@ -1436,7 +1436,7 @@ describe("mute list", () => {
 
   test("a handle or chat id matches exactly, like the allowlist", () => {
     expect(matchesMute(blast(), ["78462"])).toBe(true);
-    // ...and only exactly: a substring of a number is not a number.
+    // Invariant: ...and only exactly: a substring of a number is not a number.
     expect(matchesMute(blast({ text: "" }), ["784"])).toBe(false);
   });
 
@@ -1701,7 +1701,7 @@ describe("the read-push policy is reported, not just applied", () => {
       .toEqual(["--chat", "+15550100001"]);
     expect(pushReadArgs("thread", { markRead: false, readChat: "pat@example.com" }))
       .toEqual(["--chat", "pat@example.com"]);
-    // 32-hex and chat<digits> have no imessage:// form
+    // Invariant: 32-hex and chat<digits> have no imessage:// form
     expect(pushReadArgs("thread", { markRead: false, readChat: "ce5a593a78af408282d61461ade89135" })).toBeNull();
     expect(pushReadArgs("thread", { markRead: false, readChat: "chat224479848698394295" })).toBeNull();
   });
@@ -1730,7 +1730,7 @@ describe("the read-push policy is reported, not just applied", () => {
     const dm = { markRead: false, readChat: "+15550100001" };
     expect(pushReadArgs("thread", { ...dm, clearedUnread: true })).toEqual(["--chat", "+15550100001"]);
     expect(pushReadArgs("thread", { ...dm, clearedUnread: false })).toBeNull();
-    // absent means "caller did not say" — push, so an old caller keeps working
+    // Invariant: absent means "caller did not say" — push, so an old caller keeps working
     expect(pushReadArgs("thread", dm)).toEqual(["--chat", "+15550100001"]);
     // Invariant: mark-all is never gated: it is an explicit gesture, not a side effect
     expect(pushReadArgs("all", { markRead: true, readChat: "", clearedUnread: false })).toEqual(["--all"]);
@@ -1768,7 +1768,7 @@ describe("blip-setup installs the auto-update watcher (repo owns its unit)", () 
   const watch = new URL("./scripts/blip-auto-update-watch", import.meta.url).pathname;
 
   test("the shipped unit binds to the graphical session, never default.target", () => {
-    // Lingering is on here, so default.target would start the watcher at boot
+    // Invariant: Lingering is on here, so default.target would start the watcher at boot
     // with no compositor to talk to (the 2192-restart espanso lesson).
     expect(unit).toContain("PartOf=graphical-session.target");
     expect(unit).toContain("After=graphical-session.target");
@@ -1796,7 +1796,7 @@ describe("blip-setup installs the auto-update watcher (repo owns its unit)", () 
     const { mkdirSync, writeFileSync, existsSync } = require("node:fs");
     const fake = join(tmpdir(), "blip-watch-fakebin-" + process.pid);
     mkdirSync(fake, { recursive: true });
-    // fake lock probe: plays back one state per call from the states file
+    // Invariant: fake lock probe: plays back one state per call from the states file
     writeFileSync(join(fake, "lock"), [
       "#!/bin/sh",
       `n=$(cat "$STATE_DIR/n" 2>/dev/null || echo 0)`,
@@ -1834,14 +1834,14 @@ describe("blip-setup installs the auto-update watcher (repo owns its unit)", () 
     expect(twoEpisodes.res.status).toBe(0);
     expect(twoEpisodes.fired).toBe(2);
 
-    // Locked throughout: no fire, no updater run.
+    // Invariant: Locked throughout: no fire, no updater run.
     expect(run(["locked", "locked", "locked", "locked"]).fired).toBe(0);
 
-    // An unparseable reading (shell between restarts) counts as locked: the
+    // Invariant: An unparseable reading (shell between restarts) counts as locked: the
     // episode resets, so U U garbage U U is two episodes, not one.
     expect(run(["unlocked", "unlocked", "garbage", "unlocked", "unlocked"]).fired).toBe(2);
 
-    // A single unlocked reading is not trusted: L U L fires nothing.
+    // Invariant: A single unlocked reading is not trusted: L U L fires nothing.
     expect(run(["locked", "unlocked", "locked", "unlocked", "unlocked"]).fired).toBe(1);
   });
 });
@@ -1884,7 +1884,7 @@ describe("the person fold (one row per human)", () => {
     last_handle: id, last_name: "Antoinette Reinecke", pinned: false, pin_order: null,
     aliases: [id],
   });
-  // Her three channels; only the person map joins them.
+  // Invariant: Her three channels; only the person map joins them.
   const persons = {
     "ant.reinecke@example.com": "+353850000000",
     "353850000000@c.us": "+353850000000",
@@ -2049,7 +2049,7 @@ describe("spam_keywords auto-hiding", () => {
     );
     expect(km1).toEqual({ "15550100091@c.us": keywordDigest("unsubscribe") });
 
-    // Poll 2: spammer sends "Are you there?" (no keyword) and you replied "STOP" (last_from_me: true).
+    // Invariant: Poll 2: spammer sends "Are you there?" (no keyword) and you replied "STOP" (last_from_me: true).
     const followup = msg({ chat: "15550100091@c.us", handle: "15550100091@c.us", from_me: true, text: "STOP" });
     const rows = [
       chatRow("15550100091@c.us", "STOP", true),
@@ -2077,7 +2077,7 @@ describe("spam_keywords auto-hiding", () => {
     );
     expect(Object.keys(km1).sort()).toEqual(["1@c.us", "2@c.us"]);
 
-    // User removes "unsubscribe", keeps "crypto".
+    // Invariant: User removes "unsubscribe", keeps "crypto".
     const onlyCrypto = parseSpamKeywords("spam_keywords=crypto\n");
     const km2 = updateKeywordMuted(km1, [], null, [], onlyCrypto);
     expect(km2).toEqual({ "2@c.us": keywordDigest("crypto") });

@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Effects
 import "GroupAvatar.mjs" as AvatarModel
 
-// Custom group photos are rendered by the caller. This is the fallback only.
+// Invariant: Custom group photos are rendered by the caller. This is the fallback only.
 Item {
   id: root
   property var participants: []

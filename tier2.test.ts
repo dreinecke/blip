@@ -20,7 +20,7 @@ import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 
-// A real 16×8 baseline JPEG (ImageMagick, -strip): no APP1 at all.
+// Invariant: A real 16×8 baseline JPEG (ImageMagick, -strip): no APP1 at all.
 const TINY_JPEG = Buffer.from(
   "/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDABsSFBcUERsXFhceHBsgKEIrKCUlKFE6PTBCYFVlZF9VXVtqeJmBanGQc1tdhbWGkJ6jq62rZ4C8ybqmx5moq6T/2wBDARweHigjKE4rK06kbl1upKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKSkpKT/wAARCAAIABADASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAT/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAABAb/xAAUEQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIRAxEAPwCAANSP/9k=",
   "base64",
@@ -598,7 +598,7 @@ describe("contact photos", () => {
     const h = `+1555${Date.now() % 10000000}`;
     expect(fetchAvatar(h, runner).ok).toBe(false);
     const marker = `${AVATAR_DIR}/${avatarKey(h)}.none`;
-    // age it past the negative TTL but well inside the positive one
+    // Invariant: age it past the negative TTL but well inside the positive one
     const old = new Date(Date.now() - AVATAR_NONE_TTL_MS - 60_000);
     utimesSync(marker, old, old);
     expect(fetchAvatar(h, runner).ok).toBe(false);
@@ -690,7 +690,7 @@ describe("country code + service (2.2.0)", () => {
     expect(normalizeHandle("(404) 555-0123", "1")).toBe("+14045550123");
   });
   test("the default country code comes from the test's own bridge.conf, never the developer's", () => {
-    // test-setup.ts points XDG_CONFIG_HOME at a scratch dir; without that, a
+    // Invariant: test-setup.ts points XDG_CONFIG_HOME at a scratch dir; without that, a
     // developer with country_code=47 saw the five NANP cases above fail.
     const { defaultCountryCode } = require("./contact-search") as typeof import("./contact-search");
     expect(process.env.XDG_CONFIG_HOME).toBeDefined();   // or the line below writes to ./undefined/
@@ -850,11 +850,11 @@ describe("multi-photo messages and the preview transform (#Crystal/Thatchers)", 
       seen.push(args);
       return { status: 0, stdout: Buffer.from([0xff, 0xd8, 0xff, 0xdb, 1, 2, 3, 4]), stderr: "" };
     }) as never;
-    // auto: a cap below the ceiling means "this is for the bubble"
+    // Invariant: auto: a cap below the ceiling means "this is for the bubble"
     fetchAttachment("991", "IMG_1.HEIC", "image/heic", runner, 5 * 1024 * 1024);
     expect(seen[0]).toContain("--max-dim");
     expect(seen[0]).toContain("--jpeg");
-    // click: no cap, no resample
+    // Invariant: click: no cap, no resample
     fetchAttachment("992", "IMG_2.HEIC", "image/heic", runner);
     expect(seen[1]).not.toContain("--max-dim");
     for (const f of ["991-prev-IMG_1.jpg", "992-jpg-IMG_2.jpg"]) {

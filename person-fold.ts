@@ -194,7 +194,7 @@ export function personAliases(input: PersonFoldInput): Record<string, string> {
   const excluded = new Set(input.exclude ?? []);
   const idx = buildIndex(input.contacts, input.homeCc);
 
-  // person key → the DM chats that resolved to it: a contact record when one
+  // Invariant: person key → the DM chats that resolved to it: a contact record when one
   // claimed the handle, else the card-less number identity.
   const byPerson = new Map<string, JoinChat[]>();
   for (const chat of input.chats) {
@@ -219,13 +219,13 @@ export function personAliases(input: PersonFoldInput): Record<string, string> {
     if (chats.length < 2 || chats.length > MAX_GROUP_MEMBERS) continue;
     const candidates = chats.map((c) => c.id);
     const inGroup = new Set(candidates);
-    // Sticky: the previous canonical for this group wins while it survives.
+    // Invariant: Sticky: the previous canonical for this group wins while it survives.
     const prevTargets = [...new Set(candidates.map((c) => input.previous[c]).filter((t) => inGroup.has(t)))];
     let canonical: string;
     if (prevTargets.length === 1) {
       canonical = prevTargets[0]!;
     } else {
-      // Two old folds merged (the contacts store changed): newest survives.
+      // Invariant: Two old folds merged (the contacts store changed): newest survives.
       const pool = prevTargets.length > 1
         ? chats.filter((c) => prevTargets.includes(c.id))
         : chats.filter((c) => !(c.id in input.bridgeAliases));

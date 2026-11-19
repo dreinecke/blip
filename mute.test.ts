@@ -17,7 +17,7 @@ const inbound = (chat: string, text = "hi"): ImsgMessage =>
 describe("adding a conversation to the list", () => {
   test("once, at the end, order untouched", () => {
     expect(addToMutelist(["a", "b"], "c")).toEqual(["a", "b", "c"]);
-    // The file is hand-edited as often as it is written here, and a list that
+    // Invariant: The file is hand-edited as often as it is written here, and a list that
     // reshuffles itself is one nobody trusts to edit.
     expect(addToMutelist(["b", "a"], "c")).toEqual(["b", "a", "c"]);
   });

@@ -3,7 +3,7 @@ import QtQuick.Controls as QQC
 import qs.Commons
 import qs.Commons as Commons
 
-// Contact actions share the panel typography and wrap at the available width.
+// Invariant: Contact actions share the panel typography and wrap at the available width.
 QQC.Button {
   id: root
   property color foreground: Commons.Color.foreground

@@ -283,7 +283,7 @@ describe("decorate", () => {
 
 describe("dedupeSelfEcho", () => {
   test("drops the empty from_me twin the self-thread produces", () => {
-    // A real send logs twice: from_me=true with empty text, and from_me=false
+    // Invariant: A real send logs twice: from_me=true with empty text, and from_me=false
     // carrying the text. Rendering both shows your own message as theirs.
     const out = dedupeSelfEcho([
       msg({ ts: "2026-08-30 21:08:22", from_me: true, text: "" }),
@@ -400,7 +400,7 @@ describe("loadThread", () => {
 
 describe("localToday", () => {
   test("uses the local calendar date, not UTC", () => {
-    // 2026-08-30 23:30 local — toISOString() would already say the 31st in EDT.
+    // Invariant: 2026-08-30 23:30 local — toISOString() would already say the 31st in EDT.
     expect(localToday(new Date(2026, 7, 30, 23, 30))).toBe("2026-08-30");
   });
 
@@ -731,7 +731,7 @@ describe("loadThread across a person fold", () => {
     personAliases: { "ant.reinecke@example.com": "+353850000000", "353850000000@c.us": "+353850000000" },
   } as never;
 
-  // One runner per member: the WA jid goes to wa.ts, the ids to imsg.
+  // Invariant: One runner per member: the WA jid goes to wa.ts, the ids to imsg.
   const perChat = (table: Record<string, { status: number; stdout?: string; stderr?: string }>) =>
     ((cmd: string, argv: string[]) => {
       const chatArg = argv[argv.indexOf("--chat") + 1] ?? "";

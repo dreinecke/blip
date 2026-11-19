@@ -32,7 +32,7 @@ describe("which messenger a conversation belongs to", () => {
   });
 
   test("a WhatsApp room is a group, not an email-shaped DM", () => {
-    // Upstream's rule reads anything with an "@" as a DM address, which would
+    // Invariant: Upstream's rule reads anything with an "@" as a DM address, which would
     // have sent a group message to whoever spoke in it last.
     expect(isGroupChat("27840000000-1461139805@g.us")).toBe(true);
     expect(isGroupChat("353840000000@c.us")).toBe(false);
@@ -112,7 +112,7 @@ describe("merging the two messengers", () => {
     expect(out.ok).toBe(true);
     expect(out.online).toBe(true);
     expect(out.msgs).toHaveLength(1);
-    // `ok` now means "something answered", so the reason is the only thing
+    // Invariant: `ok` now means "something answered", so the reason is the only thing
     // left saying the Mac did not.
     expect(out.error).toBe("Mac unreachable");
   });

@@ -17,7 +17,7 @@ TextArea {
   property int spellingRevision: 0
   property int checkedRevision: -1
   readonly property string spellingHelper: decodeURIComponent(Qt.resolvedUrl("spellcheck.ts").toString().replace(/^file:\/\//, ""))
-  // Compare rendered lines so soft wraps behave like explicit newlines.
+  // Invariant: Compare rendered lines so soft wraps behave like explicit newlines.
   function moveAtBoundary(key, modifiers) {
     if (modifiers !== Qt.NoModifier) return false
     if (key !== Qt.Key_Up && key !== Qt.Key_Down) return false
