@@ -8,16 +8,6 @@ import qs.Commons
 import qs.Commons as Commons
 import qs.Ui
 
-// Blip panel — threads, then an iMessage-style conversation with a compose box.
-//
-//   list         → every thread, newest first, unread marked
-//   conversation → bubbles: mine blue on the right, theirs grey on the left,
-//                  grouped by sender with one timestamp per run, day dividers,
-//                  compose box pinned at the bottom. Esc goes back.
-//
-// Reads its thread list from the host widget so there is exactly one poller.
-// Bubble decoration (grouping, day labels, times) is computed in thread.ts,
-// where it is unit-tested; this file only renders.
 Panel {
   id: root
   moduleName: "nixfred.blip"
@@ -25,8 +15,8 @@ Panel {
 
   property var anchorItem: null
   property var hostWidget: null
-  // barHost is the actual BarWidget in the bar slot (panel identity for
-  // Omarchy: KeyboardPanel.owner and switchPanelFrom must name the slot's
+  // Invariant: barHost is the actual BarWidget in the bar slot (panel identity
+  // for Omarchy: KeyboardPanel.owner and switchPanelFrom must name the slot's
   // activeItem). hostWidget is the service (message state and actions).
   // C-006: the two used to be one object; they are not any more.
   property var barHost: null
@@ -60,7 +50,6 @@ Panel {
     }
   }
 
-  // ---- proxies: BarWidget and the IPC hooks talk to the panel, the view does the work
   readonly property bool inThread: view.inThread
   readonly property var active: view.active
   readonly property bool loading: view.loading
@@ -82,14 +71,14 @@ Panel {
   function openThread(t) { view.openThread(t) }
   function markAllRead() { view.markAllRead() }
   function pushReload() { view.pushReload() }
-  // A closed popout still remembers its last thread; never let IPC send into it blind.
+  // Invariant: a closed popout still remembers its last thread; never let IPC
+  // send into it blind.
   function composeAndSend(text) { if (!opened) return "panel closed — open the conversation first"; return view.composeAndSend(text) }
   function bubbleModel() { return view.bubbleModel() }
   function searchFor(query) { if (!opened) open(); return view.searchFor(query) }
   function newChatFor(query) { if (!opened) open(); return view.newChatFor(query) }
   function shareLink(url) { if (!opened) open(); return view.shareLink(url) }
 
-  // ------------------------------------------------------------ panel
   KeyboardPanel {
     id: panel
     anchorItem: root.anchorItem
@@ -97,7 +86,7 @@ Panel {
     bar: root.bar
     open: root.opened
     focusTarget: view.inThread ? view.composeEditor : view.navigationKeys
-    // FORK: the card is padded by HALF the master margin; BlipView's own
+    // Invariant: the card is padded by HALF the master margin; BlipView's own
     // column adds the other half, so everything inside still sits a full
     // master from the border. The conversation list pulls back into this half
     // to paint a hovered row's highlight (see BlipView.threadFlick).
@@ -115,10 +104,10 @@ Panel {
     PanelKeyCatcher {
       id: keyCatcher
       anchors.fill: parent
-      // PanelKeyCatcher runs BEFORE any focused descendant (Keys.BeforeItem).
-      // Without this it swallows every letter typed into the compose box.
-      // Any focused editor — the compose box or a bubble being selected —
-      // must receive its own keys (Ctrl+C, arrows, Esc).
+      // Invariant: PanelKeyCatcher runs BEFORE any focused descendant
+      // (Keys.BeforeItem). Without this it swallows every letter typed into
+      // the compose box. Any focused editor — the compose box or a bubble
+      // being selected — must receive its own keys (Ctrl+C, arrows, Esc).
       blocked: view.editorActive
       onCloseRequested: if (!view.unwind()) root.close()
       onTabRequested: function(direction) { root.switchPanel(direction) }
@@ -142,8 +131,8 @@ Panel {
       id: resizeGrip
       anchors.right: parent.right
       anchors.bottom: parent.bottom
-      // The parent is inset by popup padding; extend into that padding so
-      // the grip sits against the card's inner border, not the content edge.
+      // Invariant: the grip extends into the popup padding so it sits against
+      // the card's inner border, not the content edge.
       anchors.rightMargin: -panel.padding
       anchors.bottomMargin: -panel.padding
       width: Style.space(20); height: Style.space(20)
