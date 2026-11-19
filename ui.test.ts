@@ -610,7 +610,7 @@ test("an unread conversation is tinted and ringed, and hover still reads over it
   // The ring is drawn over the photo, so it comes AFTER the image and the
   // initials inside the avatar circle — a border on the circle itself would sit
   // behind the masked image that fills it.
-  const circle = panel.slice(panel.indexOf("id: avatarCircle"), panel.indexOf("id: avatarCircle") + 4200);
+  const circle = panel.slice(panel.indexOf("id: avatarCircle"), panel.indexOf("id: avatarCircle") + 4600);
   expect(circle).toContain("border.color: root.accent");
   expect(circle).toContain("visible: modelData.unread > 0");
   expect(circle.indexOf("border.color: root.accent")).toBeGreaterThan(circle.indexOf("id: avatarImg"));
