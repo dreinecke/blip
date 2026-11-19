@@ -547,8 +547,13 @@ def main() -> None:
         return
 
     # File first, then text — two AppleScript sends, reported per-part so a
-    # retry never re-sends the half that already worked.
+    # retry never re-sends the half that already worked. The text goes out the
+    # moment the file AppleScript returns: a caller with a bridge timeout
+    # (Marmalade answers the iPhone within 15s; Dave, Q-031) must not lose the
+    # headline to the up-to-20s wait for Messages' own copy of the file, which
+    # only gates cleanup and error reporting here, never the send itself.
     parts_failed = []
+    file_pending = None
     if args.file_stdin:
         staged = stage_stdin_file(args.name, args.file_bytes)
         consent_banner(recipient, f"[file: {os.path.basename(staged)}]")
@@ -562,20 +567,9 @@ def main() -> None:
             parts_failed.append(f"file ({err})")
         else:
             # osascript returning 0 proves NOTHING for files — failures
-            # surface later in chat.db. Wait for Messages' own copy before
-            # touching the staged file, and surface a delivery error loudly.
+            # surface later in chat.db. Verification runs after the text send.
             chat_ident = (args.chat_id.split(";+;")[-1] if args.chat_id else args.to) or None
-            copied, msg_err = wait_for_copy(staged, baseline, chat_ident=chat_ident)
-            if msg_err:
-                unstage(staged)
-                parts_failed.append(f"file (Messages error {msg_err} — not delivered)")
-            elif copied:
-                keep_sent(staged)
-                print("file: sent.")
-            else:
-                # Copy not observed yet: leave staging for the hourly GC —
-                # never yank a file an upload might still be reading.
-                print("file: sent (staged copy retained for GC).")
+            file_pending = (staged, baseline, chat_ident)
     if text:
         consent_banner(recipient, text)
         try:
@@ -588,6 +582,19 @@ def main() -> None:
             if out:
                 print(out)
             print("text: sent." if args.file_stdin else "sent.")
+    if file_pending is not None:
+        staged, baseline, chat_ident = file_pending
+        copied, msg_err = wait_for_copy(staged, baseline, chat_ident=chat_ident)
+        if msg_err:
+            unstage(staged)
+            parts_failed.append(f"file (Messages error {msg_err} — not delivered)")
+        elif copied:
+            keep_sent(staged)
+            print("file: sent.")
+        else:
+            # Copy not observed yet: leave staging for the hourly GC —
+            # never yank a file an upload might still be reading.
+            print("file: sent (staged copy retained for GC).")
     if parts_failed:
         sys.exit("send failed: " + "; ".join(parts_failed))
 
