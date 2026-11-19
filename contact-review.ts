@@ -371,7 +371,7 @@ export function auditContactsOnMac(
     seen.add(key);
     return handle;
   });
-  // Freshness short-circuit: when the conversation set matches the cached
+  // Invariant: Freshness short-circuit: when the conversation set matches the cached
   // scan, one cheap fingerprint round-trip decides whether the Mac's
   // Contacts stores changed at all — unchanged means the cached cleanup
   // results are still exact, so skip the full scan.

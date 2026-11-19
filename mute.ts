@@ -85,7 +85,7 @@ export interface MuteResult { ok: boolean; hidden: string; error: string }
 
 export function hide(chat: string, path = MUTELIST_PATH): MuteResult {
   const id = String(chat || "").trim();
-  // A conversation id, not a phrase: length-capped, printable ASCII, no
+  // Invariant: A conversation id, not a phrase: length-capped, printable ASCII, no
   // spaces. Whitespace and control characters would make the file unreadable
   // to the next hand edit, and a PHRASE entry \u2014 which the mute list also
   // accepts \u2014 is message text, which belongs nowhere near argv.

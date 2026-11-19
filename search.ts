@@ -85,7 +85,7 @@ export function shapeResults(raw: ImsgMessage[], query: string, limit: number): 
   for (const m of raw) {
     const body = (m.text ?? "").replace(/\uFFFC/g, "").trim();
     if (body === "") continue;
-    // A twin is the self-thread ECHO: same chat, second and text, OPPOSITE
+    // Invariant: A twin is the self-thread ECHO: same chat, second and text, OPPOSITE
     // direction. Two members answering "yes" in the same second are two
     // messages (Astra B#7).
     const twinKey = `${chatKey(m)}\0${m.ts}\0${body}`;
@@ -169,14 +169,14 @@ export function runSearch(
 ): SearchOutput {
   const wa = waRows ? shapeResults(waRows, String(query || "").trim(), limit) : [];
   const fail = (error: string, online = true): SearchOutput =>
-    // One messenger being unreachable must not empty the other's hits.
+    // Invariant: One messenger being unreachable must not empty the other's hits.
     wa.length
       ? { ok: true, online: true, error, results: mergeSearchResults(matchConversations(threads, String(query || "").trim()), wa) }
       : { ok: false, online, error, results: [] };
   const q = String(query || "").trim();
   if (q === "") return { ok: false, online: true, error: "empty query", results: [] };
 
-  // "--" so a query starting with "-" is a query, not a flag.
+  // Invariant: "--" so a query starting with "-" is a query, not a flag.
   // The query is message text the moment someone pastes a sentence into the
   // box: stdin to the bridge, never argv on either machine (Astra B#2).
   const res = runner(`${HOME}/bin/imsg`, ["--json", "search", "--stdin", String(limit * 2)], {

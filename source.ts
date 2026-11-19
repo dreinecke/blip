@@ -47,7 +47,6 @@ export function bridgeFor(chat: string, tool: "query" | "send" | "read" = "query
   return { cmd: argv[0]!, args: argv.slice(1), source: sourceFor(chat) };
 }
 
-// ---------------------------------------------------------------- collecting
 
 /**
  * Ask the WhatsApp bridge for an array. `null` means it could not answer at
@@ -139,7 +138,7 @@ export function mergeSources(mac: FetchResult, wa: ImsgMessage[] | null): FetchR
     answered,
     ok: true,
     online: true,
-    // `error` is deliberately kept: `ok` now means "something answered", so
+    // Invariant: `error` is deliberately kept: `ok` now means "something answered", so
     // the Mac's own reason is the only thing left saying it did not.
     msgs: [...mac.msgs, ...wa].sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0)),
   };

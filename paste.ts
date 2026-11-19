@@ -107,7 +107,7 @@ export function snapshotClipboard(runner = spawnSync): Record<string, string> {
   const paste = (mime: string, extra: Record<string, unknown> = {}) =>
     runner("wl-paste", ["-t", mime], { encoding: "utf8", timeout: 4000, ...extra });
 
-  // File objects must win over their optional text representation. This is
+  // Invariant: File objects must win over their optional text representation. This is
   // what makes Copy vCard → paste into another Blip conversation attach the
   // .vcf instead of inserting its URI or source text into the composer.
   const fileMime = pickFileType(offered);
@@ -124,7 +124,7 @@ export function snapshotClipboard(runner = spawnSync): Record<string, string> {
     const dump = runner("wl-paste", ["-t", imageMime], { timeout: 10000, maxBuffer: 110 * 1024 * 1024 });
     const bytes = dump.stdout as Buffer;
     if (dump.status !== 0 || !bytes || bytes.length === 0) {
-      // The clipboard changed between the type probe and the read (the two
+      // Invariant: The clipboard changed between the type probe and the read (the two
       // are separate wl-paste calls — an inherent, tiny race). Fall through
       // to the text read rather than swallowing the paste.
     } else {
@@ -136,7 +136,7 @@ export function snapshotClipboard(runner = spawnSync): Record<string, string> {
     }
   }
 
-  // File managers put the path as text/uri-list (and often text/plain), not
+  // Algorithm: File managers put the path as text/uri-list (and often text/plain), not
   // image/*. Treat that as an attachment, matching drag-and-drop.
   for (const mime of ["text/uri-list", "x-special/gnome-copied-files"]) {
     if (!offered.includes(mime)) continue;

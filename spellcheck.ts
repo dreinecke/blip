@@ -1,4 +1,4 @@
-// Local-only spelling: draft text uses bounded stdin and is never persisted.
+// Invariant: Local-only spelling: draft text uses bounded stdin and is never persisted.
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";

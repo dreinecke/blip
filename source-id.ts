@@ -1,4 +1,4 @@
-// Which messenger a conversation belongs to, and which bridge answers for it.
+// Invariant: Which messenger a conversation belongs to, and which bridge answers for it.
 // Pure and dependency-free so QML and the TypeScript share ONE definition.
 // Rebuild the QML module: bun build source-id.ts --target browser --format esm --outfile SourceId.mjs
 
@@ -34,7 +34,7 @@ export function sourceFor(chat: string): "imessage" | "whatsapp" {
  * definition without an import cycle).
  */
 export function isGroupChat(chat: string): boolean {
-  // A WhatsApp id is a JID, so it is decided by its suffix before the `@` test
+  // Invariant: A WhatsApp id is a JID, so it is decided by its suffix before the `@` test
   // below can mistake `…@g.us` for an email address and call a room a DM.
   if (sourceFor(chat) === "whatsapp") return isWhatsAppGroup(chat);
   if (/^\+?[0-9]{5,}$/.test(chat) || chat.indexOf("@") > 0) return false;

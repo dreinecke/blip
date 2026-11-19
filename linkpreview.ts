@@ -227,7 +227,7 @@ async function get(url: string, timeout: number): Promise<{ res: Response; timer
       continue;                       // re-checked against the private ranges next loop
     }
     if (!res.ok) { clearTimeout(timer); return null; }
-    // The deadline stays armed until the BODY is consumed: a server that sends
+    // Invariant: The deadline stays armed until the BODY is consumed: a server that sends
     // headers promptly and then holds the stream open used to park this process
     // forever, and the widget's preview queue behind it (Astra #20).
     return { res, timer };
@@ -306,7 +306,7 @@ export async function fetchPreview(url: string): Promise<Preview> {
     return fail(u, "no card");
   }
   const out: Preview = { ok: true, url: u, host: hostOf(u), title: card.title, summary: card.summary, image, error: "" };
-  // The URL came out of a message; the cache file is named by its hash so the
+  // Invariant: The URL came out of a message; the cache file is named by its hash so the
   // URL itself never lands on disk. The caller re-attaches it (Astra #6).
   writeAtomic(metaFile, JSON.stringify({ ...out, url: "" }));
   sweepStale(PREVIEW_DIR, PREVIEW_TTL_MS * 2);   // bounded: expired cards, images and markers go (Astra B#8)
@@ -317,7 +317,7 @@ export async function fetchPreview(url: string): Promise<Preview> {
 
 if (import.meta.main) {
   try {
-    // `--stdin`: the URL is message content and never rides argv (BlipView).
+    // Invariant: `--stdin`: the URL is message content and never rides argv (BlipView).
     const arg = process.argv[2] ?? "";
     const url = arg === "--stdin" ? (await Bun.stdin.text()).trim() : arg;
     console.log(JSON.stringify(await fetchPreview(url)));

@@ -80,14 +80,14 @@ export function idKey(id: string): string {
 }
 
 export function cacheFileName(id: string, name: string, mime: string, preview = false): string {
-  // Three transforms, never colliding: `orig` is the untouched file, `jpg` a
+  // Invariant: Three transforms, never colliding: `orig` is the untouched file, `jpg` a
   // sips HEIC→JPEG at full size, `prev` a resampled inline preview. A preview
   // is ALWAYS JPEG whatever the source was, so its extension is too —
   // xdg-open dispatches on extension, and a JPEG inside a .png would be a lie
   // (war room #49).
   const transform = preview ? "prev" : wantsJpeg(mime) ? "jpg" : "orig";
   let base = sanitizeName(name);
-  // The extension is ALWAYS ours. An unmapped type (image/svg+xml, anything
+  // Invariant: The extension is ALWAYS ours. An unmapped type (image/svg+xml, anything
   // exotic) used to keep the sender's name — "evil.desktop" with an image MIME
   // passed the opening gate and reached xdg-open by extension (Astra B#1).
   const ext = preview ? "jpg" : (MIME_EXT[String(mime || "").toLowerCase()] ?? "bin");
@@ -209,7 +209,7 @@ function evict(keep: string): void {
   try {
     entries = [];
     for (const name of readdirSync(CACHE_DIR)) {
-      // per entry: one dangling symlink used to abort the whole pass (Astra B#9)
+      // Invariant: per entry: one dangling symlink used to abort the whole pass (Astra B#9)
       try {
         const st = lstatSync(join(CACHE_DIR, name));
         if (st.isFile()) entries.push({ name, bytes: st.size, mtimeMs: st.mtimeMs });
@@ -297,7 +297,7 @@ export function jpegtranArgs(orientation: number): string[] | null {
 export function bakeOrientation(bytes: Buffer, runner = spawnSync): Buffer {
   const op = jpegtranArgs(exifOrientation(bytes));
   if (!op) return bytes;
-  // `-copy icc` keeps the colour profile (libjpeg-turbo ≥ 2.1, every Omarchy
+  // Invariant: `-copy icc` keeps the colour profile (libjpeg-turbo ≥ 2.1, every Omarchy
   // box). An older jpegtran rejects the option and exits non-zero — retry
   // with `-copy none` so the photo is at least upright; only if that fails
   // too do the original bytes go into the cache (Qt's autoTransform still
@@ -340,7 +340,7 @@ export function fetchAttachment(
   const fail = (error: string, online = true): FetchResult =>
     ({ ok: false, online, path: "", url: "", error, ...EMPTY_IMAGE_METRICS });
 
-  // A chat.db rowid, or a WhatsApp media id: `<fromMe>_<chat jid>_<message id>`,
+  // Invariant: A chat.db rowid, or a WhatsApp media id: `<fromMe>_<chat jid>_<message id>`,
   // optionally with the sender appended inside a group.
   const WHATSAPP_ID = /^(?:true|false)_[A-Za-z0-9@.:_-]{3,120}$/;
   if (!/^[0-9]{1,18}$/.test(id) && !WHATSAPP_ID.test(id)) return fail("bad attachment id");
@@ -350,7 +350,7 @@ export function fetchAttachment(
   const file = join(CACHE_DIR, cacheFileName(id, name, mime, preview));
   try {
     const st = lstatSync(file);
-    // A symlink planted in the cache must never be followed (or touched).
+    // Invariant: A symlink planted in the cache must never be followed (or touched).
     if (st.isFile() && st.size > 0) {
       const now = new Date();
       utimesSync(file, now, now); // mtime is the LRU clock
@@ -361,7 +361,7 @@ export function fetchAttachment(
     }
   } catch { /* not cached */ }
 
-  // An auto-fetch is for the inline bubble, which draws at ~800 px. Ask the
+  // Invariant: An auto-fetch is for the inline bubble, which draws at ~800 px. Ask the
   // Mac to resample rather than shipping a full-resolution frame: sips turns a
   // 5 MB HEIC into a 7.8 MB JPEG, so the transfer ceiling was rejecting the
   // very photos it was meant to let through. A click has no cap and still
@@ -374,7 +374,7 @@ export function fetchAttachment(
     ...(wantsJpeg(mime) || preview ? ["--jpeg"] : []),
     ...(preview ? ["--max-dim", String(PREVIEW_MAX_DIM)] : []),
   ];
-  // The WhatsApp id names its own conversation, which is what routes it.
+  // Invariant: The WhatsApp id names its own conversation, which is what routes it.
   const bridge = bridgeFor(id.split("_")[1] ?? "");
   const res = runner(bridge.cmd, [...bridge.args, ...args], {
     timeout: 120000,
@@ -390,7 +390,7 @@ export function fetchAttachment(
   if (raw.length > Math.min(maxBytes, FETCH_MAX_BYTES)) return fail("attachment exceeds the fetch ceiling");
   const bytes = bakeOrientation(raw, runner);
 
-  // tmp + fsync + rename: a killed fetch must never leave a cache hit that
+  // Invariant: tmp + fsync + rename: a killed fetch must never leave a cache hit that
   // looks complete.
   // pid alone collides after a crash + pid reuse (EEXIST forever); add entropy.
   const tmp = `${file}.tmp-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;

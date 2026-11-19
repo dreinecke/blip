@@ -56,7 +56,7 @@ export function fetchAvatar(handle: string, runner = spawnSync, opts: { retry?: 
   const file = `${base}.jpg`;
   const none = `${base}.none`;
   if (fresh(file)) return { ok: true, url: pathToFileURL(file).href, error: "" };
-  // `--retry` skips the negative marker: a group/contact photo can appear
+  // Invariant: `--retry` skips the negative marker: a group/contact photo can appear
   // minutes after we first asked (someone just set one). The UI uses it on
   // every ask so a letter is not sticky for a day.
   if (!opts.retry && fresh(none, AVATAR_NONE_TTL_MS)) return { ok: false, url: "", error: "no photo" };
@@ -65,7 +65,7 @@ export function fetchAvatar(handle: string, runner = spawnSync, opts: { retry?: 
   const res = runner(bridge.cmd, [...bridge.args, ...avatarArgs(h)], { timeout: 20000, maxBuffer: AVATAR_MAX_BYTES + (1 << 20) });
   if (res.status === 69 || res.status === 255) return { ok: false, url: "", error: "Mac unreachable" };
   const bytes = res.stdout as Buffer;
-  // Only a real image is cached; anything else (an error string, a Core Data
+  // Invariant: Only a real image is cached; anything else (an error string, a Core Data
   // reference) becomes a negative marker instead of a broken file. GIF counts:
   // AddressBook stores a few that way and Qt renders them (#16).
   const isImage = !!bytes && bytes.length > 4 && (
@@ -76,7 +76,7 @@ export function fetchAvatar(handle: string, runner = spawnSync, opts: { retry?: 
     return { ok: false, url: "", error: "Mac unreachable" };   // transient: no negative marker
   }
   if (res.status !== 0 || !isImage || bytes.length > AVATAR_MAX_BYTES) {
-    // Exclusive create, never following a symlink: "w" truncated whatever a
+    // Invariant: Exclusive create, never following a symlink: "w" truncated whatever a
     // planted symlink pointed at (Astra B#5).
     try { unlinkSync(none); } catch { /* absent */ }
     const fd = openSync(none, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600); closeSync(fd);

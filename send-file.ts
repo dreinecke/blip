@@ -62,7 +62,7 @@ export function sendFile(
   const target = resolveTarget(chat, loadState().groups ?? {});
   if (target.error) return fail(target.error);
 
-  // Read the whole file up front: the size is already capped, and handing
+  // Invariant: Read the whole file up front: the size is already capped, and handing
   // spawnSync a buffer keeps the stdin pipe binary-clean end to end.
   const fd = openSync(path, "r");
   let buf: Buffer;
@@ -79,12 +79,12 @@ export function sendFile(
     closeSync(fd);
   }
 
-  // Caption rides on stdin ahead of the file bytes (--text-stdin-bytes N), so
+  // Invariant: Caption rides on stdin ahead of the file bytes (--text-stdin-bytes N), so
   // message text never appears in any process's argv on either machine.
   const cap = Buffer.from(caption.trim(), "utf8");
   const args = [
     ...target.args,
-    // green-bubble threads go out on their own service, never silently as iMessage
+    // Invariant: green-bubble threads go out on their own service, never silently as iMessage
     ...(!target.args.includes("--chat-id") && /^(SMS|RCS)$/i.test(service) ? ["--service", service.toUpperCase()] : []),
     "--file-stdin",
     "--name", basename(path),
@@ -107,7 +107,7 @@ if (import.meta.main) {
   const path = process.argv[3] ?? "";
   const svcIdx = process.argv.indexOf("--service");
   const service = svcIdx > 0 ? String(process.argv[svcIdx + 1] ?? "") : "";
-  // Caption arrives on stdin (--caption-stdin) so it never sits in this process's argv.
+  // Invariant: Caption arrives on stdin (--caption-stdin) so it never sits in this process's argv.
   const caption = process.argv[4] === "--caption-stdin"
     ? readFileSync(0, "utf8")
     : process.argv.slice(4).join(" ");

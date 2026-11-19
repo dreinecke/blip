@@ -34,7 +34,7 @@ export function normalizeLink(l: ImsgMessage["link"]): LinkCard | null {
   if (!l || typeof l !== "object") return null;
   const url = String(l.url ?? "").trim();
   if (!/^https?:\/\//i.test(url)) return null;
-  // "https://apple.com@evil.example/" — userinfo lets the card footer lie about the host.
+  // Invariant: "https://apple.com@evil.example/" — userinfo lets the card footer lie about the host.
   if (/^https?:\/\/[^/?#]*@/i.test(url)) return null;
   const image_id = String(l.image_id ?? "");
   return {
@@ -117,7 +117,6 @@ export interface ThreadOutput {
   pending?: PendingSend[];
 }
 
-// ---------------------------------------------------------------- formatting
 
 /**
  * How times and dates read. Qt format strings, set on the widget's shell.json
@@ -174,7 +173,7 @@ export function formatStamp(ts: string, pattern: string): string {
   const clock = (h: number, n: number) => (n === 1 ? String(h) : String(h).padStart(2, "0"));
   const name = (names: string[], i: number, n: number) => (n === 3 ? names[i]!.slice(0, 3) : names[i]!);
 
-  // One pass: '' · 'literal' · an unterminated quote runs to the end · AP/ap · a run of one letter.
+  // Algorithm: One pass: '' · 'literal' · an unterminated quote runs to the end · AP/ap · a run of one letter.
   return pattern.replace(/''|'((?:[^']|'')*)'|'(.*)$|AP|ap|([A-Za-z])\3*/g, (tok, quoted, tail, letter) => {
     if (tok === "''") return "'";
     if (quoted !== undefined) return quoted.replace(/''/g, "'");
@@ -222,7 +221,6 @@ export function minutesBetween(a: string, b: string): number {
   return Math.abs(pb - pa) / 60000;
 }
 
-// ---------------------------------------------------------------- decoration
 
 /**
  * Turn a chronological message list into bubbles.
@@ -235,7 +233,7 @@ export function minutesBetween(a: string, b: string): number {
 export function decorate(msgs: ImsgMessage[], today: string, formats = DEFAULT_FORMATS): Bubble[] {
   const out: Bubble[] = [];
 
-  // iMessage shows "Read" under only the newest read message you sent.
+  // Invariant: iMessage shows "Read" under only the newest read message you sent.
   let receiptIdx = -1;
   for (let i = msgs.length - 1; i >= 0; i--) {
     if (msgs[i]!.from_me && msgs[i]!.read_at) { receiptIdx = i; break; }
@@ -247,7 +245,7 @@ export function decorate(msgs: ImsgMessage[], today: string, formats = DEFAULT_F
     const next = i < msgs.length - 1 ? msgs[i + 1]! : null;
 
     const newDay = !prev || prev.ts.slice(0, 10) !== m.ts.slice(0, 10);
-    // In a group, two members' messages must not merge into one run under
+    // Invariant: In a group, two members' messages must not merge into one run under
     // the first name — so a run breaks on sender (handle) change, not only
     // on the from_me flip.
     const sameSender = (a: ImsgMessage, b: ImsgMessage) =>
@@ -269,7 +267,7 @@ export function decorate(msgs: ImsgMessage[], today: string, formats = DEFAULT_F
       name: m.name ?? m.handle ?? "",
       chat: chatKey(m),
       service: String(m.service ?? ""),
-      // U+FFFC is the object-replacement placeholder Messages leaves where an
+      // Invariant: U+FFFC is the object-replacement placeholder Messages leaves where an
       // attachment sat; the chip row carries that information instead.
       text: (m.text ?? "").replace(/￼/g, "").trim(),
       day: newDay ? dayLabel(m.ts, today, formats) : "",
@@ -278,7 +276,7 @@ export function decorate(msgs: ImsgMessage[], today: string, formats = DEFAULT_F
       time: groupEnd ? clockLabel(m.ts, formats.time) : "",
       receipt: i === receiptIdx ? receiptLabel(m.read_at!, today, formats) : "",
       tapbacks: m.tapbacks ?? [],
-      // Belt to imsg 1.5.1's suspenders: link-preview payloads are not files.
+      // Invariant: Belt to imsg 1.5.1's suspenders: link-preview payloads are not files.
       attachments: (m.attachments ?? []).filter(
         (a) => !String(a.name || "").endsWith(".pluginPayloadAttachment"),
       ),
@@ -324,9 +322,9 @@ export function linkify(text: string): string {
   let pos = 0;
   for (let m = URL_RE.exec(t); m !== null; m = URL_RE.exec(t)) {
     out += escapeHtml(t.slice(pos, m.index));
-    // Trailing punctuation reads as prose, not URL: "see https://x.com."
+    // Invariant: Trailing punctuation reads as prose, not URL: "see https://x.com."
     let url = m[0].replace(/[.,;:!?\]]+$/, "");
-    // A ")" that closes a "(" inside the URL belongs to it (Wikipedia_(band)).
+    // Invariant: A ")" that closes a "(" inside the URL belongs to it (Wikipedia_(band)).
     while (url.endsWith(")") && (url.split("(").length) < (url.split(")").length)) url = url.slice(0, -1);
     url = url.replace(/[.,;:!?\]]+$/, "");
     const href = url.startsWith("www.") ? "https://" + url : url;
@@ -337,7 +335,7 @@ export function linkify(text: string): string {
   return out.replace(/\n/g, "<br>");
 }
 
-// ------------------------------------------------------------ pending sends
+// Invariant: ------------------------------------------------------------ pending sends
 //
 // A send used to be: osascript on the Mac, a 1.5 s "beat" for Messages to
 // write the row, a thread reload — three seconds of "sending…" under an
@@ -408,7 +406,7 @@ export function withPendingSends(bubbles: Bubble[], pending: PendingSend[], toda
   const taken = new Set<number>();
   const open: PendingSend[] = [];
   for (const p of live) {
-    // A rejected attempt is not resolved by an older identical message.
+    // Invariant: A rejected attempt is not resolved by an older identical message.
     if (p.failed === true) { open.push(p); continue; }
     const want = p.text.trim();
     let hit = -1;
@@ -483,7 +481,7 @@ export function selectThread(
   selfChats: string[] = [],
   aliases: Record<string, string> = {},
 ): ImsgMessage[] {
-  // Exact-filter DMs too: `imsg thread` matches the handle by SUBSTRING, so
+  // Invariant: Exact-filter DMs too: `imsg thread` matches the handle by SUBSTRING, so
   // +15551234567 can pull rows from +995551234567 into the wrong conversation
   // (Codex finding #3).
   // A DM is scoped by CHAT, not by sender: the same handle's messages in a
@@ -502,7 +500,6 @@ export function selectThread(
   return msgs.length > limit ? msgs.slice(msgs.length - limit) : msgs;
 }
 
-// ---------------------------------------------------------------- transport
 
 export function loadThread(
   chat: string,
@@ -512,7 +509,7 @@ export function loadThread(
   runner = spawnSync,
   state = loadState(),
 ): ThreadOutput {
-  // Groups load by EXACT chat id (imsg ≥1.8.0 `thread --chat`). The old
+  // Invariant: Groups load by EXACT chat id (imsg ≥1.8.0 `thread --chat`). The old
   // recent-window scan cost ~20× the rows and missed anything older than
   // the window — which made historical search hits open empty threads.
   // Both shapes load by EXACT chat id: `thread <handle>` matched the handle

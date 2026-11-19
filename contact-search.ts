@@ -49,7 +49,7 @@ export function defaultCountryCode(): string {
 export function normalizeHandle(s: string, cc: string = defaultCountryCode()): string {
   const t = String(s || "").trim();
   if (t.includes("@")) return t.toLowerCase();
-  // Extensions can't be messaged; stripping them would change the number.
+  // Invariant: Extensions can't be messaged; stripping them would change the number.
   if (/(ext|x)\.?\s*=?\s*\d+\s*$/i.test(t) || /[;,]/.test(t)) return "";   // ";ext=89" too (Astra B#10)
   if (t.startsWith("+")) return "+" + t.slice(1).replace(/\D/g, "");
   const digits = t.replace(/\D/g, "");
@@ -58,7 +58,7 @@ export function normalizeHandle(s: string, cc: string = defaultCountryCode()): s
     if (digits.length === 11 && digits.startsWith("1")) return "+" + digits;
     return "";
   }
-  // Outside NANP: a national number with a leading trunk 0 dropped, or
+  // Invariant: Outside NANP: a national number with a leading trunk 0 dropped, or
   // already prefixed with the country code. Lengths vary; accept 6–12 digits.
   if (digits.startsWith(cc) && digits.length >= cc.length + 6) return "+" + digits;
   const national = digits.replace(/^0/, "");
@@ -134,7 +134,7 @@ export function shapeContacts(raw: RawContact[], query: string, limit = 30): Con
       const h = normalizeHandle(String(p.number || ""));
       if (h.length < 8 || seen.has(h)) continue;
       seen.add(h);
-      // Apple stores labels as "_$!<Mobile>!$_" — unwrap them.
+      // Invariant: Apple stores labels as "_$!<Mobile>!$_" — unwrap them.
       const label = String(p.label || "").replace(/^_\$!<|>!\$_$/g, "").trim();
       out.push({ name, handle: h, kind: label.toLowerCase() || "phone" });
     }
@@ -217,7 +217,7 @@ export function parseRecency(raw: string): Record<string, string> {
 
 if (import.meta.main) {
   try {
-    // The recency map is every handle you have a thread with — your whole
+    // Invariant: The recency map is every handle you have a thread with — your whole
     // contact graph. On argv that is readable by any process on this machine
     // through `ps`, which is the same reason message text has never travelled
     // that way. So it comes in on STDIN. `--recency <json>` stays for a human
