@@ -397,7 +397,7 @@ describe("QML safety invariants", () => {
     expect(barWidget).not.toContain("\n  onDestruction:");
     // The service is the single poller and the single IPC endpoint — no
     // leader gating left over from the per-screen bar-widget days.
-    expect(service).toContain("running: true                       // the service is the single poller, icon or no icon");
+    expect(service).toContain("running: true                       // Invariant: the single poller, icon or no icon");
     expect(service).toContain("enabled: true");
     expect(barWidget).not.toContain("id: watchProc");
     expect(barWidget).not.toContain("id: waWatchProc");
