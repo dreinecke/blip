@@ -54,6 +54,12 @@ what it is handed. Keep it that way.
   `--chat-id <full guid>` (`any;+;<32hex>`, or `<Service>;+;chat<digits>` on
   Macs that keep one chat row per service — `imsg groups` returns ONE row per
   identifier, the newest, so an empty shell never wins; #8), DMs send `--to <chat>`.
+- **The badge counts conversations, not messages** (Dave, 2026-09-19): three
+  conversations of five messages each read 3.
+- **The bar widget owns the shell.json format strings** and pushes them to the
+  service (`formatsFromBar`), which has no bar settings of its own — both
+  surfaces format alike even when the icon is hidden and only the app window
+  remains.
 - **Two read marks.** `watermark` = what the collector has seen (drives toasts).
   `readMark` / `readMarks[chat]` = what the user has looked at (drives the badge
   and the blue dots). Collapsing them makes the badge flash and reset.
