@@ -122,7 +122,7 @@ describe("a messenger that did not answer", () => {
   const previous = { "+353840000000": 3, "1@c.us": 2 };
 
   test("keeps the unread it had, while the one that answered is recomputed", () => {
-    // The Mac is asleep: its counts must survive a window with no iMessage
+    // Invariant: The Mac is asleep: its counts must survive a window with no iMessage
     // rows in it, or a persisted zero loses them for good.
     expect(keepSilentSources({ "1@c.us": 5 }, previous, { imessage: false, whatsapp: true }))
       .toEqual({ "1@c.us": 5, "+353840000000": 3 });

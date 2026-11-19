@@ -123,7 +123,7 @@ describe("what hiding actually does", () => {
   });
 
   test("a conversation you spoke in last is hidden too", () => {
-    // The bug that made Hide / Spam look like it did nothing: the cut was
+    // Invariant: The bug that made Hide / Spam look like it did nothing: the cut was
     // matched on INBOUND messages only, so fifteen of twenty-nine hidden
     // conversations stayed on screen — every one of them a conversation whose
     // last word was mine. An id names the conversation; direction is not part

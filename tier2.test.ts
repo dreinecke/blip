@@ -199,7 +199,7 @@ describe("EXIF orientation is baked into cached JPEGs", () => {
     expect(readFileSync(r.path).equals(tagged)).toBe(true);
   });
 
-  // Capability probe, not presence: the GitHub runner's jpegtran exists but
+  // Invariant: Capability probe, not presence: the GitHub runner's jpegtran exists but
   // cannot transform this fixture (it left the bytes untouched and CI went red
   // for every push after #9). Skip when the local jpegtran can't do the job.
   const probe = spawnSync("jpegtran", ["-rotate", "90", "-trim", "-copy", "none"], { input: withExif(TINY_JPEG, 6) });
@@ -806,7 +806,7 @@ describe("the contact graph never rides argv", () => {
   const panelSrc = readFileSync(new URL("./BlipView.qml", import.meta.url), "utf8");
 
   test("QML hands the recency map to stdin, not the command line", () => {
-    // Every handle you have a thread with is your contact graph, and argv is
+    // Invariant: Every handle you have a thread with is your contact graph, and argv is
     // readable by any process here through `ps` — the same reason message text
     // has never travelled that way.
     expect(panelSrc).toContain('"--recency-stdin"');
@@ -866,7 +866,7 @@ describe("multi-photo messages and the preview transform (#Crystal/Thatchers)", 
     expect(cacheFileName("7", "shot.png", "image/png", true)).toBe("7-prev-shot.jpg");
     expect(cacheFileName("7", "shot.png", "image/png", false)).toBe("7-orig-shot.png");
     expect(cacheFileName("7", "IMG.HEIC", "image/heic", false)).toBe("7-jpg-IMG.jpg");
-    // preview and original never collide, so a click still gets the full file
+    // Invariant: preview and original never collide, so a click still gets the full file
     expect(cacheFileName("7", "shot.png", "image/png", true))
       .not.toBe(cacheFileName("7", "shot.png", "image/png", false));
   });

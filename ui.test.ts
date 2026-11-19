@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { parseUiFontSize, scaleFontPx } from "./ui-font";
 
-// The renderer moved from Panel.qml into BlipView.qml in 1.8.0 (shared with the app window).
+// Algorithm: The renderer moved from Panel.qml into BlipView.qml in 1.8.0 (shared with the app window).
 const panel = readFileSync(new URL("./BlipView.qml", import.meta.url), "utf8");
-// C-006: the always-on machinery (poller, watchers, toasts, codes, IPC, the
+// Invariant: C-006: the always-on machinery (poller, watchers, toasts, codes, IPC, the
 // app window) moved from BarWidget.qml into Service.qml, Omarchy's service
 // singleton, so a hidden bar icon cannot switch the app off. Most invariants
 // below span the pair, so `widget` is both files; `barWidget` alone pins the
@@ -29,7 +29,7 @@ function qmlFunction(name: string) {
 describe("QML safety invariants", () => {
   test("group sends use the cached AppleScript GUID", () => {
     expect(panel).toContain('["--chat-id", String(root.active.guid)]');
-    // DMs aim at the channel the conversation is on (person fold), never at
+    // Invariant: DMs aim at the channel the conversation is on (person fold), never at
     // a group guid; bookkeeping stays on the row's canonical chat.
     expect(panel).toContain('["--to", sendTarget]');
     expect(panel).toContain("var chat = String(root.active.chat)");
@@ -41,13 +41,13 @@ describe("QML safety invariants", () => {
   });
 
   test("the compose field is never disabled by an in-flight send", () => {
-    // Disabling the exclusive-keyboard-focus holder dismisses the panel the
+    // Invariant: Disabling the exclusive-keyboard-focus holder dismisses the panel the
     // instant Enter is pressed — the send works but all feedback vanishes.
     expect(panel).not.toContain("!sendProc.running");
   });
 
   test("compose wraps at the box edge instead of scrolling sideways", () => {
-    // The width must come from the LAYOUT, never from the text: a bare
+    // Invariant: The width must come from the LAYOUT, never from the text: a bare
     // TextArea's implicitWidth is the unwrapped line, so the RowLayout would
     // grow with what you type and the caret would scroll sideways. It used to
     // be anchors.fill on the slot; it is now the flickable's width, which is
@@ -62,7 +62,7 @@ describe("QML safety invariants", () => {
   });
 
   test("a long draft scrolls to the caret instead of growing past the panel", () => {
-    // The slot caps at five lines and clips. A TextArea scrolls to its caret
+    // Invariant: The slot caps at five lines and clips. A TextArea scrolls to its caret
     // ONLY inside a Flickable — anchored to fill the clipped slot it did not,
     // so past the fifth line the text was laid out below the visible area and
     // you typed blind (Fred, 2026-09-07).
@@ -72,10 +72,10 @@ describe("QML safety invariants", () => {
     expect(show).toContain("var c = composeField.cursorRectangle");
     expect(show).toContain("if (c.y < contentY) contentY = Math.max(0, c.y)");
     expect(show).toContain("contentY = Math.min(max, c.y + c.height - height)");
-    // a drag in the field is text selection, exactly as in the conversation
+    // Invariant: a drag in the field is text selection, exactly as in the conversation
     const flick = panel.slice(panel.indexOf("id: composeFlick"), panel.indexOf("id: composeField"));
     expect(flick).toContain("interactive: false");
-    // the border is the slot's: inside the flickable it would scroll away
+    // Invariant: the border is the slot's: inside the flickable it would scroll away
     expect(panel).toContain("borderSpec: composeField._composeBorder");
     expect(panel).toContain("background: null");
   });
@@ -83,7 +83,7 @@ describe("QML safety invariants", () => {
   test("send completion owns immutable chat and draft context", () => {
     expect(panel).toContain("var completedChat = root.sendChat");
     expect(panel).toContain("var completedStamp = root.sendStamp");
-    // the field clears as Enter is pressed; a failure puts the words back
+    // Invariant: the field clears as Enter is pressed; a failure puts the words back
     // only when nothing newer has been typed
     expect(panel).toContain("if (composeField.text === \"\") composeField.text = completedText");
   });
@@ -95,7 +95,7 @@ describe("QML safety invariants", () => {
     expect(panel).toContain("threadProc.write(JSON.stringify(pending))");
     expect(panel).toContain("root.failPending(completedChat, completedId, reason, completedText, completedStamp)");
     expect(panel).toContain('modelData.pending === true ? "Sending…"');
-    // the read watermark never takes a pending bubble's local-clock stamp
+    // Invariant: the read watermark never takes a pending bubble's local-clock stamp
     expect(panel).toContain("if (list[k].pending === true) continue");
   });
 
@@ -110,7 +110,7 @@ describe("QML safety invariants", () => {
     expect(panel).toContain("root.previewScript");
     expect(panel).toContain("readonly property var fetched:");
     expect(panel).toContain("modelData.link || linkRow.fetched || ({})");
-    // an Apple card still comes from the ssh-fetched attachment, ours from disk
+    // Invariant: an Apple card still comes from the ssh-fetched attachment, ours from disk
     expect(panel).toContain("String((linkRow.fetched && linkRow.fetched.image)");
   });
 
@@ -127,17 +127,17 @@ describe("QML safety invariants", () => {
     expect(panel).toContain("root.openShare(sentUrls, true)");
     expect(panel).toContain("function openApp()");
     expect(panel).toContain('hostWidget.showApp()');
-    // the popout gets out of the way, and closes BEFORE the window is shown —
+    // Algorithm: the popout gets out of the way, and closes BEFORE the window is shown —
     // inside showApp(), so double-click, ⇱ and IPC `app` (SUPER+M) all agree
     const showApp = widget.slice(widget.indexOf("function showApp()"), widget.indexOf("function anySurfaceOpen"));
     expect(showApp.indexOf("popout.close()")).toBeLessThan(showApp.indexOf("ensureWindow()"));
     expect(showApp.indexOf("popout.close()")).toBeGreaterThan(-1);
-    // FORK: the header buttons carry their name as the LABEL, so the tooltip
+    // Invariant: FORK: the header buttons carry their name as the LABEL, so the tooltip
     // that used to repeat the action is gone. What must not come back is a KEY
     // in one: SUPER+M is an optional binding from the README, and Omarchy's
     // own tooltips name no keys.
     expect(panel).toContain("iconText: openAppMetrics.text");
-    // The shell's own icon set (Nerd Font Material), not an emoji.
+    // Invariant: The shell's own icon set (Nerd Font Material), not an emoji.
     expect(panel).toContain('text: "\\u{F03CC} App"');
     expect(panel).not.toContain('tooltipText: "SUPER+M"');
   });
@@ -177,10 +177,10 @@ describe("QML safety invariants", () => {
     expect(panel).toContain('if (shareUrl !== "") { closeShare(); return true }');
     const shareFn = widget.slice(widget.indexOf("function share(url: string)"), widget.indexOf("function compose("));
     expect(shareFn).toContain("if (!root.automationOn) return root.automationOff");
-    // With no bar popout (icon hidden) the share sheet falls back to the app
+    // Algorithm: With no bar popout (icon hidden) the share sheet falls back to the app
     // window rather than reporting "no panel" (C-006).
     expect(shareFn).toContain("root.ensureWindow()");
-    // never the URL as an argv element of qrencode / localsend
+    // Invariant: never the URL as an argv element of qrencode / localsend
     expect(panel).not.toContain('qrencode", ');
     expect(panel).not.toContain("localsend --headless send \"$2\" \"$3\"");
   });
@@ -191,7 +191,7 @@ describe("QML safety invariants", () => {
   });
 
   test("status names the read-push policy, and does not call the watcher a push", () => {
-    // `push=` was the message WATCHER; read-pushing had no status surface at
+    // Invariant: `push=` was the message WATCHER; read-pushing had no status surface at
     // all, so "reads are not reaching my phone" could not be told apart from a
     // policy that was never going to push (Fred, 2026-09-08). The default,
     // "all", pushes only on the mark-all gesture.
@@ -202,7 +202,7 @@ describe("QML safety invariants", () => {
   });
 
   test("IPC window reports what it did, not a property that has not settled", () => {
-    // ensureWindow() defers `visible = true` to a callLater, so reading
+    // Invariant: ensureWindow() defers `visible = true` to a callLater, so reading
     // windowVisible straight after showing still says hidden: `window` answered
     // "window hidden" on BOTH paths and could never report a window it had just
     // shown. Found by driving the live IPC surface, 2026-09-07.
@@ -212,7 +212,7 @@ describe("QML safety invariants", () => {
   });
 
   test("navigating away dismisses the share sheet", () => {
-    // The sheet auto-opens on an ARRIVING link. Without this it survived into
+    // Invariant: The sheet auto-opens on an ARRIVING link. Without this it survived into
     // the next conversation, and resetToList() (which the host runs on every
     // open) brought a stale sheet back over the list. Found live, 2026-09-07.
     // resetToList() and back() empty the pane through clearThread(), which
@@ -220,18 +220,18 @@ describe("QML safety invariants", () => {
     expect(qmlFunction("clearThread")).toContain("closeShare()");
     for (const fn of ["resetToList", "back"]) expect(qmlFunction(fn)).toContain("clearThread()");
     expect(qmlFunction("openThread")).toContain("closeShare()");
-    // Esc still closes the sheet BEFORE it unwinds the view (Astra A#7)
+    // Invariant: Esc still closes the sheet BEFORE it unwinds the view (Astra A#7)
     expect(panel).toContain('if (root.shareUrl !== "") root.closeShare(); else if (root.bubbleCursor >= 0)');
   });
 
   test("IPC goto refuses an id that is not one, instead of opening a blank thread", () => {
-    // `goto ""` opened a nameless thread with no header that nothing could
+    // Invariant: `goto ""` opened a nameless thread with no header that nothing could
     // send to — a script with an unset variable is how you get there. Found by
     // driving the live IPC surface, 2026-09-07. An id that merely LOOKS like a
     // handle but is unknown still opens, on purpose (start a new conversation).
     expect(widget).toContain('if (raw === "" || !/^[A-Za-z0-9._@:;$-]{1,256}$/.test(raw)) return false');
     expect(widget).toContain('return root.show(chat) ? "shown" : "not a conversation id"');
-    // show() must report failure rather than the handler assuming success:
+    // Invariant: show() must report failure rather than the handler assuming success:
     // a bar widget whose popout is not ready yet returns false instead of
     // silently falling through to the app window (C-006).
     expect(widget).toContain("if (panelHost) return false");
@@ -266,7 +266,7 @@ describe("QML safety invariants", () => {
   });
 
   test("1-9 still jumps, with no digit drawn anywhere (Fred, 2.3.1)", () => {
-    // The label was a hint, never the mechanism: handleTextKey indexes
+    // Invariant: The label was a hint, never the mechanism: handleTextKey indexes
     // threads[] directly. Drawing it also cost every conversation row a blank
     // left gutter, because a fixed-width column stayed reserved when the text
     // was empty — which it always is once nine pins own 1-9.
@@ -302,14 +302,14 @@ describe("QML safety invariants", () => {
   });
 
   test("every cursor move keeps its row in view and stops at the ends", () => {
-    // The list is a multi-section Column, so there is no ListView to do this;
+    // Invariant: The list is a multi-section Column, so there is no ListView to do this;
     // each move function ends by scrolling its row into the viewport. A modulo
     // here would bring the wrap-around back.
     for (const name of ["moveCursor", "moveSearchCursor", "moveNewCursor"]) {
       const fn = qmlFunction(name);
       expect(fn).toContain("Math.max(0, Math.min(");
       expect(fn).not.toContain("%");
-      // the thread cursor goes through cursorMoved() (scroll + split-view preview)
+      // Invariant: the thread cursor goes through cursorMoved() (scroll + split-view preview)
       expect(fn).toMatch(/scrollCursorIntoView\(\)|cursorMoved\(\)/);
     }
     const scroll = qmlFunction("scrollCursorIntoView");
@@ -318,19 +318,19 @@ describe("QML safety invariants", () => {
   });
 
   test("rows register themselves as the cursor row instead of scanning threads", () => {
-    // threadIndex() walked every thread per row per keypress; cursorChat is one
+    // Invariant: threadIndex() walked every thread per row per keypress; cursorChat is one
     // string compare, and the row that matches hands itself to cursorRow so
     // the move functions never translate indexes between the four models.
     expect(panel).not.toContain("threadIndex(");
     expect(panel.split("root.cursorChat === String(modelData.chat)").length - 1).toBe(2);
-    // the highlight hides while the search field has focus; the cursor itself stays
+    // Invariant: the highlight hides while the search field has focus; the cursor itself stays
     expect(panel).toContain("readonly property bool cursorShown: !searchField.activeFocus");
     expect(panel.split("(hasCursor && root.cursorShown)").length - 1).toBe(2);
     expect(panel.split("onHasCursorChanged: if (hasCursor) root.cursorRow = ").length - 1).toBe(4);
   });
 
   test("leaving a field or a conversation brings the cursor row back", () => {
-    // startSearch/startNew scroll to the top (the field sits above the rows)
+    // Invariant: startSearch/startNew scroll to the top (the field sits above the rows)
     // and back() parks a mouse user there; the keyboard cursor is restored
     // after the rows have been rebuilt, hence the deferral.
     expect(qmlFunction("startSearch")).toContain("threadFlick.contentY = 0");
@@ -340,7 +340,7 @@ describe("QML safety invariants", () => {
     const back = qmlFunction("back");
     expect(back).toContain("threadFlick.contentY = 0");
     expect(back.indexOf("threadFlick.contentY = 0")).toBeLessThan(back.indexOf("scrollCursorIntoView()"));
-    // Down in an empty field starts from the first row; Esc keeps the old cursor.
+    // Invariant: Down in an empty field starts from the first row; Esc keeps the old cursor.
     expect(panel.split('if (text === "") root.listFromTop()').length - 1).toBe(2);
     expect(qmlFunction("listFromTop")).toContain("cursor = 0");
   });
@@ -352,14 +352,14 @@ describe("QML safety invariants", () => {
     expect(fn).toContain("moveCursor(1)");
     expect(fn).toContain("moveCursor(-1)");
     expect(fn).toContain("activateCursor()");
-    // Right steps into the compose field (committing a peek); Left in an
+    // Invariant: Right steps into the compose field (committing a peek); Left in an
     // empty compose field steps back, with text it stays a caret move.
     expect(fn).toContain("if (key === Qt.Key_Right && inThread) { composeField.forceActiveFocus(); return true }");
     expect(panel).toContain('if (root.splitView && cursorPosition === 0 && root.shareUrl === "") root.navigationFocusRequested()');
   });
 
   test("Omarchy's shell toggle can find the panel", () => {
-    // Bar.findPanelWidget wants open(), close() and `opened` on the widget
+    // Invariant: Bar.findPanelWidget wants open(), close() and `opened` on the widget
     // item; drop `opened` and every SUPER+CTRL panel hotkey silently skips Blip.
     expect(barWidget).toContain("readonly property bool opened: panelLoader.item ? panelLoader.item.opened === true : false");
     expect(barWidget).toContain("function open() {");
@@ -367,7 +367,7 @@ describe("QML safety invariants", () => {
   });
 
   test("the always-on machinery lives on the service, not the bar widget (C-006)", () => {
-    // Hiding Blip's bar icon must never switch off iMessage (9 Nov 2026,
+    // Invariant: Hiding Blip's bar icon must never switch off iMessage (9 Nov 2026,
     // Q-047). Omarchy loads the service singleton for enabled plugins whether
     // or not a bar entry exists, so the poller, watchers, IPC and the app
     // window live there; the bar file is only badge, popout and clicks.
@@ -384,37 +384,37 @@ describe("QML safety invariants", () => {
     expect(barWidget).not.toContain("id: collector");
     expect(barWidget).not.toContain("IpcHandler {");
     expect(barWidget).toContain("bar.shell.serviceFor(root.moduleName)");
-    // The popout is bar-anchored and stays on the bar widget, registered with
+    // Algorithm: The popout is bar-anchored and stays on the bar widget, registered with
     // the service; the service falls back to the app window when it is absent.
     expect(service).toContain("property var panelHost: null");
     expect(service).toContain("function registerPanel(host)");
     expect(service).toContain("function unregisterPanel(host)");
     expect(barWidget).toContain("service.registerPanel(root)");
-    // QML has no bare `onDestruction` handler on an Item — it must be the
+    // Invariant: QML has no bare `onDestruction` handler on an Item — it must be the
     // attached Component.onDestruction, or the whole bar widget fails to load
     // (caught live at the first C-006 deploy, 10 Nov 2026).
     expect(barWidget).toContain("Component.onDestruction: if (service) service.unregisterPanel(root)");
     expect(barWidget).not.toContain("\n  onDestruction:");
-    // The service is the single poller and the single IPC endpoint — no
+    // Invariant: The service is the single poller and the single IPC endpoint — no
     // leader gating left over from the per-screen bar-widget days.
     expect(service).toContain("running: true                       // Invariant: the single poller, icon or no icon");
     expect(service).toContain("enabled: true");
     expect(barWidget).not.toContain("id: watchProc");
     expect(barWidget).not.toContain("id: waWatchProc");
-    // Hostile-review fixes, all three shipped bugs before the first deploy:
+    // Invariant: Hostile-review fixes, all three shipped bugs before the first deploy:
     // (1) QML ids are component-scoped — the service must read the popout
     // through a real property on the bar widget, never panelHost.panelLoader.
     expect(barWidget).toContain("readonly property var panel: panelLoader.item");
     expect(service).toContain("readonly property var popout: panelHost ? panelHost.panel : null");
     expect(service).not.toContain("panelHost.panelLoader");
-    // (2) Panel identity (Omarchy's owner / switchPanelFrom) is the BAR
+    // Invariant: (2) Panel identity (Omarchy's owner / switchPanelFrom) is the BAR
     // WIDGET, while message state comes from the service — two properties.
     const panelHostFile = readFileSync(new URL("./Panel.qml", import.meta.url), "utf8");
     expect(panelHostFile).toContain("property var barHost: null");
     expect(panelHostFile).toContain("readonly property var barIdentity: barHost || root");
     expect(barWidget).toContain("target.barHost = root");
     expect(barWidget).toContain("target.hostWidget = service");
-    // (3) compose/bubbles/find/newchat keep working with only the app window:
+    // Algorithm: (3) compose/bubbles/find/newchat keep working with only the app window:
     // BlipWindow proxies the four view methods, IPC routes popout-or-window.
     expect(window).toContain("function composeAndSend(text)");
     expect(window).toContain("function bubbleModel()");
@@ -428,29 +428,29 @@ describe("QML safety invariants", () => {
   });
 
   test("keys and wheel scroll the conversation through one stick-aware helper", () => {
-    // Two writers of flick.contentY would drift on the bottom-stick, which
+    // Invariant: Two writers of flick.contentY would drift on the bottom-stick, which
     // gates the deferred push reload; the wheel handler must go through it.
     expect(qmlFunction("scrollConversation")).toContain("flick.stick = flick.contentY >= max - 4");
     expect(panel).toContain("root.scrollConversation(-d)");
     expect(panel.split("flick.stick = flick.contentY >= max - 4").length - 1).toBe(1);
     expect(panel).not.toContain("var atLineStart");
     expect(panel).not.toContain("conversationStep");
-    // PgUp/PgDn select the edge bubble regardless of text, and page when already there
+    // Invariant: PgUp/PgDn select the edge bubble regardless of text, and page when already there
     expect(panel).toContain("if (event.modifiers & Qt.ShiftModifier) root.moveBubbleCursor(dir)");
     expect(panel).toContain("else root.pageBubbles(dir)");
     const page = qmlFunction("pageBubbles");
     expect(page.indexOf("if (edge === bubbleCursor && bubbleCursorItem)")).toBeLessThan(page.indexOf("scrollConversation(dy < 0 ?"));
-    // only a WHOLLY visible row counts as the edge, else a sliver of the row above turns paging into single steps
+    // Invariant: only a WHOLLY visible row counts as the edge, else a sliver of the row above turns paging into single steps
     expect(qmlFunction("edgeVisible")).toContain("y >= top - 1 : y + it.height <= bottom + 1");   // shared with the lists
     expect(page).toContain("edgeVisible(flick, items, dy)");
     expect(page).toContain("leaveBubbles()");
   });
 
   test("draft navigation keeps normal caret movement and clears history selection", () => {
-    // The selection is a target for actions; it must never outlive the rows
+    // Invariant: The selection is a target for actions; it must never outlive the rows
     // it indexes (a reload renumbers them) and Esc must drop it before leaving.
     expect(panel).toContain("onBubblesChanged: clearBubbleCursor()");
-    // the band and the list rows take the theme's hover-cursor colour/alpha through
+    // Invariant: the band and the list rows take the theme's hover-cursor colour/alpha through
     // one property, like Omarchy's own rows; its default is never copied by hand
     expect(panel).toContain("readonly property color hoverFill: Style.hoverFillFor(foreground, accent)");
     expect(panel).not.toContain("foreground.b, 0.08)");
@@ -466,7 +466,7 @@ describe("QML safety invariants", () => {
   });
 
   test("bubble actions reuse the click handlers and never steal a real send", () => {
-    // Enter/Ctrl+C/Ctrl+R act on the selection only with an empty field and
+    // Invariant: Enter/Ctrl+C/Ctrl+R act on the selection only with an empty field and
     // no queued file — a queued file's Enter is a send, and must stay one.
     expect(panel).toContain('var b = empty && root.draftPath === "" ? root.selectedBubble() : null');
     const open = qmlFunction("openBubble");
@@ -475,25 +475,25 @@ describe("QML safety invariants", () => {
     expect(panel).toContain("root.copyBubble(b)");
     const copy = qmlFunction("copyBubble");
     expect(copy.indexOf("copyText(t)")).toBeLessThan(copy.indexOf("copyAttachment("));  // text wins
-    // the image reaches wl-copy as an argument, never interpolated into the shell script
+    // Invariant: the image reaches wl-copy as an argument, never interpolated into the shell script
     expect(panel).toContain(`'wl-copy --type "$1" < "$2"', "sh", mime, String(d.path || "")`);
-    // HEIC arrives as JPEG (fetch.ts wantsJpeg): the clipboard type must say so
+    // Invariant: HEIC arrives as JPEG (fetch.ts wantsJpeg): the clipboard type must say so
     expect(panel).toContain('root.fetchJobMime === "image/heic" || root.fetchJobMime === "image/heif" ? "image/jpeg"');
-    // the inline preview stays put while the original is fetched for the clipboard
+    // Invariant: the inline preview stays put while the original is fetched for the clipboard
     expect(panel).toContain('var keepInline = root.fetchJobAction === "copy" && !!root.attFiles[id]');
     expect(panel).not.toContain("fetchJobOpen");
     expect(qmlFunction("quoteBubble")).toContain("leaveBubbles()");
-    // Empty status does not reserve a row; only failures are red.
+    // Invariant: Empty status does not reserve a row; only failures are red.
     expect(panel).toContain('visible: root.note !== ""');
     expect(panel).toContain("color: calm ? root.dim : root.urgent");
-    // secondary text dims by alpha, which reads right on light and dark themes alike;
+    // Invariant: secondary text dims by alpha, which reads right on light and dark themes alike;
     // Qt.darker on the foreground only works on a dark one
     expect(panel).toContain("readonly property color dim: Qt.alpha(foreground, 0.66)");
     expect(panel).not.toMatch(/Qt\.darker\((root\.)?foreground/);
   });
 
   test("a peeked thread is not read until the reader commits", () => {
-    // Three read paths, all gated on `peeking`: the two post-load marks in
+    // Invariant: Three read paths, all gated on `peeking`: the two post-load marks in
     // BlipView and readingSurface() in BarWidget (what the collector is told
     // is being read). Focus entering the compose field is the commit.
     expect(qmlFunction("markRead")).toContain("if (hostWidget && readActive && !peeking) hostWidget.markThreadRead(chat, seen)");
@@ -507,14 +507,14 @@ describe("QML safety invariants", () => {
 
   test("peeking is split-view only, debounced, and cleared on the way out", () => {
     expect(panel).toContain("Timer { id: peekTimer;");
-    // Leaving the list for a field ends a peek; an opened thread stays.
+    // Invariant: Leaving the list for a field ends a peek; an opened thread stays.
     expect(qmlFunction("startSearch")).toContain("endPeek()");
     expect(qmlFunction("startNew")).toContain("endPeek()");
     expect(qmlFunction("endPeek")).toContain("if (peeking) clearThread()");
     expect(qmlFunction("peekCursor")).toContain("!cursorShown");
-    // The sidebar's spacing must not follow inThread in split view (8px shift).
+    // Invariant: The sidebar's spacing must not follow inThread in split view (8px shift).
     expect(panel).toContain("spacing: root.splitView ? Style.space(10) : (root.inThread ? Style.space(2) : Style.space(6))");
-    // one place empties the pane; back() and resetToList() go through it
+    // Invariant: one place empties the pane; back() and resetToList() go through it
     expect(qmlFunction("clearThread")).toContain("peekTimer.stop()");
     expect(qmlFunction("clearThread")).toContain("peeking = false");
     for (const name of ["back", "resetToList"]) expect(qmlFunction(name)).toContain("clearThread()");
@@ -522,13 +522,13 @@ describe("QML safety invariants", () => {
   });
 
   test("PgUp/PgDn/Home/End page whichever list is showing, in both hosts", () => {
-    // One edge finder and one pager for all three lists; the panel parks
+    // Invariant: One edge finder and one pager for all three lists; the panel parks
     // list-mode focus inside the view so the keys its catcher ignores arrive.
     expect(qmlFunction("edgeVisible")).toContain("y >= top - 1 : y + it.height <= bottom + 1");
     const list = qmlFunction("activeList");
     for (const rep of ["newRepeater", "searchRepeater", "pinnedRepeater", "chronologicalRepeater"]) expect(list).toContain(rep);
     expect(qmlFunction("catchNavKey")).toContain("return listShowing && catchPagingKey(key)");
-    // paging and Home/End arm the split-view preview exactly like the arrows do
+    // Algorithm: paging and Home/End arm the split-view preview exactly like the arrows do
     expect(qmlFunction("cursorMoved")).toContain("if (splitView) peekTimer.restart()");
     expect(list).toContain("set: function(i) { cursor = i; cursorMoved() }");
     expect(list).toContain("indexOf: function(it) { return indexOfChat(it.modelData.chat) }");
@@ -540,13 +540,13 @@ describe("QML safety invariants", () => {
   });
 
   test("an old toast can still reopen its conversation (omarchy-exec-argv)", () => {
-    // --action=default dies with the notify-send process after eight seconds.
+    // Invariant: --action=default dies with the notify-send process after eight seconds.
     // The hint is what Omarchy persists, so a row in the notification center
     // is still clickable a week later. If this disappears, old iMessage
     // notifications go inert again and nothing else fails.
     expect(widget).toContain('"--hint=string:omarchy-exec-argv:"');
     expect(widget).toContain('root.moduleName, "goto", chatArg');
-    // The chat id goes in as its own argv element, never inside a shell
+    // Invariant: The chat id goes in as its own argv element, never inside a shell
     // string, and only when it is shaped like a handle.
     expect(widget).toContain("JSON.stringify(");
     expect(widget).toContain("/^[A-Za-z0-9._@:;$-]{1,256}$/.test(chatArg)");
@@ -571,7 +571,7 @@ describe("media renders at its intended scale", () => {
   });
 });
 
-// A merge conflict marker is valid TEXT, so every string-matching test in this
+// Invariant: A merge conflict marker is valid TEXT, so every string-matching test in this
 // file passes with one sitting in the middle of a QML file — while Quickshell
 // refuses to load the type and BOTH surfaces render empty. That shipped in
 // 2.3.2 (BlipView's compose block, PR #28 vs #30) and was invisible until the
@@ -587,7 +587,7 @@ test("no source file carries a merge conflict marker", () => {
   }
 });
 
-// Pinned threads render ONLY in the grid (the list is unpinnedThreads), and
+// Invariant: Pinned threads render ONLY in the grid (the list is unpinnedThreads), and
 // 2.3.1 removed the count under each tile. That left a bold 11px caption as a
 // pinned conversation's only unread signal — one unread in a pinned group
 // showed badge 1 and "nothing new in the app". The tile carries the same blue
@@ -599,7 +599,7 @@ test("a pinned tile shows the unread dot", () => {
   expect(dot).toContain("color: root.mineFill");
 });
 
-// FORK (Dave, 2026-09-14): an unread conversation in the list is marked three
+// Invariant: FORK (Dave, 2026-09-14): an unread conversation in the list is marked three
 // ways — the name, a ring around the picture, and a tint behind the whole row —
 // and the row tint must stay FAINTER than the hover fill. If the two ever match,
 // hovering an unread row looks like nothing happened.
@@ -607,7 +607,7 @@ test("an unread conversation is tinted and ringed, and hover still reads over it
   expect(panel).toContain("readonly property color unreadFill: Util.alpha(accent, Style.hoverFillAlpha * 0.6)");
   expect(panel).toContain(
     "color: threadRow.highlighted ? root.hoverFill\n                         : (threadRow.modelData.unread > 0 ? root.unreadFill : \"transparent\")");
-  // The ring is drawn over the photo, so it comes AFTER the image and the
+  // Invariant: The ring is drawn over the photo, so it comes AFTER the image and the
   // initials inside the avatar circle — a border on the circle itself would sit
   // behind the masked image that fills it.
   const circle = panel.slice(panel.indexOf("id: avatarCircle"), panel.indexOf("id: avatarCircle") + 4600);
@@ -616,7 +616,7 @@ test("an unread conversation is tinted and ringed, and hover still reads over it
   expect(circle.indexOf("border.color: root.accent")).toBeGreaterThan(circle.indexOf("id: avatarImg"));
 });
 
-// FORK (Dave, 2026-09-19): the badge counts CONVERSATIONS with at least one
+// Invariant: FORK (Dave, 2026-09-19): the badge counts CONVERSATIONS with at least one
 // unread message, not the total unread messages. Three places recompute it —
 // the collector result, the optimistic single-thread read, and a follower
 // bar's state.json read — and they must all use the same unit.
@@ -624,13 +624,13 @@ test("the badge counts conversations with unread, not total messages", () => {
   expect(widget).toContain("function countUnreadThreads(list)");
   expect(widget).toContain("root.unread = root.countUnreadThreads(list)");
   expect(widget).toContain("unread = countUnreadThreads(list)");
-  // the follower reads the folded ledger: one key per conversation
+  // Invariant: the follower reads the folded ledger: one key per conversation
   expect(widget).toContain("if ((Number(counts[k]) || 0) > 0) n++");
-  // the message-summing reduce is gone entirely
+  // Invariant: the message-summing reduce is gone entirely
   expect(widget).not.toContain("n + (Number(t.unread) || 0)");
 });
 
-// FORK (Dave, 2026-09-19): the sidebar lists unread conversations above read
+// Invariant: FORK (Dave, 2026-09-19): the sidebar lists unread conversations above read
 // ones. collector.ts owns the rule; overlayThreads re-sorts shallow results
 // with this QML twin, and the twin must agree or a shallow poll reshuffles
 // the list a second after a deep run ordered it.
@@ -638,31 +638,31 @@ test("the QML comparator floats unread threads like collector.ts does", () => {
   const cmp = widget.slice(widget.indexOf("function compareThreads"), widget.indexOf("function compareThreads") + 800);
   expect(cmp).toContain("var au = (Number(a.unread) || 0) > 0, bu = (Number(b.unread) || 0) > 0");
   expect(cmp).toContain("if (au !== bu) return au ? -1 : 1");
-  // the unread rule sits AFTER the pin block: pins keep their chosen place
+  // Invariant: the unread rule sits AFTER the pin block: pins keep their chosen place
   expect(cmp.indexOf("if (au !== bu)")).toBeGreaterThan(cmp.indexOf("if (ap && bp)"));
 });
 
-// FORK: both accents follow the theme. Upstream pins them to iMessage blue
+// Invariant: FORK: both accents follow the theme. Upstream pins them to iMessage blue
 // (2.3.3) because several Omarchy themes use red, and red reads as an error on
 // both a dot and a bubble. These two tests guard what must hold EITHER way:
 // the signal is never painted in the theme's own foreground colour, where it
 // would stop being a signal at all.
 test("the icon's unread dot falls back to blue on a theme with no accent", () => {
-  // Commons.-qualified for Qt 6.12, whose QtQuick exports its own Color
+  // Invariant: Commons.-qualified for Qt 6.12, whose QtQuick exports its own Color
   // singleton that would otherwise shadow qs.Commons's (Omarchy 4.0.6).
   expect(widget).toContain('themeHasAccent ? Commons.Color.accent : "#0a84ff"');
   expect(widget).toContain("Commons.Color.accent.toString() !== Commons.Color.foreground.toString()");
 });
 
 test("bubble text picks its colour against the fill rather than assuming white", () => {
-  // The fill is the theme's accent now, so it can be pale; white on a pale
+  // Invariant: The fill is the theme's accent now, so it can be pale; white on a pale
   // accent is unreadable. The luminance rule is what keeps it legible.
   expect(panel).toContain('themeHasAccent ? Commons.Color.accent : "#0a84ff"');
   expect(panel).toContain("0.299 * mineFill.r + 0.587 * mineFill.g + 0.114 * mineFill.b");
   expect(panel).not.toContain('readonly property color mineText: "#ffffff"');
 });
 
-// FORK: the header does not draw the version (Dave, 2026-09-13). The host
+// Invariant: FORK: the header does not draw the version (Dave, 2026-09-13). The host
 // still reads it from manifest.json and still exposes it, so the number has
 // one source if anything ever wants it again — what this guards is that the
 // reader was not ripped out along with the label.
@@ -673,7 +673,7 @@ test("the version is still read from manifest.json, and no longer drawn", () => 
   expect(panel).not.toContain("text: root.version");
 });
 
-// A release bumps three files. If one is missed the badge lies, or the
+// Invariant: A release bumps three files. If one is missed the badge lies, or the
 // changelog does — so CI refuses the drift instead of a reader finding it.
 test("manifest, README badge and CHANGELOG agree on the released version", () => {
   const manifest = JSON.parse(readFileSync(new URL("./manifest.json", import.meta.url), "utf8")).version as string;
@@ -685,7 +685,7 @@ test("manifest, README badge and CHANGELOG agree on the released version", () =>
   expect(released?.[1]).toBe(manifest);
 });
 
-// Omarchy's daemon persists every DISPLAYED toast body to disk; the transient
+// Invariant: Omarchy's daemon persists every DISPLAYED toast body to disk; the transient
 // hint only governs DND-silenced ones (Service.qml, its own comment). So the
 // digits never go in a body, and a message that carries a code gets no
 // ordinary preview toast either.
@@ -696,25 +696,25 @@ test("a security code is never put in a notification body", () => {
   expect(widget).toContain("codeKeys[String(t.chat)");
 });
 
-// Clicking a toast copies the code THAT toast showed, not whatever arrived since.
+// Invariant: Clicking a toast copies the code THAT toast showed, not whatever arrived since.
 test("the clicked toast copies its own code", () => {
   expect(widget).toContain("root.copyCode(notifyProc.toastCode)");
   expect(widget).toContain("copyValue = String(code || pendingCode.code)");
 });
 
-// A follower bar must never start a collector of its own.
+// Invariant: A follower bar must never start a collector of its own.
 test("follower bars forward right/middle clicks to the leader", () => {
   expect(widget).toContain('code === Qt.RightButton ? "read" : "refresh"');
 });
 
-// A URL out of a message is message content: stdin to the preview fetcher, never argv.
+// Invariant: A URL out of a message is message content: stdin to the preview fetcher, never argv.
 test("link preview URLs never ride argv", () => {
   expect(panel).toContain('["bun", root.previewScript, "--stdin"]');
   expect(panel).toContain("previewProc.write(previewProc.url)");
   expect(panel).not.toContain("root.previewScript, previewProc.url]");
 });
 
-// A conversation is read only after a snapshot RENDERED, and only through
+// Invariant: A conversation is read only after a snapshot RENDERED, and only through
 // the newest ts in that snapshot — never the sidebar's (Astra A#2, A#3).
 test("reads require a rendered snapshot and carry its own timestamp", () => {
   expect(panel).toContain("property bool rendered: false");
@@ -729,17 +729,17 @@ test("reads require a rendered snapshot and carry its own timestamp", () => {
   }
 });
 
-// The app window counts as focused only when the active toplevel IS it.
+// Algorithm: The app window counts as focused only when the active toplevel IS it.
 test("window focus is an exact title match, not a prefix", () => {
   const win = readFileSync(new URL("./BlipWindow.qml", import.meta.url), "utf8");
   expect(win).toContain('String(Hyprland.activeToplevel.title || "") === win.title');
   expect(win).not.toContain('.indexOf("Blip") === 0');
 });
 
-// Esc over the share sheet closes the sheet; a stale search never stays clickable;
+// Invariant: Esc over the share sheet closes the sheet; a stale search never stays clickable;
 // a long sender name never widens the delegate.
 test("share-sheet Escape, search generations, bounded sender labels", () => {
-  // Astra A#7: the share sheet must close before back() (which would clear the
+  // Invariant: Astra A#7: the share sheet must close before back() (which would clear the
   // draft under it). #39 adds the bubble selection as a middle step.
   expect(panel).toContain('Keys.onEscapePressed: if (root.shareUrl !== "") root.closeShare(); else if (root.bubbleCursor >= 0) root.leaveBubbles(); else root.back()');
   expect(panel).toContain("if (q !== newQueryRan) { newResults = []; newCursor = 0 }");
@@ -747,13 +747,13 @@ test("share-sheet Escape, search generations, bounded sender labels", () => {
   expect(widget).toContain('return "code expired"');
 });
 
-// A search query is message text the moment a sentence is pasted in.
+// Invariant: A search query is message text the moment a sentence is pasted in.
 test("search queries never ride argv", () => {
   expect(panel).toContain('["bun", root.searchScript, "--stdin", "40"]');
   expect(panel).toContain("searchProc.write(JSON.stringify({ query: q, threads:");
 });
 
-// The pinned avatar sits in a ColumnLayout, which sizes it from Layout hints;
+// Invariant: The pinned avatar sits in a ColumnLayout, which sizes it from Layout hints;
 // a width: binding there is overridden by the layout's first measurement.
 test("pinned avatars size through Layout hints, not width bindings", () => {
   const start = panel.indexOf("id: pinnedAvatar");
@@ -768,7 +768,7 @@ test("pinned avatars size through Layout hints, not width bindings", () => {
   expect(avatar).not.toContain(" width: Math.min(88");
 });
 
-// Drafts: text typed but not sent is kept per conversation across a thread
+// Invariant: Drafts: text typed but not sent is kept per conversation across a thread
 // switch, shared by the panel and the app window, in memory only — never on
 // disk (the "message text never lands on disk" invariant).
 describe("per-conversation drafts", () => {
@@ -788,13 +788,13 @@ describe("per-conversation drafts", () => {
   });
   });
 
-// Enter on a selected link bubble opens the share sheet, never the browser
+// Invariant: Enter on a selected link bubble opens the share sheet, never the browser
 // directly; the sheet takes the keyboard, and its keys run before send().
 test("a selected link opens the share sheet, and the sheet has keys", () => {
   expect(qmlFunction("openBubble")).not.toContain("openLink(u)");
   expect(qmlFunction("shareKey")).toContain("var acts = [shareOpen, shareCopy, shareSend]");
   expect(qmlFunction("shareKey")).toContain("if (key === Qt.Key_Return || key === Qt.Key_Enter) { acts[shareCursor](); return true }");
-  // A sheet that opened by itself (sent / arrived / IPC) keeps Enter and digits
+  // Invariant: A sheet that opened by itself (sent / arrived / IPC) keeps Enter and digits
   // with the draft for a short grace: a link landing as Enter is pressed to
   // send must not be opened by that Enter.
   expect(qmlFunction("shareKey")).toContain("if (Date.now() < shareKeysFrom) return false");
@@ -806,7 +806,7 @@ test("a selected link opens the share sheet, and the sheet has keys", () => {
   expect(compose).toContain('Keys.onEscapePressed: if (root.shareUrl !== "") root.closeShare(); else if (root.bubbleCursor >= 0)');
 });
 
-// A message with several links: Enter offers them all in the sheet, ←/→ step,
+// Invariant: A message with several links: Enter offers them all in the sheet, ←/→ step,
 // and the keyboard finds exactly the links linkify() anchors for the mouse.
 test("the share sheet steps through a message's links", () => {
   expect(qmlFunction("openBubble")).toContain("var urls = allUrls(b.text)");
@@ -814,12 +814,12 @@ test("the share sheet steps through a message's links", () => {
   expect(qmlFunction("allUrls")).toContain('if (/^www\\./i.test(u)) u = "https://" + u');
   expect(qmlFunction("shareKey")).toContain("if ((key === Qt.Key_Left || key === Qt.Key_Right) && shareUrls.length > 1) { shareStep(key === Qt.Key_Right ? 1 : -1); return true }");
   expect(panel).toContain('" of " + root.shareUrls.length');
-  // The sheet's taps stop in the sheet: an exclusive grab on press, or the
+  // Invariant: The sheet's taps stop in the sheet: an exclusive grab on press, or the
   // row, bubble or link underneath would act on the same click.
   const sheet = panel.slice(panel.indexOf("id: shareSheet"), panel.indexOf("id: shareSheet") + 6000);
   expect(sheet).toContain("TapHandler { gesturePolicy: TapHandler.ReleaseWithinBounds; onTapped: root.closeShare() }");
   expect(sheet).not.toMatch(/TapHandler \{ onTapped:/);
-  // The QR box keeps its place while a code is being made, so stepping links
+  // Invariant: The QR box keeps its place while a code is being made, so stepping links
   // swaps the image instead of collapsing and re-growing the card.
   expect(sheet).toContain('visible: root.shareQr !== "" || qrProc.running');
   expect(qmlFunction("showShareUrl")).not.toContain('shareQr = ""');
@@ -853,7 +853,7 @@ test("a thread response taken before a local send or failure cannot replace bubb
    expect(panel).toContain('active: root.surfaceOpen && !root.contactsOpen && root.shareUrl === ""');
    expect(panel).toContain('String(root.active.chat) === String(thread.chat)) root.focusDefault()');
  });
-// A picture-only message has no text bubble, so its tapback pill must live on
+// Invariant: A picture-only message has no text bubble, so its tapback pill must live on
 // the picture (or file chip) itself, through the one shared TapbackPill.
 test("tapbacks on picture-only messages get a pill on the picture", () => {
   expect(panel).toContain("component TapbackPill: Rectangle {");
@@ -890,7 +890,7 @@ describe("person-folded conversations in the renderer", () => {
     expect(fn).toContain("return canonical");
     const send = qmlFunction("send");
     expect(send).toContain("root.sendTargetChat()");
-    // Bookkeeping keeps the canonical id — pending resolution and reload
+    // Invariant: Bookkeeping keeps the canonical id — pending resolution and reload
     // guards are unchanged by the fold.
     expect(send).toContain("var chat = String(root.active.chat)");
     expect(send).toContain("pendingSends = root.pendingSends.concat([{ chat: chat,");
@@ -911,7 +911,7 @@ test("shallow polls prune muted rows from deepThreads and config edits trigger a
   expect(widget).toContain("root.deepThreads = root.dropMutedThreads(root.deepThreads, d.muted)");
   expect(widget).toContain("id: mutelistFile");
   expect(widget).toContain('path: root.home + "/.config/blip/mutelist.json"');
-  // The service is the single poller, so config edits always re-deep it —
+  // Invariant: The service is the single poller, so config edits always re-deep it —
   // no leader gate left over from the per-screen bar-widget days (C-006).
   expect(widget).toContain("onFileChanged: if (root.deepThreads.length > 0) root.refresh(true, false)");
 });

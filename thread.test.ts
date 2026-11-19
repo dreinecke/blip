@@ -302,7 +302,7 @@ describe("dedupeSelfEcho", () => {
   });
 
   test("a text-bearing pair is mine whichever twin arrives first", () => {
-    // imsg decodes attributedBody, so the from_me=true twin has text too.
+    // Invariant: imsg decodes attributedBody, so the from_me=true twin has text too.
     const self = msg().chat;
     const a = dedupeSelfEcho([
       msg({ ts: "2026-08-30 21:08:22", from_me: false, text: "same" }),
@@ -318,7 +318,7 @@ describe("dedupeSelfEcho", () => {
   });
 
   test("an unsent message keeps its tombstone: the retracted twin wins, the echo goes", () => {
-    // Undo Send in the self-thread withdraws only the sent copy; the echo still
+    // Invariant: Undo Send in the self-thread withdraws only the sent copy; the echo still
     // carries the text. Same shape as the echo case, opposite truth.
     const self = msg().chat;
     const out = dedupeSelfEcho([
@@ -424,7 +424,7 @@ describe("selectThread", () => {
   });
 
   test("a re-keyed group keeps its alias rows' history (Astra #8)", () => {
-    // `thread --chat` on the Mac already expands to the whole cluster; the
+    // Invariant: `thread --chat` on the Mac already expands to the whole cluster; the
     // alias rows arrive with their OWN chat ids. Filtering on the requested id
     // threw them away: 9 rows from the Mac, 6 bubbles here.
     const alias = "a1b2c3d4e5f60718293a4b5c6d7e8f90";
@@ -445,7 +445,7 @@ describe("selectThread", () => {
   });
 
   test("a DM drops rows whose handle merely contains the queried digits", () => {
-    // `imsg thread` matches by substring; another handle with the same tail
+    // Invariant: `imsg thread` matches by substring; another handle with the same tail
     // must not leak into this conversation (Codex finding #3).
     const out = selectThread(
       [
@@ -512,7 +512,7 @@ describe("linkify", () => {
     expect(linkify('<img src=x onerror=alert(1)> https://a.io')).toBe(
       '&lt;img src=x onerror=alert(1)&gt; <a href="https://a.io">https://a.io</a>',
     );
-    // quotes/brackets can never be part of the matched URL — the hostile
+    // Invariant: quotes/brackets can never be part of the matched URL — the hostile
     // tail is plain escaped text, outside the anchor entirely
     expect(linkify('https://a.io/"><script>')).toBe(
       '<a href="https://a.io/">https://a.io/</a>&quot;&gt;&lt;script&gt;',
@@ -787,7 +787,7 @@ describe("loadThread across a person fold", () => {
     expect(r.ok).toBe(false);
     expect(r.online).toBe(false);
     expect(r.error).toBe("Mac unreachable");
-    // The imsg bridge proved dead on the first member; the second imsg id is
+    // Invariant: The imsg bridge proved dead on the first member; the second imsg id is
     // skipped (one timeout, not N). WhatsApp is a different bridge and tried.
     expect(calls).toEqual(["+353850000000", "353850000000@c.us"]);
   });

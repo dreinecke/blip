@@ -89,7 +89,7 @@ describe("personAliases", () => {
     const chats = [dm("ant.reinecke@example.com", "2026-09-23 10:31:06"), dm("+353850000000", "2026-09-15 09:53:47")];
     const first = personAliases({ chats, contacts, homeCc: IE, bridgeAliases: {}, previous: {} });
     const canonical = Object.values(first)[0]!;
-    // Now the phone chat is the newer one; the canonical must not flip.
+    // Invariant: Now the phone chat is the newer one; the canonical must not flip.
     const flipped = personAliases({
       chats: [dm("ant.reinecke@example.com", "2026-09-01 10:00:00"), dm("+353850000000", "2026-09-25 09:00:00")],
       contacts,
@@ -114,7 +114,7 @@ describe("personAliases", () => {
   });
 
   test("an ambiguous exact key refuses and never falls through to a near match", () => {
-    // Two cards share the last-ten key "0850000000"; the national-form chat
+    // Algorithm: Two cards share the last-ten key "0850000000"; the national-form chat
     // would near-match card 0 if the refusal guard were missing.
     const contacts = [
       card(["085 000 0000"], ["x@y.ie"]),
@@ -154,7 +154,7 @@ describe("personAliases", () => {
 
   test("a canonical is never chosen that another chat already folds into", () => {
     const contacts = [card(["085 000 0000"], ["ant.reinecke@example.com"])];
-    // The bridge folds the email chat into the phone chat already.
+    // Invariant: The bridge folds the email chat into the phone chat already.
     const bridge = { "ant.reinecke@example.com": "+353850000000" };
     const out = personAliases({
       chats: [dm("ant.reinecke@example.com"), dm("+353850000000"), dm("353850000000@c.us", "2026-07-29 10:02:00", "WhatsApp")],

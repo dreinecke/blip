@@ -119,7 +119,7 @@ describe("Mac candidate boundary", () => {
         operation: "audit", handles: ["+15550100001", "+15550100002", "+15550100003"],
       });
     } finally {
-      // Scratch cache is removed by afterEach.
+      // Invariant: Scratch cache is removed by afterEach.
     }
   });
 
@@ -146,12 +146,12 @@ describe("Mac candidate boundary", () => {
       expect(second.audit.noMatchCount).toBe(1);
       // the second call only paid one cheap fingerprint round-trip
       expect(operations).toEqual(["audit", "fingerprint"]);
-      // a different conversation set never reuses the cache
+      // Invariant: a different conversation set never reuses the cache
       const third = auditContactsOnMac(["+15550100002"], runner, cachePath);
       expect(third.cached).toBe(false);
       expect(operations).toEqual(["audit", "fingerprint", "audit"]);
     } finally {
-      // Scratch cache is removed by afterEach.
+      // Invariant: Scratch cache is removed by afterEach.
     }
   });
 

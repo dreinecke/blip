@@ -166,7 +166,7 @@ describe("buildThreads", () => {
   });
 
   test("a null chat falls back to the handle — never the string \"null\"", () => {
-    // Seen live: a spam SMS came back with chat:null and rendered as "null".
+    // Invariant: Seen live: a spam SMS came back with chat:null and rendered as "null".
     const threads = buildThreads(
       [msg({ chat: null as unknown as string, handle: "+15550100006", name: null })],
       "",
@@ -253,7 +253,7 @@ describe("isGroupChat", () => {
 
 describe("self-echo in the thread list", () => {
   test("a message Fred sends himself does not count as unread", () => {
-    // Without this every panel send to the self-thread re-lit the dot.
+    // Invariant: Without this every panel send to the self-thread re-lit the dot.
     const msgs = dedupeSelfEcho([
       msg({ chat: "+15550100001", handle: "+15550100001", ts: "2026-08-30 11:00:00", from_me: true, text: "note" }),
       msg({ chat: "+15550100001", handle: "+15550100001", ts: "2026-08-30 11:00:00", from_me: false, text: "note" }),
@@ -264,7 +264,7 @@ describe("self-echo in the thread list", () => {
   });
 
   test("a tapback on either twin of a self-thread message survives the dedupe", () => {
-    // Messages attaches the tapback to whichever row the reacting device
+    // Invariant: Messages attaches the tapback to whichever row the reacting device
     // considers the message; the dedupe used to keep one row and lose the
     // other's tapbacks, so a reaction on your own note never showed.
     const love = [{ emoji: "❤️", from_me: true, by: null }];
@@ -285,7 +285,7 @@ describe("self-echo in the thread list", () => {
     ], ["SELF"]);
     expect(empty).toHaveLength(1);
     expect(empty[0]!.tapbacks).toEqual(love);
-    // the same tapback on both twins is one tapback
+    // Invariant: the same tapback on both twins is one tapback
     const both = dedupeSelfEcho([
       msg({ ...base, ts: "2026-09-05 17:02:00", from_me: true, tapbacks: love }),
       msg({ ...base, ts: "2026-09-05 17:02:00", from_me: false, tapbacks: love }),
@@ -380,7 +380,7 @@ describe("displayName", () => {
   });
 
   test("falls back to the chat id when nobody is named", () => {
-    // `imsg chats` returns name:null, and unknown numbers never resolve.
+    // Invariant: `imsg chats` returns name:null, and unknown numbers never resolve.
     expect(displayName([msg({ name: null, chat: "878478" })])).toBe("878478");
   });
   test("a filtered stranger's SMS shows the number, not the chat suffix", () => {
@@ -447,7 +447,7 @@ describe("selectToasts", () => {
   });
 
   test("suppresses a message already toasted — the self-thread echo guard", () => {
-    // In the self-thread, the user's sent replies come back as from_me=false.
+    // Invariant: In the self-thread, the user's sent replies come back as from_me=false.
     // Without this dedupe the loop would notify on its own output forever.
     const m = msg({ chat: "+15550100001", handle: "+15550100001", ts: "2026-08-30 11:00:00", text: "echo" });
     const out = selectToasts([m], "2026-08-30 10:00:00", ["+15550100001"], [toastKey(m)]);
@@ -579,7 +579,7 @@ describe("state and allowlist I/O", () => {
   });
 
   test("a pre-two-mark state file inherits readMark from watermark", () => {
-    // Migration guard: an old {watermark, toasted} file must report zero unread,
+    // Invariant: Migration guard: an old {watermark, toasted} file must report zero unread,
     // not a fabricated backlog, the first time the new collector reads it.
     const p = join(tmp(), "legacy.json");
     writeFileSync(p, JSON.stringify({ watermark: "2026-08-30 10:00:00", toasted: [] }));
@@ -633,7 +633,7 @@ describe("fetchMessages", () => {
   });
 
   test("drops rows with neither chat nor handle, keeps handle-only rows", () => {
-    // Leftovers of deleted conversations arrive with no chat and no handle;
+    // Invariant: Leftovers of deleted conversations arrive with no chat and no handle;
     // one-off SMS senders arrive with no chat but a handle, and must stay.
     const r = fetchMessages(10, fake({ status: 0, stdout: JSON.stringify([
       msg(),
@@ -699,7 +699,7 @@ describe("adaptive unread catch-up", () => {
   });
 
   test("a dropped orphan row in a full page does not end the catch-up early (Astra #7)", () => {
-    // Page 1 (limit 2) is FULL from the bridge's point of view, but one row has
+    // Invariant: Page 1 (limit 2) is FULL from the bridge's point of view, but one row has
     // neither chat nor handle and is dropped. Counting survivors read that as
     // "the bridge ran out" and stopped before the older unread.
     const all = [
@@ -788,7 +788,7 @@ describe("readMarks pruning", () => {
 
 describe("text-bearing self twins", () => {
   test("a same-chat same-handle same-second text pair marks the self chat", () => {
-    // imsg decodes attributedBody: the outbound twin is rarely empty.
+    // Invariant: imsg decodes attributedBody: the outbound twin is rarely empty.
     const msgs = [
       msg({ chat: "+15550100001", handle: "+15550100001", ts: "2026-08-30 21:45:00", from_me: true, text: "note" }),
       msg({ chat: "+15550100001", handle: "+15550100001", ts: "2026-08-30 21:45:00", from_me: false, text: "note" }),
@@ -960,7 +960,7 @@ describe("a re-keyed group is ONE conversation", () => {
   test("aliases map every older chat row onto the live one", () => {
     expect(aliasesFromChats([chat("chat2244", ["chat6703"]), chat("+1555", [])]))
       .toEqual({ chat6703: "chat2244" });
-    // a row never aliases itself
+    // Invariant: a row never aliases itself
     expect(aliasesFromChats([chat("chat2244", ["chat2244"])])).toEqual({});
   });
 
@@ -1051,7 +1051,7 @@ describe("complete conversation list (mergeChats)", () => {
   });
 
     test("a group whose only name IS its chat id still names itself after people", () => {
-      // The real shape, and the one the case above missed by using name:null.
+      // Invariant: The real shape, and the one the case above missed by using name:null.
       // `imsg chats` substitutes the identifier when a group has no display
       // name, so `name` came back as "3734fc1a..." and won the || chain ahead
       // of the participant fallback - unreachable for exactly the groups it is
@@ -1063,12 +1063,12 @@ describe("complete conversation list (mergeChats)", () => {
         participantNames: {"+15551234567": "Pat", "+15550001111": "Sam"}};
       const groups = {[id]: info};
       expect(mergeChats([], [idChat], groups, {})[0]!.name).toBe("Pat & Sam");
-      // and through the applyPin path, where an existing thread carries the id
+      // Invariant: and through the applyPin path, where an existing thread carries the id
       const existing = {...windowThread, chat: id, name: id, guid: "",
         participants: [{handle: "+15551234567", name: "Pat"},
                        {handle: "+15550001111", name: "Sam"}]};
       expect(mergeChats([existing], [idChat], groups, {})[0]!.name).toBe("Pat & Sam");
-      // a retired alias id is just as much not-a-name
+      // Invariant: a retired alias id is just as much not-a-name
       const rekeyed = {...idChat, id: "chat9999", name: id, aliases: ["chat9999", id]};
       expect(mergeChats([], [rekeyed], {chat9999: info}, {})[0]!.name).toBe("Pat & Sam");
       // a real title still wins over the participants
@@ -1397,7 +1397,7 @@ describe("pins survive shallow polls", () => {
 });
 
 describe("mute list", () => {
-  // A political fundraising blast, in the shape they actually arrive in: a
+  // Invariant: A political fundraising blast, in the shape they actually arrive in: a
   // rotating short code, a body that names the PAC, and the legally required
   // opt-out footer that never changes.
   const blast = (over: Partial<ImsgMessage> = {}) =>
@@ -1544,7 +1544,7 @@ describe("the mute list can catch a person (documented caveat, #27)", () => {
   const { matchesMute, mutedChats } = require("./collector") as typeof import("./collector");
 
   test("an inbound message from a PERSON containing the phrase mutes them too", () => {
-    // Not a bug — it is what phrase matching means, and why the README says to
+    // Invariant: Not a bug — it is what phrase matching means, and why the README says to
     // pick phrases nobody would type at you. Locked so the behaviour is a
     // decision rather than a surprise.
     const friend = msg({ chat: "+15550100011", handle: "+15550100011", from_me: false,
@@ -1691,7 +1691,7 @@ describe("search stdin payload (Astra B#2)", () => {
 describe("the read-push policy is reported, not just applied", () => {
   const { pushReadArgs } = require("./collector.ts");
   test("the default pushes only on mark-all, never on opening a conversation", () => {
-    // This is why reads did not reach the phone: correct by design, and
+    // Invariant: This is why reads did not reach the phone: correct by design, and
     // invisible until collect() started reporting the policy (Fred, 2026-09-08).
     expect(pushReadArgs("all", { markRead: false, readChat: "+15550100001" })).toBeNull();
     expect(pushReadArgs("all", { markRead: true, readChat: "" })).toEqual(["--all"]);
@@ -1706,7 +1706,7 @@ describe("the read-push policy is reported, not just applied", () => {
     expect(pushReadArgs("thread", { markRead: false, readChat: "chat224479848698394295" })).toBeNull();
   });
   test("the failure path still reports the policy and the guarded arrays", () => {
-    // status says read_push=? exactly when something is broken, unless the
+    // Invariant: status says read_push=? exactly when something is broken, unless the
     // offline return carries it too — and BlipOutput declares codes/deep
     // required, which that return did not satisfy (found by typechecking,
     // 2026-09-08; the widget's Array.isArray guards meant it never crashed).
@@ -1722,7 +1722,7 @@ describe("the read-push policy is reported, not just applied", () => {
   });
 
   test("a poll that cleared nothing does not re-open the conversation on the Mac", () => {
-    // Every poll while a thread is open carries its readChat, so this gate is
+    // Invariant: Every poll while a thread is open carries its readChat, so this gate is
     // the difference between one push and one per poll — and each push pulls
     // Messages to the front, because aiming its menu at one conversation means
     // opening it. Measured before the gate: five pushes in a minute, four of
@@ -1732,12 +1732,12 @@ describe("the read-push policy is reported, not just applied", () => {
     expect(pushReadArgs("thread", { ...dm, clearedUnread: false })).toBeNull();
     // absent means "caller did not say" — push, so an old caller keeps working
     expect(pushReadArgs("thread", dm)).toEqual(["--chat", "+15550100001"]);
-    // mark-all is never gated: it is an explicit gesture, not a side effect
+    // Invariant: mark-all is never gated: it is an explicit gesture, not a side effect
     expect(pushReadArgs("all", { markRead: true, readChat: "", clearedUnread: false })).toEqual(["--all"]);
   });
 });
 
-// The dedicated key is confined to blip-dispatch AND, over Tailscale, pinned to
+// Invariant: The dedicated key is confined to blip-dispatch AND, over Tailscale, pinned to
 // the enrolling machine's addresses: a leaked private key is useless from
 // anywhere else. blip_key_from() runs for real (PATH without tailscale).
 describe("blip-setup: the key's from= pin", () => {
@@ -1806,7 +1806,7 @@ describe("blip-setup installs the auto-update watcher (repo owns its unit)", () 
     ].join("\n"), { mode: 0o755 });
 
     const run = (states: string[]) => {
-      // Fresh HOME per run: fired.log must not outlive one episode set.
+      // Invariant: Fresh HOME per run: fired.log must not outlive one episode set.
       const home = mkdtempSync(join(tmpdir(), "blip-watch-"));
       const bin = join(home, ".local", "bin");
       mkdirSync(bin, { recursive: true });
@@ -1827,7 +1827,7 @@ describe("blip-setup installs the auto-update watcher (repo owns its unit)", () 
       return { res, fired: existsSync(join(home, "fired.log")) ? readFileSync(join(home, "fired.log"), "utf8").trim().split("\n").length : 0 };
     };
 
-    // L L U U U U L U U: fires at the second clean reading of each episode —
+    // Invariant: L L U U U U L U U: fires at the second clean reading of each episode —
     // twice, once per unlock, and never while locked. The old paired-was code
     // reset its counter on the second unlocked reading and never fired at all.
     const twoEpisodes = run(["locked", "locked", "unlocked", "unlocked", "unlocked", "unlocked", "locked", "unlocked", "unlocked"]);
@@ -2039,7 +2039,7 @@ describe("spam_keywords auto-hiding", () => {
 
   test("a matched conversation stays auto-hidden across follow-up messages without the keyword and after an outbound reply", () => {
     const cfg = parseSpamKeywords("spam_keywords=unsubscribe\n");
-    // Poll 1: inbound message contains the keyword -> recorded by opaque digest.
+    // Invariant: Poll 1: inbound message contains the keyword -> recorded by opaque digest.
     const km1 = updateKeywordMuted(
       {},
       [msg({ chat: "15550100091@c.us", handle: "15550100091@c.us", from_me: false, text: "Special offer! Reply UNSUBSCRIBE to stop" })],
@@ -2151,7 +2151,7 @@ describe("spam_keywords auto-hiding", () => {
     }) as any);
 
     expect(scan.complete).toBe(true);
-    // Phrases travel on stdin only, never argv.
+    // Invariant: Phrases travel on stdin only, never argv.
     for (const c of seenCalls) {
       expect(c.args.join(" ")).not.toContain("unsubscribe");
       expect(c.args.join(" ")).not.toContain("ActBlue");
