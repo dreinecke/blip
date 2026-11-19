@@ -35,6 +35,12 @@ BarWidget.qml                       the bar half: badge, popout, click handling.
                                     IPC. Clicks: left = panel · double = app ·
                                     middle = refresh · right = mark all read.
 Panel.qml                           list view + conversation view + compose. Renders only.
+BlipWindow.qml                      the "actual app": a Messages-style two-pane window hosting
+                                    the SAME BlipView in splitView, inside the shell process (no
+                                    daemon, no second collector; hostWidget injected). No
+                                    PanelKeyCatcher — normal editor/Tab behaviour; Esc unwinds
+                                    (thread → list, search → list) and closes only when nothing
+                                    is left to unwind.
 manifest.json                       plugin id nixfred.blip
 ```
 

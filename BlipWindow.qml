@@ -5,41 +5,27 @@ import Quickshell.Hyprland
 import qs.Commons
 import qs.Commons as Commons
 
-// Blip window — the "actual app": a Messages.app-style two-pane window.
-//
-// Hosted INSIDE the Omarchy shell (like the dev-gallery's FloatingWindow), so
-// it shares the bar widget's poller, push watcher, and read-state ledger —
-// no daemon, no second collector. `hostWidget` is injected by BarWidget.
-//
-// The content is the SAME BlipView the bar popout renders, in splitView:
-// sidebar + conversation side by side, with every feature the popout has
-// (tapbacks, receipts, inline photos, replies, search, composer,
-// attachments). No PanelKeyCatcher here — a normal window keeps normal
-// editor/Tab behavior; Esc unwinds the view (thread → list, search → list)
-// and closes the window only when there is nothing left to unwind. Up/Down
-// and Enter walk the thread list while no editor has focus.
 FloatingWindow {
   id: win
   property var hostWidget: null
-  // "Blip (3)" while unread exists — selectors match the "Blip" PREFIX.
+  // Invariant: the title stays the "Blip" prefix ("Blip (3)" while unread
+  // exists) — selectors match the prefix.
   property string restorationTitle: ""
   title: restorationTitle || "Blip" + (hostWidget && hostWidget.unread > 0 ? " (" + hostWidget.unread + ")" : "")
-  // Same fill as Omarchy's other FloatingWindow (dev gallery). A 0.70
-  // alpha assumed Hyprland blur, which Omarchy 4.x ships off.
+  // Invariant: same fill as Omarchy's other FloatingWindow (dev gallery).
+  // A 0.70 alpha assumed Hyprland blur, which Omarchy 4.x ships off.
   color: Commons.Color.background
   implicitWidth: 1040
   implicitHeight: 720
   minimumSize: Qt.size(720, 480)
   visible: false
-  // Focused = Hyprland's active toplevel is this window (title prefix "Blip").
-  // A visible-but-unfocused window keeps refreshing but does not mark read.
-  // Exact title, not a prefix: a terminal or tab titled "Blip documentation"
-  // used to count as this window being read (Astra A#6). The title is ours
-  // ("Blip" or "Blip (N)"), so equality identifies it.
+  // Invariant: focused means Hyprland's active toplevel is this window,
+  // matched by EXACT title — a terminal titled "Blip documentation" used to
+  // count as this window being read (Astra A#6). A visible-but-unfocused
+  // window keeps refreshing but does not mark read.
   readonly property bool focused: visible && Hyprland.activeToplevel !== null
     && String(Hyprland.activeToplevel.title || "") === win.title
 
-  // Proxies BarWidget relies on (same names as the popout host).
   readonly property bool inThread: view.inThread
   readonly property var active: view.active
   readonly property bool loading: view.loading
@@ -50,9 +36,10 @@ FloatingWindow {
   function openThread(t) { view.openThread(t) }
   function shareLink(url) { return view.shareLink(url) }
   function pushReload() { view.pushReload() }
-  // C-006: the automation surface when no bar popout exists (icon hidden).
-  // composeAndSend keeps the popout's blind-send guard: a closed surface
-  // remembers its last thread, and IPC must never send into it blind.
+  // Invariant: the automation surface when no bar popout exists (icon
+  // hidden, C-006). composeAndSend keeps the popout's blind-send guard — a
+  // closed surface remembers its last thread, and IPC must never send into it
+  // blind.
   function composeAndSend(text) {
     if (!win.visible) return "window closed — open the conversation first"
     return view.composeAndSend(text)
@@ -71,15 +58,16 @@ FloatingWindow {
     return typed
   }
 
-  // ---- persistence: the window lives inside the shell process, so every
-  // omarchy-restart-shell (every plugin deploy/update) would kill it. Remember
-  // "was open", size and workspace in window.json; restore quietly on start.
+  // Invariant: the window lives inside the shell process, so every
+  // omarchy-restart-shell (every plugin deploy/update) would kill it —
+  // remember "was open", size and workspace in window.json, restore quietly.
   readonly property string stateDir: Quickshell.env("HOME") + "/.local/state/blip"
   property bool restoring: true
   property bool restoreReady: false
   property bool explicitShow: false
   property string savedWorkspace: ""
-  // Match this shell process and this exact window, never another app's title.
+  // Invariant: match this shell process and this exact window, never another
+  // app's title.
   readonly property var ownToplevel: Hyprland.toplevels.values.find(function(t) {
     return Number(t.lastIpcObject.pid) === Quickshell.processId && t.title === win.title
   }) || null
@@ -88,7 +76,8 @@ FloatingWindow {
   Connections {
     target: Hyprland
     function onRawEvent(event) {
-      // New toplevels initially have no IPC metadata (including their PID).
+      // Invariant: new toplevels initially have no IPC metadata (including
+      // their PID).
       if (event.name === "openwindow" || event.name === "movewindowv2") Hyprland.refreshToplevels()
     }
   }
@@ -113,8 +102,8 @@ FloatingWindow {
     onExited: (code, status) => {
       win.restoreReady = true
       win.restoring = false
-      // Failure leaves the window closed rather than stealing the workspace.
-      // An explicit launch can still open it normally.
+      // Invariant: failure leaves the window closed rather than stealing the
+      // workspace. An explicit launch can still open it normally.
       if (code === 0 || win.explicitShow) win.visible = true
       if (win.hostWidget && win.visible) win.hostWidget.refresh(true, false)
     }
@@ -128,8 +117,9 @@ FloatingWindow {
   function saveWinState() {
     if (restoring) return
     var j = JSON.stringify({ visible: visible, width: Math.round(width), height: Math.round(height), workspace: savedWorkspace })
-    // detached: a Process object drops writes while a previous one is alive,
-    // and hideWindow() destroying this window mid-write lost the "hidden" state
+    // Invariant: a detached Process object drops writes while a previous one
+    // is alive, and hideWindow() destroying this window mid-write lost the
+    // "hidden" state
     Quickshell.execDetached(["sh", "-c",
       "umask 077 && mkdir -p \"$1\" && printf '%s' \"$2\" > \"$1/window.json.tmp.$$\" && mv \"$1/window.json.tmp.$$\" \"$1/window.json\"",
       "blip", stateDir, j])
@@ -182,8 +172,8 @@ FloatingWindow {
       BlipView {
         id: view
         anchors.fill: parent
-        // Inset from the window edge: Hyprland rounds the corners, and text
-        // flush to the border got clipped by the radius (Fred).
+        // Invariant: inset from the window edge — Hyprland rounds the corners,
+        // and text flush to the border got clipped by the radius (Fred).
         anchors.margins: Style.space(12)
         hostWidget: win.hostWidget
         splitView: true
