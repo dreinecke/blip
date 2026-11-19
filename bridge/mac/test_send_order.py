@@ -16,6 +16,7 @@ import importlib.util
 import io
 import os
 import sys
+import types
 import unittest
 from unittest import mock
 
@@ -33,55 +34,52 @@ class FileCaptionOrderTests(unittest.TestCase):
     def setUp(self):
         self.send = load_send()
         self.calls = []
-        def rec(name):
-            def fn(*a, **k):
+        def recorder(name):
+            def record_call(*args, **kwargs):
                 self.calls.append(name)
                 if name == "run_applescript":
                     return (0, "", "")
                 if name == "wait_for_copy":
                     return (True, None)
                 return None
-            return fn
+            return record_call
         self.patches = [
-            mock.patch.object(self.send, "stage_stdin_file", lambda name, n: "/tmp/staged"),
-            mock.patch.object(self.send, "consent_banner", rec("banner")),
+            mock.patch.object(self.send, "stage_stdin_file", lambda name, expected_bytes: "/tmp/staged"),
+            mock.patch.object(self.send, "consent_banner", recorder("banner")),
             mock.patch.object(self.send, "_max_attachment_rowid", lambda: 0),
-            mock.patch.object(self.send, "run_applescript", rec("run_applescript")),
-            mock.patch.object(self.send, "wait_for_copy", rec("wait_for_copy")),
-            mock.patch.object(self.send, "unstage", rec("unstage")),
-            mock.patch.object(self.send, "keep_sent", rec("keep_sent")),
-            mock.patch.object(self.send, "find_service_id", lambda s: "S"),
-            mock.patch.object(self.send, "has_existing_chat", lambda h, s: True),
-            mock.patch.object(self.send, "scrub_dashes", lambda t: (t, 0)),
+            mock.patch.object(self.send, "run_applescript", recorder("run_applescript")),
+            mock.patch.object(self.send, "wait_for_copy", recorder("wait_for_copy")),
+            mock.patch.object(self.send, "unstage", recorder("unstage")),
+            mock.patch.object(self.send, "keep_sent", recorder("keep_sent")),
+            mock.patch.object(self.send, "find_service_id", lambda service_name: "S"),
+            mock.patch.object(self.send, "has_existing_chat", lambda handle, service_name: True),
+            mock.patch.object(self.send, "scrub_dashes", lambda text: (text, 0)),
         ]
-        for p in self.patches:
-            p.start()
+        for patch in self.patches:
+            patch.start()
 
     def tearDown(self):
-        for p in self.patches:
-            p.stop()
+        for patch in self.patches:
+            patch.stop()
 
     def run_send(self, argv, stdin=b"photo-bytes\x00caption bytes here"):
         argv = ["imsg-send", "--to", "+15551234567", "--yes", "--keep-dashes"] + argv
         out = io.StringIO()
+        fake_stdin = types.SimpleNamespace(buffer=io.BytesIO(stdin))
         with mock.patch.object(sys, "argv", argv), \
-             mock.patch.object(sys, "stdin", io.TextIOWrapper(io.BytesIO(stdin), "utf-8") if False else sys.stdin), \
+             mock.patch.object(sys, "stdin", fake_stdin), \
              contextlib.redirect_stdout(out):
-            # feed the binary stdin the tool reads via sys.stdin.buffer
-            import types
-            fake = types.SimpleNamespace(buffer=io.BytesIO(stdin))
-            with mock.patch.object(sys, "stdin", fake):
-                try:
-                    self.send.main()
-                    return 0, out.getvalue()
-                except SystemExit as e:
-                    msg = str(e.code) if isinstance(e.code, str) else ""
-                    return (e.code or 0), out.getvalue() + "\n" + msg
+            try:
+                self.send.main()
+                return 0, out.getvalue()
+            except SystemExit as exit_signal:
+                exit_message = str(exit_signal.code) if isinstance(exit_signal.code, str) else ""
+                return (exit_signal.code or 0), out.getvalue() + "\n" + exit_message
 
     def test_text_sends_before_the_copy_wait(self):
         code, out = self.run_send(["--file-stdin", "--file-bytes", "12",
                                    "--text-stdin-bytes", "19"])
-        order = [c for c in self.calls if c in ("run_applescript", "wait_for_copy")]
+        order = [call for call in self.calls if call in ("run_applescript", "wait_for_copy")]
         self.assertEqual(code, 0, out)
         self.assertEqual(
             order,
@@ -92,14 +90,11 @@ class FileCaptionOrderTests(unittest.TestCase):
         self.assertIn("file: sent.", out)
 
     def test_file_send_failure_still_sends_text_and_reports_both(self):
-        self.send.run_applescript = lambda script: (1, "", "as failure") if "sendFile" in script or True else (0, "", "")
-        # make only the FIRST applescript fail
-        real = self.send.run_applescript
-        state = {"n": 0}
+        applescript_runs = {"count": 0}
         def fail_first(script):
-            state["n"] += 1
+            applescript_runs["count"] += 1
             self.calls.append("run_applescript")
-            return (1, "", "as failure") if state["n"] == 1 else (0, "", "")
+            return (1, "", "as failure") if applescript_runs["count"] == 1 else (0, "", "")
         self.send.run_applescript = fail_first
         code, out = self.run_send(["--file-stdin", "--file-bytes", "12",
                                    "--text-stdin-bytes", "19"])
@@ -109,14 +104,14 @@ class FileCaptionOrderTests(unittest.TestCase):
         self.assertNotIn("wait_for_copy", self.calls, "a failed file send must not wait for a copy")
 
     def test_copy_error_unstages_and_reports_after_text(self):
-        self.send.wait_for_copy = lambda *a, **k: (False, "7")
+        self.send.wait_for_copy = lambda *args, **kwargs: (False, "7")
         code, out = self.run_send(["--file-stdin", "--file-bytes", "12",
                                    "--text-stdin-bytes", "19"])
         self.assertNotEqual(code, 0)
         self.assertIn("file (Messages error 7", out)
         self.assertIn("text: sent.", out)
         self.assertIn("unstage", self.calls)
-        order = [c for c in self.calls if c in ("run_applescript", "wait_for_copy", "unstage")]
+        order = [call for call in self.calls if call in ("run_applescript", "wait_for_copy", "unstage")]
         self.assertEqual(order[-1], "unstage")
 
 
