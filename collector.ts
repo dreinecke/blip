@@ -82,7 +82,7 @@ export interface ImsgMessage {
    *  AppleScript reports success for sends that die later — this is where
    *  the truth lands. imsg ≥1.10.0. */
   error?: number;
-  // ---- imsg --rich extras (claude-on-mac ≥ 1.5.0); absent on plain fetches
+  // Invariant: imsg --rich extras (claude-on-mac ≥ 1.5.0); absent on plain fetches
   read_at?: string | null;
   tapbacks?: Tapback[] | null;
   attachments?: AttachmentMeta[] | null;
@@ -228,7 +228,6 @@ export interface BlipOutput {
   readPush: PushRead;
 }
 
-// ---------------------------------------------------------------- state I/O
 
 /** Only chat ids mapped to an integer pin order or null survive a reload. */
 export function validPins(raw: unknown): Record<string, number | null> {
@@ -285,13 +284,13 @@ export function loadState(path = STATE_PATH): BlipState {
       const scannedKeywords = Array.isArray(s.scannedKeywords)
         ? s.scannedKeywords.filter((d): d is string => typeof d === "string" && /^[0-9a-f]{16}$/.test(d))
         : [];
-    // A count-only ledger from an interrupted/experimental build cannot be
+    // Invariant: A count-only ledger from an interrupted/experimental build cannot be
     // reconciled for deletions. Reseed it from readMark on the next poll.
     const ledgerComplete = Object.entries(unreadCounts)
       .every(([chat, count]) => count === 0 || unreadOldest[chat]);
     return {
       watermark,
-      // Pre-two-mark state files have no readMark. Inheriting the watermark is
+      // Invariant: Pre-two-mark state files have no readMark. Inheriting the watermark is
       // the safe migration: it reports zero unread rather than a fake backlog.
       readMark: typeof s.readMark === "string" ? s.readMark : watermark,
       unreadCounts,
@@ -301,7 +300,7 @@ export function loadState(path = STATE_PATH): BlipState {
         ? s.selfChats.filter((chat): chat is string => typeof chat === "string")
         : [],
       readMarks: s.readMarks && typeof s.readMarks && typeof s.readMarks === "object" ? { ...s.readMarks } : {},
-      // Every cached group goes through the same shape fetchGroups() enforces:
+      // Invariant: Every cached group goes through the same shape fetchGroups() enforces:
       // a participants OBJECT in state.json threw inside groupName() on every
       // poll until the next deep refresh (Astra B#6).
       groups: normalizeGroups(s.groups),
@@ -314,8 +313,7 @@ export function loadState(path = STATE_PATH): BlipState {
       pins: validPins(s.pins),
       ...(Object.keys(keywordMuted).length ? { keywordMuted } : {}),
       ...(scannedKeywords.length ? { scannedKeywords } : {}),
-      // Older releases stored ts|chat|text verbatim. Hash legacy entries while
-      // loading so the next successful save scrubs message bodies from disk.
+      // Invariant: Older releases stored ts|chat|text verbatim. Hash legacy entries while      // loading so the next successful save scrubs message bodies from disk.
       toasted: Array.isArray(s.toasted)
         ? s.toasted.filter((k): k is string => typeof k === "string").slice(-200).map(normalizeToastKey)
         : [],
@@ -334,7 +332,7 @@ export function saveState(state: BlipState, path = STATE_PATH): boolean {
   try {
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     chmodSync(dir, 0o700);
-    // Temp + rename prevents a killed collector from leaving truncated JSON.
+    // Invariant: Temp + rename prevents a killed collector from leaving truncated JSON.
     // 0600 is defense in depth even when the home directory is already 0700.
     // fsync before rename: a power cut must never leave an empty state.json
     // that silently resets every read mark.
@@ -478,7 +476,6 @@ export function loadSpamKeywords(confPath = BRIDGE_CONF, mutePath = MUTELIST_PAT
   return parseSpamKeywords(confRaw, muteRaw);
 }
 
-// ---------------------------------------------------------------- transform
 
 /** Display name for a chat, falling back to the raw handle for unknown numbers. */
 export function displayName(msgs: ImsgMessage[]): string {
@@ -531,14 +528,14 @@ export function detectSelfChats(msgs: ImsgMessage[], minTwins = 1): string[] {
   const contextKey = (m: ImsgMessage) => `${chatKey(m)}\u0000${m.handle || ""}\u0000${m.ts}`;
   const emptySent = new Set(msgs.filter((m) => m.from_me && m.text === "").map(contextKey));
   const chats = new Set(msgs.filter((m) => m.self_chat === true).map(chatKey));
-  // imsg decodes attributedBody, so both twins usually CARRY the text: the
+  // Invariant: imsg decodes attributedBody, so both twins usually CARRY the text: the
   // empty-outbound shape is the exception, not the rule. An outbound and an
   // inbound row with the same chat+handle+second+text is equally conclusive —
   // two group members echoing each other differ by handle and never match.
   const outboundText = new Set(
     msgs.filter((m) => m.from_me && m.text !== "").map((m) => `${contextKey(m)}\u0000${m.text}`),
   );
-  // One same-second twin can be a coincidence (both sides typing "ok");
+  // Invariant: One same-second twin can be a coincidence (both sides typing "ok");
   // promotion is permanent and silently breaks unread for that DM, so it
   // takes two twins at DIFFERENT seconds — the self-thread produces one per
   // message, a coincidence does not repeat (war room #6).
@@ -576,7 +573,7 @@ export function dedupeSelfEcho(msgs: ImsgMessage[], knownSelfChats: string[] = [
   const emptySent = new Set(
     msgs.filter((m) => selfChats.has(chatKey(m)) && m.from_me && m.text === "").map(contextKey),
   );
-  // Messages attaches a tapback to ONE of the two rows of a self-thread
+  // Invariant: Messages attaches a tapback to ONE of the two rows of a self-thread
   // message — whichever the reacting device considers the message. Whatever
   // is dropped below hands its tapbacks to the row that stays, so a reaction
   // on your own note is seen no matter which twin carried it.
@@ -600,7 +597,7 @@ export function dedupeSelfEcho(msgs: ImsgMessage[], knownSelfChats: string[] = [
     if (id) seenIds.add(id);
 
     const context = contextKey(m);
-    // The empty outbound half of a known self echo is transport noise. Keep
+    // Invariant: The empty outbound half of a known self echo is transport noise. Keep
     // empty inbound rows: they can represent an attachment and are unread.
     // An unsend leaves the same shape with the opposite truth — the empty
     // outbound row IS the message (the tombstone) and the echo is what Undo
@@ -682,7 +679,7 @@ export function groupName(chat: string, info: GroupInfo | undefined, byHandle: M
   if (info?.name) return info.name;
   const members = groupParticipants(info, byHandle).map((member) =>
     info?.participantShortNames?.[member.handle] || member.name);
-  // A "(filtered)" stranger is not a phone/email shape, so it lands here (the
+  // Invariant: A "(filtered)" stranger is not a phone/email shape, so it lands here (the
   // never-a-DM-target rule stands: nothing sends to it); its label is the number.
   if (members.length === 0) return prettyHandle(chat);
   if (members.length === 1) return members[0]!;
@@ -828,15 +825,14 @@ function digest(value: string): string {
 }
 
 function normalizeToastKey(value: string): string {
-  // "fail:" (selectFailures), "link:" (selectIncomingLinks) and "code:"
-  // (selectCodes) are key namespaces — keep them verbatim or their dedupe
+  // Invariant: "fail:" (selectFailures), "link:" (selectIncomingLinks) and "code:"  // (selectCodes) are key namespaces — keep them verbatim or their dedupe
   // rings reset every load.
   return /^(fail:|link:|code:)?sha256:[0-9a-f]{64}$/.test(value) ? value : digest(value);
 }
 
 /** Stable opaque key for one message, used to suppress repeat toasts. */
 export function toastKey(m: ImsgMessage): string {
-  // No text in the fallback identity: Messages can land the row before the
+  // Invariant: No text in the fallback identity: Messages can land the row before the
   // decoded body, so the same message polled twice must hash the same.
   const identity = m.id === undefined || m.id === null
     ? `${m.ts}|${chatKey(m)}|${m.handle}`
@@ -1246,7 +1242,6 @@ export function selectIncomingLinks(
   return out.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
 }
 
-// ------------------------------------------------------ security codes
 
 export interface SecurityCode {
   chat: string;
@@ -1285,7 +1280,7 @@ export function extractCode(text: string | null | undefined): { code: string; do
   if (raw === "") return null;
   const bound = CODE_BOUND.exec(raw);
   if (bound) return { code: bound[2]!, domain: bound[1]!.toLowerCase() };
-  // digits inside a URL are never the code
+  // Invariant: digits inside a URL are never the code
   const t = raw.replace(/https?:\/\/\S+/gi, " ");
   const google = CODE_GOOGLE.exec(t);
   if (google) return { code: google[1]!, domain: "" };
@@ -1298,7 +1293,7 @@ export function extractCode(text: string | null | undefined): { code: string; do
     if (CODE_LABELLED.test(t.slice(Math.max(0, at - 24), at))) continue;
     const code = m[1]!.replace(/[ -]/g, "");
     const dist = Math.min(...triggers.map((i) => Math.abs(i - at)));
-    // nearest trigger wins; on a tie the longer token (6 beats 4)
+    // Invariant: nearest trigger wins; on a tie the longer token (6 beats 4)
     if (!best || dist < best.dist || (dist === best.dist && code.length > best.code.length)) best = { code, dist };
   }
   return best ? { code: best.code, domain: "" } : null;
@@ -1335,7 +1330,6 @@ export function selectCodes(
   return out.sort((a, b) => (a.ts < b.ts ? -1 : a.ts > b.ts ? 1 : 0));
 }
 
-// ------------------------------------------------- pushing reads to the Mac
 
 export const BRIDGE_CONF = `${HOME}/.config/blip/bridge.conf`;
 /** off = never tell the Mac · all = only the explicit mark-all-read gesture
@@ -1387,18 +1381,18 @@ export function pushReadArgs(
 ): string[] | null {
   if (policy === "off") return null;
   if (opts.markRead) return ["--all"];
-  // ⚠️ A WhatsApp conversation pushes its read on EVERY open, whatever
+  // Invariant: ⚠️ A WhatsApp conversation pushes its read on EVERY open, whatever
   // push_read says. That setting holds back the MAC, where marking read means
   // opening the conversation in Messages.app and pulling its screen to the
   // front; WhatsApp's equivalent is one HTTP call that opens nothing. Holding
   // it back would throw away the only reason a read here reaches the phone.
   if (policy !== "thread" && !alwaysPushesRead(String(opts.readChat || ""))) return null;
-  // Only when this run turned unread into read. A poll that cleared nothing
+  // Invariant: Only when this run turned unread into read. A poll that cleared nothing
   // has nothing to tell the Mac, and telling it anyway opens the conversation
   // there — once per poll for as long as the thread stays open.
   if (opts.clearedUnread === false) return null;
   const chat = String(opts.readChat || "");
-  // Groups have no imessage:// form, so only a DM can be aimed at.
+  // Invariant: Groups have no imessage:// form, so only a DM can be aimed at.
   if (!/^\+?[0-9]{3,15}$/.test(chat) && !/^[^@\s]+@[^@\s]+$/.test(chat)) return null;
   return ["--chat", chat];
 }
@@ -1436,7 +1430,7 @@ export function pushReadPlans(
     seen.add(chat);
     if (policy !== "thread" && !alwaysPushesRead(chat)) continue;
     if (!cleared.has(chat)) continue;
-    // Groups have no imessage:// form, so only a DM can be aimed at.
+    // Invariant: Groups have no imessage:// form, so only a DM can be aimed at.
     if (!/^\+?[0-9]{3,15}$/.test(chat) && !/^[^@\s]+@[^@\s]+$/.test(chat)) continue;
     plans.push(["--chat", chat]);
   }
@@ -1455,7 +1449,7 @@ export function pushReads(plans: string[][], home = HOME): void {
  */
 export function pushRead(args: string[] | null, home = HOME): void {
   if (!args) return;
-  // "--all" means both messengers; "--chat X" goes to whichever owns X.
+  // Invariant: "--all" means both messengers; "--chat X" goes to whichever owns X.
   const chats = args[0] === "--all" ? ["", "@c.us"] : [String(args[1] ?? "")];
   for (const chat of chats) {
     const bridge = bridgeFor(chat, "read");
@@ -1538,7 +1532,6 @@ export function minTs(msgs: ImsgMessage[], fallback: string): string {
   return low;
 }
 
-// ---------------------------------------------------------------- transport
 
 export interface FetchResult {
   ok: boolean;
@@ -1586,7 +1579,7 @@ export function explainBridgeError(status: number | null, stderr: string): strin
     return "ssh to the Mac needs key auth: ssh-copy-id <your-mac>, then re-run blip-setup";
   }
   const lines = (stderr || "").trim().split("\n").map((l) => l.trim()).filter(Boolean);
-  // Python puts the actual error LAST; "Traceback (most recent call last):" is never the reason.
+  // Invariant: Python puts the actual error LAST; "Traceback (most recent call last):" is never the reason.
   const last = lines.length ? lines[lines.length - 1] : "";
   return last || `imsg exit ${status}`;
 }
@@ -1598,11 +1591,11 @@ export function fetchMessages(limit: number, runner = spawnSync): FetchResult {
   });
 
   if (res.error) {
-    // spawn itself failed: ~/bin/imsg missing (run blip-setup) or not executable
+    // Invariant: spawn itself failed — ~/bin/imsg missing (run blip-setup) or not executable
     return { ok: false, online: false, error: `cannot run ~/bin/imsg: ${(res.error as Error).message}`, msgs: [], fetchedCount: 0 };
   }
   if (res.status === null) {
-    // killed by our timeout — a Mac asleep behind a live ControlMaster looks exactly like this
+    // Invariant: killed by our timeout — a Mac asleep behind a live ControlMaster looks exactly like this
     return { ok: false, online: false, error: "imsg timed out (Mac asleep?)", msgs: [], fetchedCount: 0 };
   }
   if (res.status === 69 || res.status === 255) {
@@ -1637,10 +1630,10 @@ export function fetchMessagesAfter(
   let limit = minimum;
   while (true) {
     const fetched = fetchMessages(limit, runner);
-    // A bridge that keeps returning "full" pages must not grow this forever.
+    // Invariant: A bridge that keeps returning "full" pages must not grow this forever.
     if (!fetched.ok || !cutoff || fetched.fetchedCount < limit) return fetched;
     if (limit >= CATCHUP_MAX_ROWS) return { ...fetched, capped: minTs(fetched.msgs, "") >= cutoff };
-    // Fetch beyond the boundary, not merely to it: several rows can share a
+    // Algorithm: Fetch beyond the boundary, not merely to it: several rows can share a
     // one-second timestamp and otherwise straddle the window edge.
     if (minTs(fetched.msgs, "") < cutoff) return fetched;
     limit *= 2;
@@ -1665,7 +1658,7 @@ export function localNowTs(now = new Date()): string {
 }
 
 export function isUnread(m: ImsgMessage, mark: string): boolean {
-  // Tapbacks preview but never badge — matches every Apple client.
+  // Invariant: Tapbacks preview but never badge — matches every Apple client.
   return !m.from_me && m.ts > mark && m.read !== true && m.tapback !== true;
 }
 
@@ -1889,7 +1882,7 @@ export function foldThreadAliases(threads: Thread[], aliases: Record<string, str
       unread: prev.unread + t.unread,
     };
   }
-  // Member ids and the services union are DERIVED FROM THE MAP, not carried
+  // Invariant: Member ids and the services union are DERIVED FROM THE MAP, not carried
   // through the merge, so a shallow poll whose window holds only one member
   // still names the whole conversation — BarWidget.show() and the goto IPC
   // resolve member ids through this between deep runs.
@@ -1941,7 +1934,7 @@ export function mergeChats(
   fold: Record<string, string> = {},
 ): Thread[] {
   const infoByChat = new Map(chats.map((c) => [c.id, c]));
-  // Every participant name the window already resolved, so a chat that is new
+  // Algorithm: Every participant name the window already resolved, so a chat that is new
   // to this run still names its group after people rather than bare handles.
   const participantNames = new Map<string, string>();
   for (const thread of threads) {
@@ -1965,7 +1958,7 @@ export function mergeChats(
     );
     return {
       ...thread,
-      // The bridge's cluster ids AND the person fold's members: applyPin runs
+      // Invariant: The bridge's cluster ids AND the person fold's members: applyPin runs
       // after foldThreadAliases derived the member set, so a plain assignment
       // would throw the person members away and split the row on the next tap.
       aliases: [...new Set([...(thread.aliases ?? []), ...aliases])],
@@ -1993,7 +1986,7 @@ export function mergeChats(
   const out = threads.map(applyPin);
   for (const c of chats) {
     if (have.has(c.id)) continue;
-    // A person member the window missed would synthesize its own row here and
+    // Invariant: A person member the window missed would synthesize its own row here and
     // resurrect the very conversation the fold just merged. Its unread already
     // lives under the canonical — the ledger folded before mergeChats ran.
     if (fold[c.id] && fold[c.id] !== c.id) continue;
@@ -2024,7 +2017,7 @@ export function mergeChats(
       ...(group ? { participants: groupParticipants(groupInfo) } : {}),
     });
   }
-  // The window may hold only one member of a folded person; the chat list
+  // Invariant: The window may hold only one member of a folded person; the chat list
   // holds them all, so the services union gets its final say here.
   for (let i = 0; i < out.length; i++) {
     const t = out[i]!;
@@ -2100,12 +2093,11 @@ export function bothGroups(runner = spawnSync): Record<string, GroupInfo> | null
   return { ...(mac ?? {}), ...(wa ? groupsFromRows(wa) : {}) };
 }
 
-// ---------------------------------------------------------------- main
 
 export function collect(deep: boolean, markRead = false, readChat = "", seenTs = ""): BlipOutput {
   const now = new Date().toISOString();
   const state = loadState();
-  // On migration, seed the ledger all the way back to what the user last read.
+  // Invariant: On migration, seed the ledger all the way back to what the user last read.
   // Thereafter cover both new arrivals and every outstanding unread row. That
   // makes the ledger exact even if an unread message is deleted on the Mac.
   const oldestUnread = Object.values(state.unreadOldest).reduce(
@@ -2115,7 +2107,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   const cutoff = state.unreadInitialized
     ? oldestUnread && oldestUnread < state.watermark ? oldestUnread : state.watermark
     : state.readMark;
-  // Both messengers, merged once. The catch-up loop inside fetchMessagesAfter
+  // Invariant: Both messengers, merged once. The catch-up loop inside fetchMessagesAfter
   // widens against the MAC's window alone, which is right: WhatsApp's rows are
   // already bounded by the read mark, so there is nothing there to widen for.
   const fetched = mergeSources(
@@ -2135,11 +2127,10 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
       failures: [],
       links: [],
       persisted: true,
-      // Reported on the failure path too: it comes from a local file, needs no
-      // Mac, and "why are reads not reaching my phone" is asked precisely when
+      // Invariant: Reported on the failure path too: it comes from a local file, needs no      // Mac, and "why are reads not reaching my phone" is asked precisely when
       // something is broken. Without it `status` says read_push=? exactly then.
       readPush: pushReadPolicy(),
-      // The widget guards both with Array.isArray/=== true, so these were never
+      // Invariant: The widget guards both with Array.isArray/=== true, so these were never
       // a crash — but BlipOutput declares them required and this return did not
       // carry them, so the type was lying about the failure path.
       codes: [],
@@ -2148,7 +2139,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   }
 
   const highest = maxTs(fetched.msgs, state.watermark);
-  // A message can carry a FUTURE timestamp (timezone skew — a "Sep 1
+  // Invariant: A message can carry a FUTURE timestamp (timezone skew — a "Sep 1
   // 08:53" birthday text arrived Aug 31 morning). A read mark taken from
   // the GLOBAL max therefore poisoned unrelated threads: anything arriving
   // before that future instant could never badge. So the global mark is
@@ -2161,10 +2152,10 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     const c = chatKey(m);
     if (!chatMax[c] || m.ts > chatMax[c]!) chatMax[c] = m.ts;
   }
-  // Badge counts against readMark (what the user has seen); toasts fire against
+  // Invariant: Badge counts against readMark (what the user has seen); toasts fire against
   // watermark (what the collector has seen). See BlipState.
   const readMark = markRead ? (highest <= nowTs ? highest : nowTs) : state.readMark;
-  // Opening one conversation clears only that thread's dot — marked with
+  // Invariant: Opening one conversation clears only that thread's dot — marked with
   // THAT chat's newest ts, never the global max.
   const readMarks = { ...state.readMarks };
   if (markRead) {
@@ -2173,8 +2164,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     }
   }
   if (readChat) {
-    // Mark through what the user actually SAW (the panel passes the newest
-    // bubble ts as --seen; it includes a future-dated row when the chat has
+    // Invariant: Mark through what the user actually SAW (the panel passes the newest    // bubble ts as --seen; it includes a future-dated row when the chat has
     // one on screen). A message arriving between the click and this run has
     // ts > seen and stays unread. Fallback without --seen: through now, or
     // the chat's own future row.
@@ -2182,18 +2172,18 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     readMarks[readChat] = seenTs !== "" ? seenTs : (own > nowTs ? own : nowTs);
   }
   const readSeen = readChat ? readMarks[readChat]! : "";
-  // Group metadata is ~1000 rows; refresh it only on a deep (panel) fetch and
+  // Invariant: Group metadata is ~1000 rows; refresh it only on a deep (panel) fetch and
   // keep the last good copy if the lookup fails.
   const groups = (deep ? bothGroups() : null) ?? state.groups;
-  // persist only on two independent twins; one may be a coincidence (#6)
+  // Invariant: persist only on two independent twins; one may be a coincidence (#6)
   const selfChats = [...new Set([...state.selfChats, ...detectSelfChats(fetched.msgs, 2)])];
-  // The mute list cuts here, upstream of every count: a muted conversation is
+  // Invariant: The mute list cuts here, upstream of every count: a muted conversation is
   // absent from the ledger, the thread list and the toasts alike, exactly as
   // if the Mac had never received it. Read fresh each poll, like the allowlist.
   const mute = loadMutelist();
   const spamCfg = loadSpamKeywords();
   const deduped = dedupeSelfEcho(fetched.msgs, selfChats);
-  // Deep runs complete the sidebar from `imsg chats`. A capped catch-up
+  // Invariant: Deep runs complete the sidebar from `imsg chats`. A capped catch-up
   // needs that list too: otherwise a chat hide_spam dropped in SQL is
   // restored from the ledger (Astra B#3) and pins every later poll.
   const rawChats = (deep || fetched.capped) ? bothChats() : null;
@@ -2226,7 +2216,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     : deduped.filter((m) => matchesMuteId(m, mute)).map(chatKey);
   const muted = expandMutedChats(baseMuted, mute, keywordMuted, preAliases);
   const msgs = dropMuted(deduped, muted);
-  // A messenger that did not answer keeps the ledger it had: recomputing it
+  // Invariant: A messenger that did not answer keeps the ledger it had: recomputing it
   // from a window it is absent from zeroes its counts, and a persisted zero
   // is not recoverable from the next window.
   let exactCounts = keepSilentSources(
@@ -2251,7 +2241,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     exactCounts = kept.counts;
     exactOldest = kept.oldest;
   }
-  // Did THIS run actually turn unread into read for the chat being viewed?
+  // Invariant: Did THIS run actually turn unread into read for the chat being viewed?
   // Every poll while a thread is open carries its readChat (that is what keeps
   // a message landing in the open conversation from flashing unread), so
   // without this the Mac was told again on every single poll. Each of those
@@ -2268,22 +2258,22 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     delete exactCounts[readChat];
     delete exactOldest[readChat];
   }
-  // Prune per-thread marks the global mark has overtaken (Codex finding #13):
+  // Invariant: Prune per-thread marks the global mark has overtaken (Codex finding #13):
   // they no longer affect any count and would otherwise accumulate forever.
   for (const [chat, ts] of Object.entries(readMarks)) {
     if (ts <= readMark) delete readMarks[chat];
   }
   const windowThreads = buildThreads(msgs, readMark, readMarks, groups, exactCounts);
-  // A shallow poll returns the window's rows; the widget keeps its last
+  // Algorithm: A shallow poll returns the window's rows; the widget keeps its last
   // complete list in memory (it skips identical assignments anyway).
   const chats = deep ? listed : null;
-  // One entry per CONVERSATION. A re-keyed group has several chat rows; the
+  // Invariant: One entry per CONVERSATION. A re-keyed group has several chat rows; the
   // bridge names the older ones as aliases of the live row, and the map is
   // cached so shallow polls fold identically (a conversation must never
   // blink into two between a deep run and the next poll).
   const chatAliases = chats ? aliasesFromChats(chats) : state.chatAliases;
   const pins = chats ? pinsFromChats(chats) : state.pins;
-  // The person fold joins what the bridge's clusters never can: her chats
+  // Invariant: The person fold joins what the bridge's clusters never can: her chats
   // carry different group_ids per channel and WhatsApp is not in chat.db at
   // all. Kept from state on shallow polls and whenever the dump fails, so a
   // fold never blinks out because Contacts did.
@@ -2294,7 +2284,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   if (readChat) {
     for (const a of aliasesOf(effective, readChat)) {
       if (readSeen > readMark) readMarks[a] = readSeen;   // same prune rule as the canonical
-      // An alias carrying the unread counts too: reading the canonical row
+      // Invariant: An alias carrying the unread counts too: reading the canonical row
       // cleared it, so the Mac is worth telling — per member, because the
       // member carrying the unread can sit on another messenger.
       if ((exactCounts[a] ?? 0) > 0) {
@@ -2313,19 +2303,19 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
   const failures = selectFailures(fetched.msgs, state.toasted, nowTs);
   const links = selectIncomingLinks(msgs, state.watermark, state.toasted, selfChats);
   const codes = selectCodes(msgs, state.watermark, state.toasted, selfChats);
-  // FORK (Dave, 2026-09-19): the badge counts CONVERSATIONS with unread, not
+  // Invariant: FORK (Dave, 2026-09-19): the badge counts CONVERSATIONS with unread, not
   // messages. exactCounts is already folded to one key per conversation, so
   // its nonzero entries are exactly the unread conversations.
   const unread = Object.values(exactCounts).filter((count) => count > 0).length;
 
-  // Both marks advance only on a good fetch, so an outage cannot silently
+  // Invariant: Both marks advance only on a good fetch, so an outage cannot silently
   // swallow the messages that arrived during it.
   // A row dated tomorrow (tz skew) must not become the mark everything is
   // measured against — nothing would badge or toast until "tomorrow" (Astra B#4).
   const highestNow = highest <= nowTs ? highest : nowTs;
   const persisted = saveState({
     watermark: highestNow,
-    // First ever run: adopt the current high-water rather than reporting the
+    // Algorithm: First ever run: adopt the current high-water rather than reporting the
     // whole preview window as unread the moment the plugin is installed.
     readMark: state.readMark === "" ? highestNow : readMark,
     unreadCounts: exactCounts,
@@ -2343,11 +2333,11 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
       ...links.map((l) => l.key), ...codes.map((c) => c.key)],
   });
 
-  // Only after the local state is committed: if the write failed the user
+  // Invariant: Only after the local state is committed: if the write failed the user
   // will be asked to read these again, and the Mac must agree.
   const readPush = pushReadPolicy();
   if (persisted) {
-    // mark-all wiped the ledger before the fold, so aim wa.ts --chat at every
+    // Invariant: mark-all wiped the ledger before the fold, so aim wa.ts --chat at every
     // WhatsApp member that still had an unread when it happened (wa.ts --all
     // only sees unfolded keys).
     const waOutstanding: string[] = [];
@@ -2369,7 +2359,7 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
 
   const warning = !persisted
     ? "state write failed; notifications paused"
-    // One messenger being down no longer empties the panel, so its reason has
+    // Invariant: One messenger being down no longer empties the panel, so its reason has
     // to be SAID: without this a Mac asleep behind a working WhatsApp bridge
     // looked like a machine with no iMessages on it.
     : (fetched.ok && fetched.error ? fetched.error : "");
@@ -2381,14 +2371,14 @@ export function collect(deep: boolean, markRead = false, readChat = "", seenTs =
     unread,
     threads,
     muted,
-    // Never emit notifications that could not be committed to the dedupe ring.
+    // Invariant: Never emit notifications that could not be committed to the dedupe ring.
     toast: persisted ? toast : [],
     failures: persisted ? failures : [],
     links: persisted ? links : [],
     codes: persisted ? codes : [],
     persisted,
     deep: chats !== null,
-    // Which reads reach the Mac. Surfaced so `status` can say it: the default
+    // Invariant: Which reads reach the Mac. Surfaced so `status` can say it: the default
     // ("all") pushes ONLY on the mark-all gesture, so reading a conversation
     // clears it here and leaves the iPhone's badge alone — correct by design
     // and impossible to tell apart from a broken push without this (Fred,
