@@ -22,18 +22,11 @@ Item {
   readonly property string collectorPath:
     decodeURIComponent(Qt.resolvedUrl("collector.ts").toString().replace(/^file:\/\//, ""))
 
-  // Invariant: the bar widget that owns the popout (the leader screen's BarWidget). Set
-  // via registerPanel(); null while the icon is hidden or before the first
-  // bar widget completes. All popout access in this file goes through it.
   property var panelHost: null
   function registerPanel(host) { panelHost = host }
   function unregisterPanel(host) { if (panelHost === host) panelHost = null }
   readonly property var popout: panelHost ? panelHost.panel : null
 
-  // Invariant: clock and date patterns, pushed from the bar widget's shell.json entry by
-  // formatsFromBar() — the service has no bar settings of its own. Defaults
-  // follow the locale, exactly as the old bar-side fallback did, so a hidden
-  // icon (no bar widget) still renders sensible times in the app window.
   readonly property string localeTimeFormat:
     /ap/i.test(Qt.locale().timeFormat(Locale.ShortFormat)) ? "h:mm AP" : "HH:mm"
   property string timeFormat: localeTimeFormat
@@ -50,10 +43,6 @@ Item {
   property int unread: 0
   property bool online: false        // the Mac is reachable
   property bool healthy: false       // last collector run parsed cleanly
-  // Invariant: which reads reach the Mac, straight from the collector (bridge.conf's
-  // push_read). "all" is the default and pushes ONLY on the mark-all gesture,
-  // so reading a conversation clears it here and leaves the phone's badge —
-  // by design, and indistinguishable from a broken push until status said so.
   property string readPush: ""
   property string lastError: ""
   property string lastRun: ""
@@ -93,10 +82,7 @@ Item {
     }
     // Invariant: only a FULL number gets a "+": short codes (99123) are their own chat id.
     if (!t && /^[0-9]{10,}$/.test(want)) want = "+" + want
-    // Invariant: unknown to the current window: still open it, with the id as the name.
     var target = t || { chat: want, handle: want, name: want }
-    // Invariant: the popout when a bar widget exists; the app window otherwise (icon
-    // hidden) — a toast click or `goto` must still land somewhere.
     if (popout) {
       popout.open()
       popout.openThread(target)
@@ -113,16 +99,12 @@ Item {
   /** Newest arriving link → the share sheet on whichever surface is open. */
   function shareArrivingLink(link) {
     if (!link || !link.url) return
-    // Invariant: every link of the message: the sheet steps through them.
     var urls = Array.isArray(link.urls) && link.urls.length > 0 ? link.urls.map(String) : [String(link.url)]
     var w = windowLoader.item
     if (w && root.windowVisible && typeof w.shareLink === "function") { w.shareLink(urls); return }
     if (popout && popout.opened === true && typeof popout.shareLink === "function") popout.shareLink(urls)
   }
 
-  // Invariant: popout control, used by IPC and the toast click-through. With no bar
-  // widget (icon hidden) `open` falls back to the app window, so SUPER+M and
-  // restored-notification clicks keep working; `close`/`toggle` follow suit.
   function open() {
     if (popout) { popout.open(); return }
     if (panelHost) return
@@ -202,13 +184,7 @@ Item {
     return (popout && popout.opened === true) || root.windowVisible
   }
 
-  // Invariant: `deep` widens the fetch window for the panel; `markRead` clears the badge.
-  // `readChat` clears one thread's blue dot — iMessage semantics: the dot
-  // survives viewing the list and only goes when that conversation is opened.
-  property var refreshQueue: []        // Invariant: stateful requests are never overwritten
-  // Invariant: the complete conversation list (quiet chats, pins) only comes from a deep
-  // run (`imsg chats`); a shallow poll returns the window's rows. Kept so a
-  // shallow result can be overlaid rather than replacing the model.
+  property var refreshQueue: []
   property var deepThreads: []
   function dropMutedThreads(threads, muted) {
     if (!Array.isArray(muted) || muted.length === 0) return threads
@@ -237,8 +213,6 @@ Item {
     out.sort(root.compareThreads)   // Invariant: mirrors collector.ts compareThreads
     return out
   }
-  // Invariant (Dave, 2026-09-19): the badge counts conversations with unread, not
-  // messages — three conversations of five messages each read 3.
   function countUnreadThreads(list) {
     var n = 0
     for (var i = 0; i < list.length; i++) if ((Number(list[i].unread) || 0) > 0) n++
@@ -261,7 +235,7 @@ Item {
     var at = String(a.last_ts || ""), bt = String(b.last_ts || "")
     return at < bt ? 1 : at > bt ? -1 : 0
   }
-  property bool collectorReserved: false // Invariant: a queued run owns the next turn
+  property bool collectorReserved: false
 
   function refresh(deep, markRead, readChat, seen) {
     var req = { deep: deep === true, markRead: markRead === true,
@@ -271,7 +245,7 @@ Item {
   }
   function enqueueRefresh(req) {
     var q = refreshQueue.slice()
-    // Algorithm: coalesce identical state transitions: plain refreshes merge with plain
+    // Invariant: coalesce identical state transitions: plain refreshes merge with plain
     // refreshes, and same-chat read refreshes merge too (viewing a thread
     // makes every ping carry its readChat — without this the queue grows one
     // entry per ping). mark-all stays FIFO and is never overwritten.
@@ -366,14 +340,6 @@ Item {
     refresh(anySurfaceOpen(), true)
   }
 
-  /** Invariant: the open conversation's chat, "" when the panel is closed
-   *  or listing — refreshes carry it so a message arriving in the thread the
-   *  user is LOOKING AT is counted read in the same collector run, not
-   *  flashed unread and cleared a round-trip later. */
-  /** Invariant: the surface currently showing a conversation — the popout
-   *  wins when open (it is in front), else the window when visible, else
-   *  none. Both hosts expose the same proxies
-   *  (inThread/active/loading/activeLastTs). */
   function readingSurface() {
     if (popout && popout.opened === true && popout.inThread === true) return popout
     var w = windowLoader.item
@@ -412,8 +378,6 @@ Item {
     }
     stdout: StdioCollector {
       onStreamFinished: {
-        // Invariant: a garbled run keeps the last good thread list rather than flashing
-        // the bar empty — same discipline as larry.status's session collector.
         try {
           var d = JSON.parse(text.trim())
           root.online = d.online === true
@@ -421,13 +385,7 @@ Item {
           root.lastRun = String(d.ts || "")
           if (typeof d.readPush === "string") root.readPush = d.readPush
           if (d.ok === true) {
-            // Invariant: filter through the optimistic-read ledger: a poll that was
-            // already in flight when the user opened a thread must not
-            // resurrect its dot for one round-trip (the double-flash).
             var list = root.applyLocalReads(Array.isArray(d.threads) ? d.threads : [])
-            // Invariant: a shallow poll carries only the message window's rows. Overlay
-            // it on the last complete list so the panel never opens onto a
-            // dozen rows that grow (and re-pin) a deep run later.
             if (d.deep === true) root.deepThreads = list
             else if (root.deepThreads.length > 0) {
               if (Array.isArray(d.muted) && d.muted.length > 0)
@@ -450,22 +408,19 @@ Item {
             var codeKeys = {}
             if (Array.isArray(d.codes)) d.codes.forEach(function(c) { codeKeys[String(c.chat) + " " + String(c.ts)] = true })
             if (Array.isArray(d.toast)) root.fireToasts(d.toast.filter(function(t) { return !codeKeys[String(t.chat) + " " + String(t.ts)] }))
-            // Invariant: a link that just arrived opens the share sheet (Fred,
-            // 2.3.0).
             // Invariant: only onto a surface that is ALREADY open: Omarchy runs
             // focus_on_activate=false and Blip never steals focus, so a bank
             // alert must not throw a panel over full-screen work. When Blip is
             // closed the desktop toast is still the notification.
             if (Array.isArray(d.links) && d.links.length > 0) root.shareArrivingLink(d.links[d.links.length - 1])
             if (Array.isArray(d.codes) && d.codes.length > 0) root.noteCode(d.codes[d.codes.length - 1])
-            // Invariant: a send of YOURS that died — not allowlist-gated, interrupts once.
             if (Array.isArray(d.failures) && d.failures.length > 0)
               root.fireToasts(d.failures.map(function(f) {
                 return { chat: f.chat, name: "⚠ Not delivered to " + f.name, text: f.text, ts: f.ts, key: f.key }
               }))
           } else {
             root.healthy = false
-            if (!root.online) root.unread = 0     // Invariant: offline — no honest count
+            if (!root.online) root.unread = 0
           }
         } catch (e) {
           root.healthy = false
@@ -509,13 +464,6 @@ Item {
                               root.activeReadChat(), root.activeSeenTs())
   }
 
-  // Invariant: `imsg watch` blocks on the Mac and emits one line per chat.db change — an
-  // INVALIDATION, no content (BlueFerry's design: session-visible push
-  // channels carry "something changed", clients fetch privately). Each ping
-  // debounces into the normal refresh, so a burst of messages costs one
-  // fetch. The ssh session rides the same ControlMaster mux as everything
-  // else; if it dies (sleep, network), a timer restarts it and the 6 s poll
-  // resumes in the meantime.
   property bool watchAlive: false
   property int watchFails: 0
   Process {
@@ -528,9 +476,9 @@ Item {
     stdout: SplitParser {
       onRead: function(line) {
         var l = String(line).trim()
-        watchLiveness.restart()          // Invariant: any line proves the channel is real
+        watchLiveness.restart()
         if (l === "ready") { root.watchAlive = true; root.watchFails = 0; return }
-        if (l === "hb") return           // Invariant: heartbeat only — no refresh
+        if (l === "hb") return
         pingDebounce.restart()
       }
     }
@@ -553,9 +501,6 @@ Item {
     id: pingDebounce
     interval: 250
     onTriggered: {
-      // Invariant: carrying the open thread's chat means a message landing in the
-      // conversation the user is READING is counted read in this same run —
-      // no badge flash, no second round-trip.
       root.refresh(root.anySurfaceOpen(), false, root.activeReadChat(), root.activeSeenTs())
       // Performance: reload the OPEN conversation in parallel — waiting for the collector
       // and then reloading serially added a visible second of latency.
@@ -567,10 +512,6 @@ Item {
         w.pushReload()
     }
   }
-  // Invariant: the same invalidation channel for WhatsApp: `wa watch` polls the WAHA
-  // container on loopback and prints a bare timestamp when the newest message
-  // changes. It is a separate Process because the two can fail independently —
-  // the Mac asleep must not silence WhatsApp, and vice versa.
   property bool waWatchAlive: false
   property int waWatchFails: 0
   readonly property string waScript:
@@ -616,12 +557,6 @@ Item {
     onTriggered: watchProc.running = true
   }
 
-  // Invariant: one notify-send per allowlisted inbound message. The collector has already
-  // applied the allowlist and the dedupe ring, so anything arriving here is
-  // meant to interrupt. Reuses the no-focus-steal notification behaviour.
-  // With --wait + actions, clicking the toast (default) or its Reply button
-  // opens the panel ON that conversation, compose focused — the daemon
-  // advertises the "actions" capability (verified via GetCapabilities).
   Process {
     id: notifyProc
     stdout: StdioCollector {
@@ -633,8 +568,8 @@ Item {
       }
     }
     property string toastChat: ""
-    property string toastCode: ""    // Invariant: a code toast click = copy, not open
-    property double toastCodeAt: 0   // Invariant: expiry applies here too (Astra A#9)
+    property string toastCode: ""
+    property double toastCodeAt: 0
   }
   property var toastQueue: []
 
@@ -642,7 +577,7 @@ Item {
     if (!list || list.length === 0) return
     var q = toastQueue.slice()
     for (var i = 0; i < list.length; i++) q.push(list[i])
-    // Invariant: a hung notify-send must not grow the queue forever (Codex
+    // Invariant: a hung notify-send must not grow the queue forever (Codex finding #14):
     // keep the newest 20 and drop the backlog — the badge still counts them.
     if (q.length > 20) q = q.slice(q.length - 20)
     toastQueue = q
@@ -731,7 +666,7 @@ Item {
   // are still on Super+Shift became Super+Shift+<digit> — workspace binds.
   // `send_key_state` (what Omarchy's universal paste uses) hands the key
   // straight to the focused window without consulting binds.
-  property var pendingCode: null         // Invariant: {code, name, domain, ts} or null
+  property var pendingCode: null
   Timer {
     id: codeExpiry
     interval: 300000
@@ -751,8 +686,7 @@ Item {
              + "Click to copy"
     fireToasts([{ chat: "", name: "Security code from " + who, text: body, ts: pendingCode.ts, key: "", code: pendingCode.code, at: Date.now() }])
   }
-  // Invariant: sh reads the code from its environment, hands it to the tool on stdin.
-  property string copyValue: ""          // Invariant: what the NEXT copy hands to wl-copy
+  property string copyValue: ""
   Process {
     id: codeCopyProc
     environment: ({ BLIP_CODE: root.copyValue })
@@ -771,7 +705,7 @@ Item {
     codeCopyProc.running = true
     return "copied"
   }
-  // Algorithm: one key event per tick: down, then up, 20 ms apart (Omarchy's paste
+  // Invariant: one key event per tick: down, then up, 20 ms apart (Omarchy's paste
   // helper uses 50 between the two). A single dispatch per event keeps the
   // socket write small and the order guaranteed.
   property var keyQueue: []
@@ -787,7 +721,6 @@ Item {
       Hyprland.dispatch('hl.dsp.send_key_state({ mods = "' + k.mods + '", key = "' + k.key + '", state = "' + k.state + '" })')
     }
   }
-  /** Invariant: xkb key name + modifiers for one code character, or null. */
   function keyFor(ch) {
     if (/^[0-9a-z]$/.test(ch)) return { key: ch, mods: "" }
     if (/^[A-Z]$/.test(ch)) return { key: ch.toLowerCase(), mods: "SHIFT" }
@@ -815,14 +748,8 @@ Item {
   // The handler lives on the service (a singleton), so it answers exactly once
   // no matter how many bar widgets exist, and even with the icon hidden.
   property bool automationOn: false
-  /** Invariant: `ui_font=theme` in bridge.conf — never use SF Pro even when present. */
   property bool uiFontTheme: false
-  /** Invariant: `ui_font_size=N` in bridge.conf — bubble text in px (9–24); 0 = default. */
   property int uiFontSize: 0
-  // Invariant: the version, read from THIS plugin's manifest.json — the one place it is
-  // written, so a release bump is the only thing that ever updates what the
-  // header shows (Fred, 2.3.3: "keep it there forever updated"). Both surfaces
-  // take it from here through BlipView, so they can never disagree.
   property string version: ""
   FileView {
     id: manifestFile
@@ -848,7 +775,6 @@ Item {
     onLoaded: {
       var t = text()
       root.automationOn = /^\s*automation\s*=\s*['"]?(on|true|1|yes)\b/mi.test(t)
-      // Invariant: ui_font=theme keeps Omarchy's family even where SF Pro is installed.
       root.uiFontTheme = /^\s*ui_font\s*=\s*['"]?theme\b/mi.test(t)
       var sm = t.match(/^\s*ui_font_size\s*=\s*['"]?(\d+)/mi)
       var n = sm ? parseInt(sm[1], 10) : 0
@@ -894,8 +820,6 @@ Item {
     function compose(text: string): string {
       if (!root.automationOn) return root.automationOff
       if (popout) return popout.composeAndSend(text)
-      // Invariant: C-006 — no popout (icon hidden) — the app window is the surface, with
-      // the same blind-send guard. A closed window must be opened first.
       var w = windowLoader.item
       if (!w) { root.ensureWindow(); return "window closed — open the conversation first" }
       return w.composeAndSend(text)
@@ -932,7 +856,6 @@ Item {
         var c = String(root.threads[i].chat)
         if (c === want || c === "+" + want) { w.openThread(root.threads[i]); return "opened " + c }
       }
-      // Invariant: a member id of a person-folded row opens the folded conversation.
       for (var j = 0; j < root.threads.length; j++) {
         var members = root.threads[j].aliases || []
         if (members.indexOf(want) >= 0 || members.indexOf("+" + want) >= 0) {

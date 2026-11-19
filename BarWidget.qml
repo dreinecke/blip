@@ -79,10 +79,6 @@ BarWidget {
   implicitWidth: button.implicitWidth
   implicitHeight: button.implicitHeight
 
-  // Invariant: clock and date patterns come from this widget's shell.json
-  // entry — Qt format strings, exactly as Omarchy's clock takes `format` —
-  // and are pushed to the service (which owns no bar settings) so both
-  // surfaces format alike, even when only the app window is left.
   readonly property string localeTimeFormat:
     /ap/i.test(Qt.locale().timeFormat(Locale.ShortFormat)) ? "h:mm AP" : "HH:mm"
   readonly property string timeFormat: formatSetting("timeFormat", localeTimeFormat)
@@ -116,9 +112,6 @@ BarWidget {
     if (!target || !service) return
     target.bar = root.bar
     target.anchorItem = button
-    // Invariant: barHost is the panel's Omarchy identity (owner,
-    // switchPanelFrom must name the bar slot's activeItem); hostWidget is
-    // the service (message state and actions). The two are not one object.
     target.barHost = root
     target.hostWidget = service
   }
@@ -134,13 +127,9 @@ BarWidget {
     }
   }
 
-  // Invariant: single click = panel, opening immediately with no
-  // double-click lag; a second click within the double-click window closes
-  // the panel and opens the APP.
   Timer { id: dblClick; interval: 320 }
   function leftClick() {
     if (!root.leader) {
-      // Invariant: a follower bar asks the service (only it answers IPC)
       if (dblClick.running) { dblClick.stop(); Quickshell.execDetached(["qs", "-p", "/usr/share/omarchy/shell", "ipc", "call", root.moduleName, "app"]); return }
       dblClick.restart()
       Quickshell.execDetached(["qs", "-p", "/usr/share/omarchy/shell", "ipc", "call", root.moduleName, "toggle"])
@@ -207,8 +196,6 @@ BarWidget {
 
       Text {
         anchors.verticalCenter: parent.verticalCenter
-        // Invariant: the icon language — filled speech bubble when unread,
-        // outline when quiet, slashed when the bridge is down.
         text: !root.online ? "󰻞" : (root.hasUnread ? "󰭹" : "󰭻")
         textFormat: Text.PlainText
         color: root.hasUnread ? root.blipAccent : button.foreground
