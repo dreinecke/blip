@@ -58,16 +58,11 @@ FloatingWindow {
     return typed
   }
 
-  // Invariant: the window lives inside the shell process, so every
-  // omarchy-restart-shell (every plugin deploy/update) would kill it —
-  // remember "was open", size and workspace in window.json, restore quietly.
   readonly property string stateDir: Quickshell.env("HOME") + "/.local/state/blip"
   property bool restoring: true
   property bool restoreReady: false
   property bool explicitShow: false
   property string savedWorkspace: ""
-  // Invariant: match this shell process and this exact window, never another
-  // app's title.
   readonly property var ownToplevel: Hyprland.toplevels.values.find(function(t) {
     return Number(t.lastIpcObject.pid) === Quickshell.processId && t.title === win.title
   }) || null
@@ -102,8 +97,6 @@ FloatingWindow {
     onExited: (code, status) => {
       win.restoreReady = true
       win.restoring = false
-      // Invariant: failure leaves the window closed rather than stealing the
-      // workspace. An explicit launch can still open it normally.
       if (code === 0 || win.explicitShow) win.visible = true
       if (win.hostWidget && win.visible) win.hostWidget.refresh(true, false)
     }
@@ -117,9 +110,9 @@ FloatingWindow {
   function saveWinState() {
     if (restoring) return
     var j = JSON.stringify({ visible: visible, width: Math.round(width), height: Math.round(height), workspace: savedWorkspace })
-    // Invariant: a detached Process object drops writes while a previous one
-    // is alive, and hideWindow() destroying this window mid-write lost the
-    // "hidden" state
+    // Invariant: detached, because a Process object drops writes while a
+    // previous one is alive, and hideWindow() destroying this window mid-write
+    // lost the "hidden" state
     Quickshell.execDetached(["sh", "-c",
       "umask 077 && mkdir -p \"$1\" && printf '%s' \"$2\" > \"$1/window.json.tmp.$$\" && mv \"$1/window.json.tmp.$$\" \"$1/window.json\"",
       "blip", stateDir, j])

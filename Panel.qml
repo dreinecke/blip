@@ -131,8 +131,6 @@ Panel {
       id: resizeGrip
       anchors.right: parent.right
       anchors.bottom: parent.bottom
-      // Invariant: the grip extends into the popup padding so it sits against
-      // the card's inner border, not the content edge.
       anchors.rightMargin: -panel.padding
       anchors.bottomMargin: -panel.padding
       width: Style.space(20); height: Style.space(20)
