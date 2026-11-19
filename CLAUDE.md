@@ -27,7 +27,13 @@ send-file.ts                        local file + caption → imsg-send --file-st
 avatar.ts                           handle → ~/.cache/blip/avatars (imsg avatar; JPEG/PNG magic
                                     checked; .none negative marker; 7-day TTL).
 paste.ts                            clipboard snapshot → draft image in $XDG_RUNTIME_DIR/blip or text.
-BarWidget.qml                       the single poller, badge, toasts, IPC.
+BarWidget.qml                       the bar half: badge, popout, click handling. A VIEW
+                                    of Service.qml — hiding the icon costs the badge,
+                                    never iMessage (C-006). The leader screen's widget
+                                    owns the popout and registers as panelHost; other
+                                    screens render the same state and hand clicks over
+                                    IPC. Clicks: left = panel · double = app ·
+                                    middle = refresh · right = mark all read.
 Panel.qml                           list view + conversation view + compose. Renders only.
 manifest.json                       plugin id nixfred.blip
 ```
