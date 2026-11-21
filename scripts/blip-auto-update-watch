@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # blip-auto-update-watch — fire blip-auto-update on the locked→unlocked edge.
 #
-# `omarchy-shell lock status` is the only thing on this machine that answers
-# lock state truthfully (Quickshell draws the lock, so pgrep finds nothing and
-# loginctl's LockedHint says no with the password box on screen). The two
-# flags are the ones omarchy-selfheal bled for: `sessionLocked` covers a live
-# lock, `pending` covers a stranded one. Anything unparseable counts as
-# LOCKED, so a shell restart mid-poll can never masquerade as an unlock.
+# Lock state comes from Enterprise's one desktop-lock check,
+# ~/.local/bin/desktop-lock-state (enterprise v1.161.1, C-200): it loads the
+# session's variables itself, prints locked/unlocked/unknown and exits 0 ONLY
+# for unlocked, treating a stranded lock (pending) as locked. Anything but a
+# clean exit-0 unlocked counts as LOCKED here, so a missing tool or a shell
+# restart mid-poll can never masquerade as an unlock.
 #
 # The edge is COUNTED, not paired: `confirmed` is the number of consecutive
 # unlocked readings since the last locked one, and the updater fires once the
@@ -30,16 +30,13 @@ max_polls="${BLIP_WATCH_POLLS:-0}"
 settle="${BLIP_WATCH_SETTLE:-12}"
 interval="${BLIP_WATCH_INTERVAL:-5}"
 
-lock_status() {
-  timeout 5 ${BLIP_WATCH_LOCK_CMD:-omarchy-shell lock status} 2>/dev/null
-}
-
 locked() {
-  case "$(lock_status)" in
-    *'"sessionLocked":true'*|*'"pending":true'*) return 0 ;;
-    *'"sessionLocked":false'*) return 1 ;;
-    *) return 0 ;;
-  esac
+  # Invariant: exit 0 means unlocked and NOTHING else does; the tool treats
+  # unknown and a stranded pending lock as locked, and so does an absent tool.
+  if timeout 5 "${BLIP_WATCH_LOCK_CMD:-$HOME/.local/bin/desktop-lock-state}" >/dev/null 2>&1; then
+    return 1
+  fi
+  return 0
 }
 
 state() { locked && echo locked || echo unlocked; }

@@ -1802,7 +1802,7 @@ describe("blip-setup installs the auto-update watcher (repo owns its unit)", () 
       `n=$(cat "$STATE_DIR/n" 2>/dev/null || echo 0)`,
       `echo $((n + 1)) > "$STATE_DIR/n"`,
       `s=$(sed -n "$((n + 1))p" "$STATE_DIR/states")`,
-      'if [ "$s" = unlocked ]; then echo \'{"sessionLocked":false}\'; elif [ "$s" = garbage ]; then echo "<html>502</html>"; else echo \'{"sessionLocked":true}\'; fi',
+      'if [ "$s" = unlocked ]; then echo unlocked; exit 0; elif [ "$s" = garbage ]; then echo unknown; exit 3; else echo locked; exit 1; fi',
     ].join("\n"), { mode: 0o755 });
 
     const run = (states: string[]) => {
